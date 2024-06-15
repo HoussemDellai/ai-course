@@ -1,0 +1,4 @@
+curl https://open-ai-sweden-central.openai.azure.com/openai/deployments/deployment-text-embedding-3-large/embeddings?api-version=2024-02-01 \
+    -H 'Content-Type: application/json' \
+    -H 'api-key: 9bb7099f35d2452e99e970c551200935' \
+    -d '{"input": "Sample Document goes here"}'

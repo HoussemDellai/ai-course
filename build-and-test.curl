@@ -1,0 +1,14 @@
+curl -vX POST http://127.0.0.1:5272/v1/chat/completions -H 'Content-Type: application/json' -d '{
+    "model": "Phi-3-mini-4k-directml-int4-awq-block-128-onnx",
+    "messages": [
+        {
+            "role": "user",
+            "content": "what is the golden ratio?"
+        }
+    ],
+    "temperature": 0.7,
+    "top_p": 1,
+    "top_k": 10,
+    "max_tokens": 100,
+    "stream": true
+}'
