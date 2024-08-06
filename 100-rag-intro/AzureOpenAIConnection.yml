@@ -1,4 +1,0 @@
-name: az-openai
-type: azure_open_ai
-azure_endpoint: https://az-openai-swc.openai.azure.com/
-api_key: 83284b00576543d88f46be13080a61b5

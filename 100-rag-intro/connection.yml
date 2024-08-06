@@ -1,0 +1,6 @@
+# https://learn.microsoft.com/en-us/azure/machine-learning/reference-yaml-connection-ai-services?view=azureml-api-2
+name: ai-service-connection
+type: azure_ai_services
+endpoint: https://swedencentral.api.cognitive.microsoft.com/
+api_key: 97c286078fab4f3f96d9899bbbf22e64
+ai_services_resource_id: /subscriptions/38977b70-47bf-4da5-a492-88712fce8725/resourceGroups/rg-openai-course/providers/Microsoft.CognitiveServices/accounts/ai-services-swc-demo
