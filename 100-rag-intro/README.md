@@ -65,7 +65,7 @@ az cognitiveservices account deployment create -n $aiServiceName -g $rgName `
     --model-name gpt-4o `
     --model-version "2024-05-13" `
     --model-format OpenAI `
-    --sku-capacity "1" `
+    --sku-capacity "148" `
     --sku-name "Standard"
 ```
 
@@ -79,7 +79,7 @@ az cognitiveservices account deployment create -n $aiServiceName -g $rgName `
     --model-name text-embedding-3-large `
     --model-version "1" `
     --model-format OpenAI `
-    --sku-capacity "1" `
+    --sku-capacity "227" `
     --sku-name "Standard"
 ```
 ## Create a Hub and Project in Azure AI Studio

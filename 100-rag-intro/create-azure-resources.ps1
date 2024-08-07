@@ -48,7 +48,7 @@ az cognitiveservices account deployment create -n $aiServiceName -g $rgName `
     --model-name gpt-4o `
     --model-version "2024-05-13" `
     --model-format OpenAI `
-    --sku-capacity "1" `
+    --sku-capacity "148" `
     --sku-name "Standard"
 
 ## Creating an embedding model deployment
