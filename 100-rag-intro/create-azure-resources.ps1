@@ -3,8 +3,8 @@
 ## Create Azure AI Search resource
 
 $rgName = "rg-openai-course"
-$aiSearchName = "ai-search-swc-demo"
-$aiServiceName = "ai-services-swc-demo"
+$aiSearchName = "ai-search-swc-course"
+$aiServiceName = "ai-services-swc-course"
 $location = "swedencentral"
 
 ### 1. Create a resource group
@@ -48,8 +48,8 @@ az cognitiveservices account deployment create -n $aiServiceName -g $rgName `
     --model-name gpt-4o `
     --model-version "2024-05-13" `
     --model-format OpenAI `
-    --sku-capacity "148" `
-    --sku-name "Standard"
+    --sku-capacity "150" `
+    --sku-name "GlobalStandard"
 
 ## Creating an embedding model deployment
 
@@ -58,7 +58,7 @@ az cognitiveservices account deployment create -n $aiServiceName -g $rgName `
     --model-name text-embedding-3-large `
     --model-version "1" `
     --model-format OpenAI `
-    --sku-capacity "227" `
+    --sku-capacity "120" `
     --sku-name "Standard"
 
 ## Create a Hub and Project
@@ -73,10 +73,24 @@ $hubId=$(az ml workspace show -g $rgName -n hub-demo --query id -o tsv)
 
 az ml workspace create --kind project --hub-id $hubId -g $rgName -n project-demo
 
-## Create a connection
+# View the connection details
 
 az cognitiveservices account show -n $aiServiceName -g $rgName --query properties.endpoint
 az cognitiveservices account keys list -n $aiServiceName -g $rgName
 az cognitiveservices account show -n $aiServiceName -g $rgName --query id
+
+## Create a connection.yml file
+
+$endpoint=$(az cognitiveservices account show -n $aiServiceName -g $rgName --query properties.endpoint)
+$api_key=$(az cognitiveservices account keys list -n $aiServiceName -g $rgName --query key1)
+$ai_services_resource_id=$(az cognitiveservices account show -n $aiServiceName -g $rgName --query id)
+
+@"
+name: ai-service-connection
+type: azure_ai_services
+endpoint: $endpoint
+api_key: $api_key
+ai_services_resource_id: $ai_services_resource_id
+"@ > connection.yml
 
 az ml connection create --file connection.yml -g $rgName --workspace-name hub-demo
