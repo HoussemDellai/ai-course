@@ -1,4 +1,4 @@
 resource "azurerm_resource_group" "rg" {
   name     = "rg-ai-foundry-${random_string.random.result}-${var.prefix}"
-  location = "eastus" # "swedencentral"
+  location = "swedencentral" # "eastus" # "swedencentral"
 }

@@ -25,8 +25,8 @@ resource "azurerm_cognitive_deployment" "gpt-4o" {
   }
 }
 
-resource "azurerm_cognitive_deployment" "gpt-45o" {
-  name                 = "gpt-4.5o"
+resource "azurerm_cognitive_deployment" "gpt-4o-mini" {
+  name                 = "gpt-4o-mini"
   cognitive_account_id = azurerm_ai_services.ai-services.id
 
   sku {
@@ -36,8 +36,40 @@ resource "azurerm_cognitive_deployment" "gpt-45o" {
 
   model {
     format  = "OpenAI"
-    name    = "gpt-4o"
-    version = "2024-11-20"
+    name    = "gpt-4o-mini"
+    version = "2024-07-18"
+  }
+}
+
+resource "azurerm_cognitive_deployment" "gpt-o4-mini" {
+  name                 = "gpt-o4-mini"
+  cognitive_account_id = azurerm_ai_services.ai-services.id
+
+  sku {
+    name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
+    capacity = 8                # (8k tokens per minute) to showcase the retry logic in the load balancer
+  }
+
+  model {
+    format  = "OpenAI"
+    name    = "o4-mini"
+    version = "2025-04-16"
+  }
+}
+
+resource "azurerm_cognitive_deployment" "gpt-41" {
+  name                 = "gpt-4.1"
+  cognitive_account_id = azurerm_ai_services.ai-services.id
+
+  sku {
+    name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
+    capacity = 8                # (8k tokens per minute) to showcase the retry logic in the load balancer
+  }
+
+  model {
+    format  = "OpenAI"
+    name    = "gpt-4.1"
+    version = "2025-04-14"
   }
 }
 

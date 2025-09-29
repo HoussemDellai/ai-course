@@ -41,6 +41,9 @@ Blocking all public network access by setting property `publicNetworkAccess` of 
 
 Disabling all `publicNetworkAccess` for service APIM is not supported if the service does not atleast one approved Private Endpoint Connections.
 
+Network policies such as network security groups must be disabled in the subnet used for the private endpoint.
+Src: https://learn.microsoft.com/en-us/azure/api-management/private-endpoint?tabs=classic#disable-network-policies-in-subnet
+
 Starting in July 2019, Azure AI services use custom subdomain names for each resource created through the Azure portal, Azure Cloud Shell, or Azure CLI. Unlike regional endpoints, which were common for all customers in a specific Azure region, custom subdomain names are unique to the resource. Custom subdomain names are required to enable features like Microsoft Entra ID for authentication.
 Src: https://learn.microsoft.com/en-us/azure/ai-services/cognitive-services-custom-subdomains
 

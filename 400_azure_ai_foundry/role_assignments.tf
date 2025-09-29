@@ -17,3 +17,9 @@ resource "azurerm_role_assignment" "azure-ai-developer-project-on-ai-services" {
 #   role_definition_name = "Azure AI Developer"
 #   principal_id         = data.azurerm_client_config.current.object_id
 # }
+
+resource "azurerm_role_assignment" "storage-account-storage-blob-data-contributor" {
+  scope                = azurerm_storage_account.storage.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
