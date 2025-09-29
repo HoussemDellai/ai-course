@@ -6,7 +6,7 @@ data "http" "http-request-apim-openai" {
   # Optional request headers
   request_headers = {
     Accept  = "application/json"
-    api-key = "133c3dbbe1224537a28366d079b0fd65" # "${azurerm_api_management_subscription.apim-api-subscription-openai.primary_key}"
+    api-key = "ab25f581476447bd84147d8ca68e41ff" # "${azurerm_api_management_subscription.apim-api-subscription-openai.primary_key}"
   }
 
   request_body = <<EOF
