@@ -1,7 +1,7 @@
 # The following example shows how to issue an HTTP GET request supplying
 # an optional request header.
 data "http" "http-request-apim-openai" {
-  url    = "${azapi_resource.apim.output.properties.gatewayUrl}/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21"
+  url    = "${azurerm_api_management.apim.gateway_url}/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21"
   method = "POST"
   # Optional request headers
   request_headers = {

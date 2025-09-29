@@ -1,0 +1,1 @@
+Voices could be found here: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support?tabs=tts
