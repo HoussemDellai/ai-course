@@ -1,7 +1,7 @@
 resource "azurerm_api_management_api" "apim-api-openai" {
   name                  = "apim-api-openai"
   resource_group_name   = azurerm_resource_group.rg.name # azurerm_api_management.apim.resource_group_name
-  api_management_name   = azapi_resource.apim.name
+  api_management_name   = azurerm_api_management.apim.name
   revision              = "1"
   description           = "Azure OpenAI APIs for completions and search"
   display_name          = "OpenAI"

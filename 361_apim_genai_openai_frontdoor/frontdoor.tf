@@ -32,10 +32,10 @@ resource "azurerm_cdn_frontdoor_origin" "origin-apim" {
   name                           = "origin-apim"
   cdn_frontdoor_origin_group_id  = azurerm_cdn_frontdoor_origin_group.origin-group-apim.id
   enabled                        = true
-  host_name                      = replace(azapi_resource.apim.output.properties.gatewayUrl, "https://", "")
+  host_name                      = replace(azurerm_api_management.apim.gateway_url, "https://", "")
   http_port                      = 80
   https_port                     = 443
-  origin_host_header             = replace(azapi_resource.apim.output.properties.gatewayUrl, "https://", "")
+  origin_host_header             = replace(azurerm_api_management.apim.gateway_url, "https://", "")
   priority                       = 1
   weight                         = 1000
   certificate_name_check_enabled = true
@@ -63,7 +63,7 @@ resource "azapi_update_resource" "configure-private-link-frontdoor-origin" {
         privateLinkLocation = azurerm_resource_group.rg.location,
         requestMessage      = "Please validate PE connection"
         privateLink = {
-          id = azapi_resource.apim.id
+          id = azurerm_api_management.apim.id
         }
       }
     }

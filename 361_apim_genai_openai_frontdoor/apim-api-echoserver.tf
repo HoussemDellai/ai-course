@@ -1,7 +1,7 @@
 resource "azurerm_api_management_api" "api-myip" {
   name                  = "api-myip"
   resource_group_name   = azurerm_resource_group.rg.name
-  api_management_name   = azapi_resource.apim.name
+  api_management_name   = azurerm_api_management.apim.name
   revision              = "1"
   display_name          = "MyIP API"
   path                  = "ip"
