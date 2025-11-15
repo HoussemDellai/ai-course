@@ -24,40 +24,6 @@ resource "azurerm_api_management_backend" "apim-backend-openai" {
   }
 }
 
-# resource "azapi_update_resource" "apim-backend-circuit-breaker" {
-#   for_each = var.openai_config
-
-#   type        = "Microsoft.ApiManagement/service/backends@2023-09-01-preview"
-#   resource_id = azurerm_api_management_backend.apim-backend-openai[each.key].id
-
-#   body = {
-#     properties = {
-#       circuitBreaker = {
-#         rules = [
-#           {
-#             failureCondition = {
-#               count = 1
-#               errorReasons = [
-#                 "Server errors"
-#               ]
-#               interval = "PT5M"
-#               statusCodeRanges = [
-#                 {
-#                   min = 429
-#                   max = 429
-#                 }
-#               ]
-#             }
-#             name             = "openAIBreakerRule"
-#             tripDuration     = "PT1M"
-#             acceptRetryAfter = true // respects the Retry-After header
-#           }
-#         ]
-#       }
-#     }
-#   }
-# }
-
 resource "azapi_resource" "apim-backend-pool-openai" {
   type                      = "Microsoft.ApiManagement/service/backends@2023-09-01-preview"
   name                      = "apim-backend-pool"
