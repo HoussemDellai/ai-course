@@ -10,15 +10,16 @@ resource "azurerm_api_management_logger" "apim-logger" {
   }
 }
 
-resource "azapi_update_resource" "enable-apim-logger-managed-identity" {
-  type        = "Microsoft.ApiManagement/service/loggers@2022-08-01"
-  resource_id = azurerm_api_management_logger.apim-logger.id
+# resource "azapi_update_resource" "enable-apim-logger-managed-identity" {
+#   type        = "Microsoft.ApiManagement/service/loggers@2022-08-01"
+#   resource_id = azurerm_api_management_logger.apim-logger.id
 
-  body = {
-    properties = {
-      credentials = {
-        identityClientId = "systemAssigned"
-      }
-    }
-  }
-}
+#   body = {
+#     properties = {
+#       credentials = {
+#         # identityClientId = "systemAssigned"
+#         instrumentationKey = azurerm_application_insights.app-insights.instrumentation_key
+#       }
+#     }
+#   }
+# }
