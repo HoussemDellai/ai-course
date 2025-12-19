@@ -8,4 +8,9 @@ resource "azurerm_ai_services" "ai-services" {
   outbound_network_access_restricted = false
   custom_subdomain_name              = "ai-services-${random_string.random.result}-${var.prefix}"
   # fqdns                              = [] # (Optional) List of FQDNs allowed for the AI Services Account.
+
+  tags = {
+    SecurityControl = "Ignore"
+    CostControl     = "Ignore"
+  }
 }

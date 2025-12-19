@@ -1,4 +1,4 @@
 variable "prefix" {
   type    = string
-  default = "400007"
+  default = "400"
 }
