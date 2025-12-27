@@ -1,0 +1,16 @@
+{
+	"servers": {
+		"my-mcp-server": {
+			"type": "stdio",
+			"command": "python",
+			"args": ["D:/projects/ai-course/200_agentic_framework_hello/agent_as_mcp_server.py"],
+			"dev": {
+				"watch": "**/*.py",
+				"debug": {
+				"type": "debugpy",
+        }
+      }
+		}
+	},
+	"inputs": []
+}																										
