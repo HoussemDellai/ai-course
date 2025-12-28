@@ -13,7 +13,10 @@ from opentelemetry.metrics import set_meter_provider
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, ConsoleLogExporter
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import ConsoleMetricExporter, PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.export import (
+    ConsoleMetricExporter,
+    PeriodicExportingMetricReader,
+)
 from opentelemetry.sdk.metrics.view import DropAggregation, View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -22,9 +25,10 @@ from opentelemetry.semconv.resource import ResourceAttributes
 from opentelemetry.trace import set_tracer_provider
 
 
-
 # Create a resource to represent the service/sample
-resource = Resource.create({ResourceAttributes.SERVICE_NAME: "telemetry-agent-framework"})
+resource = Resource.create(
+    {ResourceAttributes.SERVICE_NAME: "telemetry-agent-framework"}
+)
 
 
 def set_up_logging():
@@ -67,7 +71,9 @@ def set_up_metrics():
 
     # Initialize a metric provider for the application. This is a factory for creating meters.
     meter_provider = MeterProvider(
-        metric_readers=[PeriodicExportingMetricReader(exporter, export_interval_millis=5000)],
+        metric_readers=[
+            PeriodicExportingMetricReader(exporter, export_interval_millis=5000)
+        ],
         resource=resource,
         views=[
             # Dropping all instrument names except for those starting with "semantic_kernel"
@@ -86,8 +92,6 @@ set_up_tracing()
 set_up_metrics()
 
 
-
-
 if os.path.exists(".env"):
     load_dotenv(override=True)
 
@@ -100,10 +104,9 @@ os.environ["ENABLE_CONSOLE_EXPORTERS"] = "true"
 # Set ENABLE_CONSOLE_EXPORTERS=true
 # Set OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 configure_otel_providers(
-        enable_sensitive_data=True, # development only
-        vs_code_extension_port=4317,  # Connects to AI Toolkit
-    )
-# configure_otel_providers(enable_console_exporters=True)
+    enable_sensitive_data=True,   # development only
+    vs_code_extension_port=4317,  # Connects to AI Toolkit
+)
 
 from agent_framework import ChatAgent
 from agent_framework.azure import AzureOpenAIChatClient
@@ -113,16 +116,18 @@ agent = ChatAgent(
     chat_client=AzureOpenAIChatClient(
         deployment_name="gpt-4o-mini",
         api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        endpoint=os.environ["AZURE_OPENAI_ENDPOINT"]
+        endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
     ),
     name="Joker",
-    instructions="You are good at telling jokes."
+    instructions="You are good at telling jokes.",
 )
+
 
 # Run the agent
 async def main():
     result = await agent.run("Tell me a joke about a pirate.")
     print(result.text)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

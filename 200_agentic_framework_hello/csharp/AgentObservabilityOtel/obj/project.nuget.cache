@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "dgSpecHash": "AsLN6fDaL/M=",
+  "success": true,
+  "projectFilePath": "D:\\projects\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\hodellai\\.nuget\\packages\\azure.ai.openai\\2.8.0-beta.1\\azure.ai.openai.2.8.0-beta.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\azure.core\\1.50.0\\azure.core.1.50.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\azure.identity\\1.17.1\\azure.identity.1.17.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.agents.ai\\1.0.0-preview.251219.1\\microsoft.agents.ai.1.0.0-preview.251219.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.agents.ai.abstractions\\1.0.0-preview.251219.1\\microsoft.agents.ai.abstractions.1.0.0-preview.251219.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.agents.ai.openai\\1.0.0-preview.251219.1\\microsoft.agents.ai.openai.1.0.0-preview.251219.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.bcl.asyncinterfaces\\8.0.0\\microsoft.bcl.asyncinterfaces.8.0.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.extensions.ai\\10.1.1\\microsoft.extensions.ai.10.1.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.extensions.ai.abstractions\\10.1.1\\microsoft.extensions.ai.abstractions.10.1.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.extensions.ai.openai\\10.1.1-preview.1.25612.2\\microsoft.extensions.ai.openai.10.1.1-preview.1.25612.2.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.extensions.vectordata.abstractions\\9.7.0\\microsoft.extensions.vectordata.abstractions.9.7.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.identity.client\\4.78.0\\microsoft.identity.client.4.78.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.identity.client.extensions.msal\\4.78.0\\microsoft.identity.client.extensions.msal.4.78.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\microsoft.identitymodel.abstractions\\8.14.0\\microsoft.identitymodel.abstractions.8.14.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\openai\\2.8.0\\openai.2.8.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\opentelemetry\\1.14.0\\opentelemetry.1.14.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\opentelemetry.api\\1.14.0\\opentelemetry.api.1.14.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\opentelemetry.api.providerbuilderextensions\\1.14.0\\opentelemetry.api.providerbuilderextensions.1.14.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\opentelemetry.exporter.console\\1.14.0\\opentelemetry.exporter.console.1.14.0.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\system.clientmodel\\1.8.1\\system.clientmodel.1.8.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\system.memory.data\\8.0.1\\system.memory.data.8.0.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\system.numerics.tensors\\10.0.1\\system.numerics.tensors.10.0.1.nupkg.sha512",
+    "C:\\Users\\hodellai\\.nuget\\packages\\system.security.cryptography.protecteddata\\4.5.0\\system.security.cryptography.protecteddata.4.5.0.nupkg.sha512"
+  ],
+  "logs": []
+}

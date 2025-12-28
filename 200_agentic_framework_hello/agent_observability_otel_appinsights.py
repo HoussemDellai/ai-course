@@ -3,6 +3,24 @@ from dotenv import load_dotenv
 import os
 import asyncio
 
+# configuring Application Insights
+
+from azure.monitor.opentelemetry import configure_azure_monitor
+from agent_framework import ChatAgent
+from agent_framework.observability import create_resource, enable_instrumentation
+from agent_framework.openai import OpenAIChatClient
+
+# Configure Azure Monitor
+configure_azure_monitor(
+    connection_string="InstrumentationKey=3f3dc95d-5a4b-4ed2-a2e5-1a80dd1fcf75;IngestionEndpoint=https://swedencentral-0.in.applicationinsights.azure.com/;LiveEndpoint=https://swedencentral.livediagnostics.monitor.azure.com/;ApplicationId=192c90ac-5725-4f02-a147-9ce2badfc418",
+    resource=create_resource(),
+    enable_live_metrics=True,
+)
+# Optional if ENABLE_INSTRUMENTATION is already set in env vars
+enable_instrumentation()
+
+
+
 if os.path.exists(".env"):
     load_dotenv(override=True)
 
@@ -31,7 +49,8 @@ agent = ChatAgent(
         endpoint=os.environ["AZURE_OPENAI_ENDPOINT"]
     ),
     name="Joker",
-    instructions="You are good at telling jokes."
+    instructions="You are good at telling jokes.",
+    # id="<OpenTelemetry agent ID>"  # Must match the ID registered in Foundry
 )
 
 # Run the agent
