@@ -88,11 +88,12 @@ pip install torch torchvision torchaudio --extra-index-url https://download.pyto
 # After installation is complete, launch ComfyUI:
 comfy launch
 
-By default, ComfyUI will run on http://localhost:8188.
+# By default, ComfyUI will run on http://localhost:8188.
 
-Common Launch Options
+# Common Launch Options
 # Specify listen address and port
-comfy launch --listen 0.0.0.0 --port 8080
+# and don't forget the double -- 
+comfy launch -- --listen 0.0.0.0 --port 8080
  
 # Use CPU mode
 comfy launch -- --cpu
