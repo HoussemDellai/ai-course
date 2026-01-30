@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "DURABLE_TASK_SCHEDULER_CONNECTION_STRING": "Endpoint=http://localhost:8080;TaskHub=default;Authentication=None",
+    "AZURE_OPENAI_ENDPOINT": "https://<your-resource-name>.openai.azure.com",
+    "AZURE_OPENAI_DEPLOYMENT": "gpt-4o-mini",
+    "TASKHUB_NAME": "default"
+  }
+}

@@ -1,94 +1,169 @@
 La V-Team Containers vous présente la newsletter trimestrielle sur les services Azure autour des containers ainsi que leur écosystème de services d’intégration, que vous pourrez également partager avec vos clients.
 
-La grande nouveauté, annoncée le 16 septembre, était la disponibilité en GA du service basé sur AKS: AKS Automatic. Il permet d'avoir un cluster AKS beaucoup plus managé ce qui simplifie certaines configurations d'infrastructure et de network. L'objectif est d'avoir un cluster prêt pour la production avec un minimum de configurations.
+Le dossier du trimestre: la dépréciation de Nginx Ingress Controller
 
-AKS Automatic est un cluster AKS qui est "opinionated". Certains choix d'architecture et d'infrastructure sont imposés afin de bien respecter les bonnes pratiques.
+Le SIG Network de Kubernetes et le Security Response Committee ont annoncé la retraite d’Ingress NGINX avec fin de maintenance en mars 2026 . Aucune action immédiate n’est requise pour les clusters AKS utilisant l’add-on Application Routing avec NGINX. Microsoft assurera le support officiel jusqu’en novembre 2026 (limité aux correctifs de sécurité critiques).
 
-L'évènement du lancement du produit a été animé par Jorge Palma PM d'AKS, Ahmed Sabbour le PM d'AKS Automatic et Brendan Burns le CVP Cloud OSS et l'un des ex fondateurs de Kubernetes. Ils ont mis en avant le use case dans le domaine de l'IA. Ainsi AKS Automatic permet aux développeurs de provisionner rapidement un cluster "production-ready" pour déployer les applications.
+Microsoft investit dans l’avenir de la connectivité applicative d’AKS autour de la Gateway API : support dans le service mesh Istio, extension de l’add-on Application Routing pour la Gateway API, et poursuite des investissements dans Application Gateway for Containers.
 
-Pour le pitcher à vos clients:
+L’Application Routing avec Gateway API, pilotée par un plan de contrôle Istio pour l’ingress basé Gateway API uniquement, est prévue au 1er semestre 2026 avec documentation de migration.
+Les utilisateurs d’Ingress NGINX peuvent migrer vers l’add-on service mesh Istio (Gateway API) ou vers Application Gateway for Containers (via Ingress API ou Gateway API) (source).
 
-"AKS Automatic se situe entre AKS et Container Apps. D'un part vous auriez moins de compléxité à gérer l'infrastructure d'un Kubernetes notamment les mises à jours. Et d'autre part, vous auriez plus de contrôle et de fonctionnalité qu'avec Container Apps notamment le multi-tenancy et un monitoring plus fin."
+Lorsque vous abordez cette discussion avec vos clients, faites attention au fait que AGC ne supporte pas encore la private IP pour une exposition privée. Une solution pourrait être d'utiliser à la fois AGC pour l'exposition publique et aussi Envoy Gateway (compatible Gateway API) pour l'exposition privée tant qu'on peut se passer du WAF pour le trafic interne. Le jour où la prise en charge de Private IP sera disponible dans AGC, on pourra facilement migrer Envoy Gateway vers AGC.
+
+Si vous avez des clients qui posent des questions à ce sujet, n'hésitez pas à vous rapprocher des SME containers.
 
 Azure Kubernetes Service
-AKS Automatic est enfin disponible en GA après plus d'une année d'attente. Il permet de simplifier les opérations les plus lourdes d'AKS notamment les mises à jours et se situe donc entre Container Apps et AKS (GA).
-Azure Container Storage est maintenant disponible en v2 avec grand focus sur les performances des disques locales NVMe. ElasticSAN sera supporté enffin d'année (GA)
-Azure Linux 2.0 sera dépricié le 30 novembre etsera donc remplacé par la 3.0 qui est déjà GA (Retirement).
-Container Insights supporte le multitenant. Chaque logs d'un namespace pourrait être envoyé à un Log Analytic workspace différent. (GA)
-Kubenet sera déprécié le 31 mars 2028 (lien). Il cédera sa place au nouveau plugin CNI Overlay promettant de meilleur performances et design. La migration est possible et supporté (Rappel Retirement).
-Plus besoin d'une VM Jumpbox pour se connecter sur AKS control plane! Avec Bastion, la connection peut se faire directement à la control plane (Preview).
-Deployment safeguards passe en GA permettant de rajouter une couche de validation au YAML à déployer sur AKS pour éviter les mauvaises configurations (GA)
-AKS dispose de son propre MCP Server permettant de créer/supprimer des clusters, récupérer les logs et métrics DNS et TCP, troubleshooting de problèmes de connectivité, etc (source)
-Support de multi load balancers afin d'améliorer la scalabilité et la flexibilité. Ceci concerne uniquement la partie ingress pour l'exposition des services. Pour le traffic egress, ca passe par le Load Balancer par défaut (Preview).
-Si besoin de dédier des addresses IP à l'egress de certaines applications, le Static Egress Gateway est la solution (GA).
-LocalDNS for Cache est une nouvelle fonctionnalité permettant de définir un cache DNS local à chaque VM du cluster améliorant ainsi les performances DNS (Preview)
-Managed Namespace permet de créer des namespaces dans AKS à partir de ARM donc avec la CLI d'azure ou Bicep et prochainement avec Terraform. Ceci facilite aux équipes infra la mise à disposition des environnements complets aux équipes de développeurs (Preview).
+
+AKS peut hoster des serveurs MCP à travers KAITO en se basant sur vLLM (GA).
+
+Afin d'améliorer la latence réseau du trafic entre les pods, AKS avec CNI Cilium rajoute un mode Local redirect policy permettant de favoriser le trafic entre pods du même node quand c'est possible. Evitant ainsi le trafic inter-node ou même pire inter-région (GA).
+
+Les policies de type cluster-wide sont enfin supportées. Cela permet de définir des policies couvrant plusieurs namespaces, au lieu d’en définir une par namespace. (GA).
+
+A travers la fonctionnalité payante de ACNS, les network policies niveau 7 sont maintenant supportés. Ca permet de ne pas se limiter au niveau 4 comme c'est le cas sans ACNS et de pouvoir définir des contrôles au niveau application (GA).
+
+AKS Automatic offre la possibilité de gérer même le nodepool système (scaling, update, etc). Ca fait moins de responsabilité, lourde quand même, à gérer dans un cluster (Public Preview).
+
+Support de Windows Server 2025 arrive sur AKS.
+On vous dit notre avis. Nous, non, nous n'aimons pas le niveau de support Windows dans AKS. C'est au moins 5 ans de retard qui ne sera jamais rattrappé par rapport au Linux containers. Toujours des problèmes d'incompatibilité avec les outils. On ne conseille pas nos clients de l'utiliser. S'ils veulent vraiment des containers Windows, ils peuvent le faire soit sur App Service soit sur ACI (Public Preview).
+
+Managed namespace est passé en GA. C'est le moyen de créer une expérience Namespace as a Service pour les équipes de développement. Le namespace pourrait être crée et géré au niveau Infra as Code avec Bicep ou Terraform (GA).
+
+Pod sandboxing se base sur Kata-Containers pour améliorer la sécurité des containers. Il isole chaque container cible dans une VM dédié! Cela évite les problèmes d’interférences entre pods (GA).
 
 Azure Container Apps
-Pas de nouvelles fonctionnalités sur Container Apps. Peut être les vacances étaient trop longue ?!
+
+Nous constatons des efforts soutenus de la part des équipes ACA visant à faire d’ACA le service managé le plus simple pour les applications d’IA. La plateforme exécute les Agents Foundry en modes isolé et public, et le support des serveurs MCP ne cesse de se renforcer. En outre, une intégration avec Docker Compose est en cours, afin de permettre l’orchestration des agents, des LLM et des serveurs MCP via un unique fichier Compose dans ACA.
+ 
+Les dernières nouveautés annoncées à Ignite :
+Premium Ingress est maintenant disponible en GA permettant de configurer l’ingress au niveau de l’environnement. Avec un ingress Premium, vous pouvez définir comment l'ingress est dimensionné et configuré pour mieux gérer les fortes charges de travail (GA)
+
+Rule-based routing est maintenant disponible en GA. Cette fonctionnalité permet de rediriger le trafic HTTP en fonction du nom d’hôte ou du chemin d’URL, offrant plus de flexibilité pour les architectures microservices, les déploiements A/B ou blue‑green (GA)
+
+Confidential computing en public preview apporte des environnements d’exécution de confiance (TEE) aux workloads ACA (Public Preview).
+
+Flexible workload profile: un nouveau type de profile qui se rajoute à Comsumption et Dedicated. Il permet d'avoir le meilleur des deux mondes: le modèle de pricing du mode Consumption et le contrôle sur la configuration network et SKU des nodes du mode Dedicated (Public Preview).
+
+Support de agentic Docker Compose permettant de lancer tous les composants d'un agent IA, à voir le modèle LLM, serveur MCP, sessions dynamiques à travers un seul fichier Docker-Compose sur une infra contenant du GPU (Public Preview).
 
 Azure Fleet Manager
-Auto-upgrade pour une version spécifique afin de fixer la version Minor et continuer à reçevoir les nouvelles versions du Patch. C'est l'équivalent d'AKS Patch channel (Preview)
-Approuve manuel ou automatisé du flow permettant la mise à niveau des groupes des clusters (Preview)
+Fleet manager permet maintenant d'attacher et gérer les clusters géré par ARC-enabled cluster. C'est utile pour gérer ses clusters on-premises à travers Fleet manager (Public Preview).
 
 Azure Container Registry
-Dernières nouveautés sur Azure Container Registry :
-Contournement réseau des tâches ACR : À partir de juin 2025, les tâches utilisant une identité managée système seront bloquées par défaut (erreurs 403) si le contournement réseau n’est pas explicitement autorisé. Les identités managées assignées par l’utilisateur ne sont pas concernées. (GA)
-Mise à jour continue (Continuous patching) : Une nouvelle fonctionnalité en préversion permet de maintenir automatiquement les registres ACR à jour pour renforcer la sécurité, automatisant la détection et la correction des vulnérabilités au niveau du système d'exploitation (OS) dans les images de conteneurs . (Preview)
-Connected Registry : Désormais en disponibilité générale, cette option facilite la synchronisation de registres dans des environnements distribués ou déconnectés.
-Connected Registry est une ressource locale gérée à l'aide d'un registre ACR basé sur le cloud,  déployé via le portail Azure et l'interface de ligne de commande (CLI) notamment en tant qu'extension Arc sur des clusters Kubernetes activés par Arc. (GA)
-Fiabilité renforcée avec le niveau Premium : Microsoft recommande à présent le niveau Premium pour les workloads critiques (en production) grâce à ses performances, sa sécurité et sa haute disponibilité. (Source)
+Pas de nouveauté majeure pour ACR. Pour rappel, ACR permet maintenant de gérer les rôles RBAC au niveau des images. Donc plusieurs équipes peuvent se partager le même registry et chacune aurait accès uniquement à ses propres images (GA).
 
 Azure Application Gateway for Containers
-App Gateway for Containers supporte le mode Azure CNI Overlay (GA). Ceci se rajoute au support du WAF qui est en Preview. AGIC à son tour annonce un support en Preview (Preview).
+
+AGC s'intègre maintenant avec Istio Service Mesh afin de gérer le trafic ingress (Public Preview).
+
+Support d'un Slow Start permettant de réduire le trafic à envoyer sur les nouveau pods fraichement crée suite à un événement d'auto-scaling. Cela permet d’éviter de perturber les pods qui font du cold-start (GA).
+
+Notre partenaire du trimèstre: NetApp
+
+Azure NetApp Files (ANF) est un service de stockage Azure offrant des performances garanties, une latence ultra-faible et une élasticité instantanée, sans tuning ni gestion d’infrastructure.
+
+
+ANF fournit du NFS/SMB natif enterprise, idéal pour les workloads containers stateful les plus exigeants sur AKS.
+
+
+Avec Astra Trident (gratuit et supporté par NetApp), les volumes sont provisionnés dynamiquement en quelques secondes, accélérant fortement le time-to-market.
+Snapshots instantanés, haute disponibilité intégrée et montée en charge à la volée font d’ANF un accélérateur de fiabilité et d’agilité.
+
+
+C’est ce différentiel qui séduit des acteurs comme SNCF pour leurs plateformes containers critiques.
+
+Pour les sujets ANF, NetApp nous a mis à disposition son point de contact @Thierry Vallier (NETAPP INC) qui bosse depuis nos locaux à EOS.
+
+
+ Nouvelle version Kubernetes
+Tout les quatre mois, on sort une nouvelle version. Publié le 17 décembre 2025, Kubernetes v1.35 a vu le jour avec une dizaine d'améliorations majeures. D'habitude AKS intégre les nouvelles versions en Preview dans un mois. Voici les nouveautés les plus importantes.
+             
+Kubernetes v1.35 rend la tolérance du HPA configurable par ressource (champ behavior), remplaçant le seuil global et fixe de 10 % pour ajuster finement la sensibilité du scaling (p. ex. 0,05).
+Kubernetes passe les mises à jour in‑place des ressources des Pods en GA, permettant d’ajuster CPU/mémoire sans redémarrer et évitant la recréation des Pods, pour un scaling vertical plus fluide, non disruptif et efficace.
+Mise à jour de trafficDistribution pour les Services : ajout de PreferSameNode (privilégie les endpoints du node local) et renommage de PreferClose en PreferSameZone avec rétrocompatibilité, clarifiant les préférences de routage au niveau node vs zone.
+Kubernetes v1.35 promeut l’exposition des labels de topologie (zone/région) via le Downward API : le kubelet les injecte dans les Pods, rendant les apps topology‑aware sans dépendre de l’API ni de larges RBAC. Et c'est à travers les variables d'environnements.
+
+
 
 Côté Open source
-Publié le 27 août 2025, Kubernetes 1.34 a livré 58 améliorations (23 stables, 22 en bêta, 13 en alpha) sans dépréciations majeures.
-Parmi les nouveautés clés, l’allocation dynamique des ressources (DRA) atteint le statut GA pour la planification avancée des GPU/FPGA, les jetons de compte de service sécurisés pour le téléchargement d’images (bêta), ainsi qu’un nouveau format de configuration KYAML (alpha) pour des manifestes plus sûrs.
 
-Metal3.io : un projet qui automatise le provisionnement de machines bare-metal via les API Kubernetes, a atteint le statut Incubating à la CNCF. Il permet à Kubernetes de gérer directement des serveurs physiques (pensez à Cluster API, mais pour des serveurs bare-metal). Cette avancée illustre la tendance à rapprocher Kubernetes de la gestion d’infrastructure, facilitant ainsi le déploiement de clusters sur site ou en périphérie sans virtualisation.
-Aucun projet n’a obtenu le statut Graduated  à la CNCF au cours des trois derniers mois, mais certains sont sur le point d’y parvenir : Knative, la plateforme serverless/eventing qui a rejoint la CNCF en 2023, est candidate à la graduation prochainement grâce à son adoption croissante. Apache APISIX (passerelle d’ingress) et Emissary-Ingress sont également en incubation et progressent bien. L’écosystème CNCF compte désormais plus de 30 projets en incubation, signe d’une communauté dynamique et diversifiée.
-Bien que Cilium n’ait pas encore officiellement obtenu le statut de graduation de la CNCF, sa trajectoire suggère qu’il pourrait être candidat à une incubation ou une graduation à l’avenir.
+Docker publie en open source son catalogue de plus de 1000 Docker Hardened Images. Ils offrent une base d’exécution durcie et distroless qui réduit jusqu’à 95 % des vulnérabilités par rapport aux images communautaires, tout en conservant les outils essentiels pour les développeurs. Elles s’appuient sur Debian et Alpine pour éviter tout lock‑in et s’intégrer avec un minimum de changements aux workflows existants (source).
+Crossplane atteint le statut Graduated: En novembre 2025, ce projet de control plane multi-cloud open source a officiellement gradué au sein de la CNCF, signe d’une adoption large et d’une maturité accrue. Avec plus de 3 000 contributeurs, la version 2.0 récente s’impose comme brique clé du platform engineering pour piloter des infrastructures par API déclaratives (source).
+Docker Compose évolue pour orchestrer des architectures d’agents (modèles + outils) dans les mêmes fichiers YAML (docker compose), du local au cloud.
+
+On peut définir agents/modèles/outils comme services, exécuter localement ou déployer sur Cloud Run / Azure Container Apps, avec intégration MCP Gateway pour une découverte/communication sécurisée (source).
+
+
+Que font nos compétiteurs ?
+
+En gros, ils font comme nous (comme nous on fait comme eux). On surfe tous la même vague IA. Le jeu n’est pas de copier, mais d’itérer plus vite et de tenir la houle. 🏄‍♂️⚙️
+
+AWS 
+
+EKS Capabilities : AWS a lancé une suite de services managés intégrant des outils open source populaires comme Argo CD (GitOps) et AWS Controllers for Kubernetes (ACK), facilitant la gestion des ressources AWS via les API Kubernetes (source).
+
+ACK est l'équivalent de notre Azure Service Operator (ASO) qui est sorti depuis 4 ans. Mais il a beaucoup du mal a être utilisé par nos clients faute du concept de créer des resources cloud depuis un cluster Kubernetes. Schneider l'utilise à petit échel et sont toujours effrayé d'un potentiel fin de support.
+
+Automatisation pour l’IA : Avec EKS Auto Mode et le support de clusters jusqu’à 100 000 node, AWS cible les charges de travail IA à grande échelle, en simplifiant l’autoscaling GPU et la gestion des ressources (source).
+
+GCP
+
+Agent Sandbox (préversion) : bac à sable kernel basé sur gVisor pour exécuter en sécurité des agents IA et code non fiable sur Kubernetes, avec démarrage en quelques centaines de ms, snapshots et optimisations hôte.
+
+Scalabilité record : GKE a fait tourner un cluster Kubernetes de 130 000 nodes (doublant le précédent record), grâce à des optimisations API server / etcd / Spanner et Kueue. Bénéfices généralisés + MultiKueue et Image Streaming pour accélérer les déploiements multi‑clusters (source).
+
+GKE Inference Gateway est une extension du GKE Gateway qui offre un routage et un load balancing optimisés pour les workloads d’inférence IA générative. Il simplifie le déploiement, la gestion et l’observabilité des services d’inférence (source).
+
+llm-d est une plateforme d’inférence distribuée nativement Kubernetes qui fournit des “parcours balisés” (recettes testées + Helm charts) pour déployer et faire évoluer rapidement des modèles génératifs de grande taille avec des performances SOTA sur divers accélérateurs et clouds. IBM et Redhat sont également contributeurs (source).
+
 
 Top bugs/issues AKS
 
-Plusieurs clients ont récemment rencontré des difficultés pour scaler leurs clusters AKS ou ajouter de nouveaux nodepools. 🧩 Le coupable ? Le Pod CIDR !
-Avec Azure CNI Overlay, chaque nœud (VM) doit réserver exactement 256 adresses IP depuis le Pod CIDR. Cela signifie qu’il faut anticiper le nombre total de nœuds du cluster et multiplier ce nombre par 256 pour définir un range CIDR suffisamment large dès le départ.
-Exemple : pour un cluster avec 10 nœuds prévus, il faut un Pod CIDR couvrant au moins 2560 adresses IP.
-On aura prochainement la possibilité de changer le Pod CIDR sur un cluster existant.
-Un bug a été identifié sur certaines images de nœuds AKS, où les paramètres proxy étaient ignorés pendant le provisioning, entraînant des échecs lors de la création des nodepools.
-Images impactées :
-20250806
-20250811  correctif appliqué
-20250820  correctif appliqué
-Lors du provisioning des nœuds, les scripts de bootstrap et les binaires étaient auparavant récupérés depuis le registre :
-acs-mirror.azureedge.net. Ce registre a été remplacé par :
-packages.aks.azure.com
-Problème : de nombreux environnements clients autorisent uniquement le trafic sortant vers des endpoints Microsoft spécifiques. Le nouveau FQDN n’étant pas inclus dans ces règles, le provisioning échouait faute d’accès réseau autorisé.
-Recommandation : pensez à mettre à jour vos règles de sécurité pour inclure packages.aks.azure.com dans les endpoints autorisés.
+🐞En AKS v1.34, l’upgrade/création de nodes lance un apt update global et nécessite l’accès à azure.archive.ubuntu.com.
+Mitigation : autoriser temporairement l’egress vers ce domaine.
+🐞Le CLI n’accepte pas az aks nodepool upgrade --gpu-driver none.
+Mitigation : créer un nouveau nodepool avec az aks nodepool add --gpu-driver None.
+Correctif attendu dans Azure CLI 2.82 ce mois‑ci.
 
-Comment générer plus d'ACR avec les containers ?
 
-Étendre le cluster à deux ou trois Availability Zones (AZ) permet d’améliorer la résilience, en ligne avec les objectifs de Microsoft en matière de fiabilité dans le cloud. À noter : le SLA reste identique, que l’on utilise 2 ou 3 AZ. L’ACR ne sera pas multiplié par 2 ou 3 par rapport à une seule zone, mais on observe tout de même une augmentation d’environ 10 à 30 %.
 
-Advanced Container Networking Services (ACNS) permet d’obtenir davantage de métriques, telles que les paquets rejetés, ainsi qu’une visibilité accrue sur la source et la destination du trafic ou encore le network policy niveau 7 (FQDN). Ces données sont particulièrement appréciées par les équipes réseau et infrastructure. Ce service n’est pas gratuit : ca coûte 16 € par nœud/VM et par mois, soit environ 5% du coût d’une VM Standard_D8ads moyenne.
 
-Se former
-La chaine Youtube d'AKS avec 150+ videos.
-Le blog officiel d'AKS.
-Les enregistrements de la conférence KubeCon ainsi que les conférences parallèles sont disponible sur Youtube (CNCF).
-La Roadmap d'AKS.
+Microsoft Internal
+Ne pas partager à nos clients
 
-Prochains évènements
-
-Microsoft Ignite à San Francisco, du 18 au 21 mai.
-Kubernetes Community Day revient à Paris sous un nouveau nom: Cloud Native Days le 3 février à Paris.
 
 Point business en France
 Azure Kubernetes Service
+L'ACR AKS continue d'augmenter
+sur les 12 derniers mois. 
+Le podium pour les TOP
+consommateurs AKS sur les 12 derniers mois est toujours occupé par SG,
+Schneider et Thalès.
+A noter que Publicis vient de passer 3ème depuis le mois d'octobre
+2025.
 
-Coté ACR pour AKS en France pendant les 12 derniers mois, ca continue d'augmenter.
 
-Le podium pour les top consommateurs AKS est toujours occupé par SG, Schneider et Thales.
+Azure Container Apps
+L'ACR ACA a augmenté sur les 12 derniers mois.
+Le podium pour les TOP
+consommateurs ACA sur les 12 derniers mois est occupé par Saint Gobain, Cap Gemini et Legrand.
+
+
+
+Comment générer davantage d’ACR grâce aux conteneurs ?
+Deux sujets clés peuvent être abordés avec vos clients et constituent d’excellentes portes d’entrée pour générer de l’ACR : NGINX Ingress et Azure NetApp Files (ANF).
+NGINX Ingress
+De nombreux clients Kubernetes s’appuient encore sur NGINX Ingress qui est déprécié. Cette frustration est une véritable opportunité pour positionner des alternatives Microsoft, telles qu’Azure Application Gateway, ou mieux encore Application Gateway for Containers, qui offre une intégration native avec AKS, des fonctionnalités avancées de sécurité et une meilleure observabilité.
+Azure NetApp Files (ANF)
+ANF représente un levier majeur pour générer de l’ACR en proposant des options de stockage hautes performances adaptées aux workloads conteneurisés et aux applications critiques. Comparé à Azure Files, ANF apporte des gains significatifs en termes de latence, de débit et de fonctionnalités avancées (snapshots, scalability, performance tiers), ce qui permet de répondre à des exigences applicatives plus élevées.
+Enfin, il est important de rappeler que la vente de ces solutions via la Marketplace contribue directement à l’ACR, renforçant ainsi l’impact business de ces discussions techniques.
+
+
+Prochains évènements
+
+Kubernetes Community Day revient à Paris sous un nouveau nom: Cloud Native Days le 3 février à Paris.
+KubeCon Europe à Amterdam du 23 au 16 mars.
+
 
 Merci d'avoir écouté cette newsletter. N'hésitez pas à nous faire vos retours et suggestions pour les prochaines éditions.

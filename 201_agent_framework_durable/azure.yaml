@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: durable-agents-quickstart-python
+metadata:
+  template: durable-agents-quickstart-python@1.0.0
+services:
+  api:
+    project: .
+    language: python
+    host: function
+
+# hooks:
+#   # preprovision:
+#   #   posix:
+#   #     shell: sh
+#   #     run: ./scripts/setup-app-registration.sh
+#   #     interactive: false
+#   #     continueOnError: false
+#   #   windows:
+#   #     shell: pwsh
+#   #     run: ./scripts/setup-app-registration.ps1
+#   #     interactive: false
+#   #     continueOnError: false
+#   postprovision:
+#     windows:
+#       shell: pwsh
+#       run: ./scripts/generate-settings.ps1
+#       interactive: true
+#       continueOnError: false
+#     posix:
+#       shell: sh
+#       run: ./scripts/generate-settings.sh
+#       interactive: true
+#       continueOnError: false

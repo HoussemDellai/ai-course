@@ -1,1 +1,0 @@
-https://microsoftlearning.github.io/mslearn-ai-studio/Instructions/04-Use-own-data.html

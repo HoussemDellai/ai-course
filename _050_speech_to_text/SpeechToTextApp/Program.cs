@@ -14,7 +14,7 @@ namespace TextToSpeech
 
         static async Task SynthesizeAudioAsync()
         {
-            var config = SpeechConfig.FromSubscription("<REPLACE BY CONGNITIVE SERVICES KEY>", "swedencentral");
+            var config = SpeechConfig.FromSubscription("4pSvoEItzMzNZKKKbLdIRAt525O6W7Kc0hLmeY1uklXaZmj5pQkEJQQJ99CAACfhMk5XJ3w3AAAYACOGTTxw", "swedencentral");
 
             config.SpeechSynthesisVoiceName = "zh-CN-XiaochenMultilingualNeural";
             // config.SpeechSynthesisVoiceName = "fr-FR-VivienneMultilingualNeural";
