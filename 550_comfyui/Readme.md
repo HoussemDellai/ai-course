@@ -141,6 +141,12 @@ comfy model download --relative-path models/loras/ --filename pixel_art_style_z_
 
 ![comfy-model-download-cli.png](./images/comfy-model-download-cli.png)
 
+Once the models are downloaded, you can run the Text to Video workflow in ComfyUI. You can also change the parameters as needed like the prompt.
+
+![ComfyUI Text to Image](./images/comfyui-portal.png)
+
+When ready, click the Run blue button at the top right to start generating the image. It will take some time depending on the size of the image and the complexity of the prompt. Then you should see the generated image in the output node.
+
 ## 5. Using ComfyUI for Text to Video
 
 To use ComfyUI for Text to Video generation, you can select a Text to Video template from the Workflows section. Choose `Wan 2.2 Text to Video` as an example.
@@ -157,6 +163,20 @@ comfy model download --relative-path models/diffusion_models/ --filename wan2.2_
 comfy model download --relative-path models/loras/ --filename wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors
 
 comfy model download --relative-path models/loras/ --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors
+```
+
+Models for LTX-2 Text to Video can be downloaded similarly.
+
+```sh
+comfy model download --relative-path models/checkpoints/ --filename ltx-2-19b-dev-fp8.safetensors --url https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-19b-dev-fp8.safetensors
+
+comfy model download --relative-path models/text_encoders/ --filename gemma_3_12B_it_fp4_mixed.safetensors --url https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors
+
+comfy model download --relative-path models/latent_upscale_models/ --filename ltx-2-spatial-upscaler-x2-1.0.safetensors --url https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-spatial-upscaler-x2-1.0.safetensors
+
+comfy model download --relative-path models/loras/ --filename ltx-2-19b-distilled-lora-384.safetensors --url https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-19b-distilled-lora-384.safetensors
+
+comfy model download --relative-path models/loras/ --filename ltx-2-19b-lora-camera-control-dolly-left.safetensors --url https://huggingface.co/Lightricks/LTX-2-19b-LoRA-Camera-Control-Dolly-Left/resolve/main/ltx-2-19b-lora-camera-control-dolly-left.safetensors
 ```
 
 ## Sources
