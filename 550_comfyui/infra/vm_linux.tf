@@ -30,7 +30,7 @@ resource "azurerm_linux_virtual_machine" "vm_linux" {
   priority                        = "Spot"
   eviction_policy                 = "Delete" # "Deallocate" # With Spot, there's no option of Stop-Deallocate for Ephemeral VMs, rather users need to Delete instead of deallocating them.
   network_interface_ids           = [azurerm_network_interface.nic_vm_linux.id]
-  disk_controller_type            = "NVMe" # "SCSI" # "IDE" # "SCSI" is the default value. "NVMe" is only supported for Ephemeral OS Disk.
+  # disk_controller_type            = "NVMe" # "SCSI" # "IDE" # "SCSI" is the default value. "NVMe" is only supported for Ephemeral OS Disk.
 
   custom_data = filebase64("./setup-comfyui.sh")
 

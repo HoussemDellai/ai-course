@@ -73,7 +73,7 @@ comfy --install-completion
 
 # Step 3: Install ComfyUI
 # Installing ComfyUI with comfy-cli is very simple, requiring just one command:
-comfy install
+comfy install --nvidia
 
 # Step 4: Install GPU Support
 # NVIDIA GPU (CUDA)
@@ -93,7 +93,7 @@ comfy launch
 # Common Launch Options
 # Specify listen address and port
 # and don't forget the double -- 
-comfy launch -- --listen 0.0.0.0 --port 8080
+comfy launch --background -- --listen 0.0.0.0 --port 8080
  
 # Use CPU mode
 comfy launch -- --cpu
@@ -107,7 +107,60 @@ comfy launch -- --novram
 # Note: The --background parameter may no longer be supported in some versions of ComfyUI. If you need to run in the background, consider using system-level tools such as nohup or screen.
 ```
 
+## 4. Using ComfyUI for Text to Image
+
+Once ComfyUI is running, you can access the web interface via your browser at `http://<VM_IP_ADDRESS>:8080` (replace `<VM_IP_ADDRESS>` with the actual IP address of your VM).
+
+You can create Text to Image generation workflows using the templates available in ComfyUI.
+
+Go to Workflows and select a Text to Image template to get started. Choose `Z-Image-Turbo Text to Image` as an example.
+
+![ComfyUI Text to Image](./images/choose-template-t2i.png)
+
+After that, ComfyUI will detect that there are some missing models to download.
+
+![ComfyUI Download Models](./images/missing-models.png)
+
+You will need to download each model into its corresponding folder. For example, the Stable Diffusion model should be placed in the `models/Stable-diffusion` folder.
+The models download links and their corresponding folders are shown in the ComfyUI interface.
+
+Let's download the required models for `Z-Image-Turbo`.
+
+```sh
+cd comfy/ComfyUI/
+
+comfy model download --relative-path models/text_encoders/ --filename qwen_3_4b.safetensors --url https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors
+
+comfy model download --relative-path models/vae --filename ae.safetensors --url https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors
+
+
+comfy model download --relative-path models/diffusion_models/ --filename z_image_turbo_bf16.safetensors --url https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors
+
+comfy model download --relative-path models/loras/ --filename pixel_art_style_z_image_turbo.safetensors --url https://huggingface.co/tarn59/pixel_art_style_lora_z_image_turbo/resolve/main/pixel_art_style_z_image_turbo.safetensors
+```
+
+![comfy-model-download-cli.png](./images/comfy-model-download-cli.png)
+
+## 5. Using ComfyUI for Text to Video
+
+To use ComfyUI for Text to Video generation, you can select a Text to Video template from the Workflows section. Choose `Wan 2.2 Text to Video` as an example.
+
+Then you will need to install the required models for `Wan 2.2 Text to Video`.
+
+```sh
+comfy model download --relative-path models/text_encoders/ --filename umt5_xxl_fp8_e4m3fn_scaled.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+comfy model download --relative-path models/vae --filename wan_2.1_vae.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors
+
+comfy model download --relative-path models/diffusion_models/ --filename wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors
+
+comfy model download --relative-path models/diffusion_models/ --filename wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors
+comfy model download --relative-path models/loras/ --filename wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors
+
+comfy model download --relative-path models/loras/ --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors
+```
+
 ## Sources
 
 - [Install CUDA drivers on N-series VMs](https://learn.microsoft.com/en-us/azure/virtual-machines/linux/n-series-driver-setup#install-cuda-drivers-on-n-series-vms)
+
 - [Install ComfyUI using Comfy CLI](https://comfyui-wiki.com/en/install/install-comfyui/install-comfyui-on-linux)
