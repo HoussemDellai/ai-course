@@ -5,22 +5,27 @@
 ################################
 
 # 1. Install ubuntu-drivers utility:
-sudo apt update && sudo apt install -y ubuntu-drivers-common
+sudo apt update
+sudo apt install ubuntu-drivers-common -y
 
 # 2. Install the latest NVIDIA drivers:
 sudo ubuntu-drivers install
 
 # 3. Reboot the VM after the GPU driver is installed:
-sudo reboot
+# sudo reboot # needed ?
 
 # 4. Download and install the CUDA toolkit from NVIDIA:
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-sudo apt install -y ./cuda-keyring_1.1-1_all.deb
-sudo apt update
-sudo apt -y install cuda-toolkit-12-5
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt-get update
+sudo apt-get -y install cuda-toolkit-13-1
+# check new Cuda versions here: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_network
+# sudo apt install ./cuda-keyring_1.1-1_all.deb -y
+# sudo apt update
+# sudo apt install cuda-toolkit-13-1 -y
 
 # 5. Reboot the VM after installation completes:
-sudo reboot
+# sudo reboot
 
 # 6. Verify that the GPU is correctly recognized (after reboot):
 nvidia-smi
@@ -29,57 +34,60 @@ nvidia-smi
 sudo apt update
 sudo apt full-upgrade -y
 
-###################################
-### 2. Install ComfyUI on Ubuntu
-###################################
+sudo reboot
 
-# Step 1: System Environment Preparation
-# ComfyUI requires Python 3.12 or higher (Python 3.13 is recommended). Check your Python version:
-python3 --version
+# ###################################
+# ### 2. Install ComfyUI on Ubuntu
+# ###################################
 
-# If Python is not installed or the version is too low, install it following these steps:
-sudo apt update
-sudo apt install python3 python3-pip python3-venv
+# # Step 1: System Environment Preparation
+# # ComfyUI requires Python 3.12 or higher (Python 3.13 is recommended). Check your Python version:
+# python3 --version
 
-# Create Virtual Environment
-# Using a virtual environment can avoid package conflict issues:
-# Create a virtual environment named comfy-env
-python3 -m venv comfy-env
+# # If Python is not installed or the version is too low, install it following these steps:
+# sudo apt update
+# sudo apt install python3 python3-pip python3-venv -y
+
+# # Create Virtual Environment
+# # Using a virtual environment can avoid package conflict issues:
+# # Create a virtual environment named comfy-env
+# python3 -m venv comfy-env
  
-# Activate the virtual environment
-source comfy-env/bin/activate
-# Note: You need to activate the virtual environment each time before using ComfyUI. To exit the virtual environment, use the deactivate command.
+# # Activate the virtual environment
+# source comfy-env/bin/activate
+# # Note: You need to activate the virtual environment each time before using ComfyUI. To exit the virtual environment, use the deactivate command.
 
-# Step 2: Install Comfy CLI
-# Install comfy-cli in the activated virtual environment:
+# # Step 2: Install Comfy CLI
+# # Install comfy-cli in the activated virtual environment:
 
-pip install comfy-cli
+# pip install comfy-cli
 
-# Configure Command Line Auto-completion (Optional)
-# To get a better user experience, you can enable command line auto-completion:
+# # Configure Command Line Auto-completion (Optional)
+# # To get a better user experience, you can enable command line auto-completion:
 
-comfy --install-completion
+# comfy --install-completion
 
-# Step 3: Install ComfyUI
-# Installing ComfyUI with comfy-cli is very simple, requiring just one command:
-comfy install --nvidia
+# # Step 3: Install ComfyUI
+# # Installing ComfyUI with comfy-cli is very simple, requiring just one command:
+# # use 'yes' to accept all prompts
+# yes | comfy install --nvidia
 
-# Step 4: Install GPU Support
-# NVIDIA GPU (CUDA)
-# If you’re using an NVIDIA GPU, you need to install CUDA support:
+# # Step 4: Install GPU Support
+# # NVIDIA GPU (CUDA)
+# # If you’re using an NVIDIA GPU, you need to install CUDA support:
 
-# Install PyTorch with CUDA support
-pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
+# # Install PyTorch with CUDA support
+# pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
 
-# Note: Please choose the corresponding PyTorch version based on your CUDA version. Visit the PyTorch website for the latest installation commands.
+# # Note: Please choose the corresponding PyTorch version based on your CUDA version. Visit the PyTorch website for the latest installation commands.
 
-# Step 5: Launch ComfyUI
-# After installation is complete, launch ComfyUI, by default on port 8188:
-# comfy launch
+# # Step 5: Launch ComfyUI
+# # After installation is complete, launch ComfyUI, by default on port 8188:
+# # comfy launch
 
-# By default, ComfyUI will run on http://localhost:8188.
+# # By default, ComfyUI will run on http://localhost:8188.
 
-# Common Launch Options
-# Specify listen address and port
-# and don't forget the double -- 
-comfy launch --background -- --listen 0.0.0.0 --port 8080
+# # Common Launch Options
+# # Specify listen address and port
+# # and don't forget the double -- 
+# comfy launch --background -- --listen 0.0.0.0 --port 8080

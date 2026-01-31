@@ -32,7 +32,7 @@ resource "azurerm_linux_virtual_machine" "vm_linux" {
   network_interface_ids           = [azurerm_network_interface.nic_vm_linux.id]
   # disk_controller_type            = "NVMe" # "SCSI" # "IDE" # "SCSI" is the default value. "NVMe" is only supported for Ephemeral OS Disk.
 
-  custom_data = filebase64("./setup-comfyui.sh")
+  # custom_data = filebase64("./setup-comfyui.sh")
 
   os_disk {
     name                 = "os-disk-vm-linux"

@@ -19,22 +19,23 @@ sudo apt update && sudo apt install -y ubuntu-drivers-common
 # 2. Install the latest NVIDIA drivers:
 sudo ubuntu-drivers install
 
-# 3. Reboot the VM after the GPU driver is installed:
-sudo reboot
-
-# 4. Download and install the CUDA toolkit from NVIDIA:
+# 3. Download and install the CUDA toolkit from NVIDIA:
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
 sudo apt install -y ./cuda-keyring_1.1-1_all.deb
 sudo apt update
-sudo apt -y install cuda-toolkit-12-5
+sudo apt -y install cuda-toolkit-13-1
 
-# 5. Reboot the VM after installation completes:
+# 4. Reboot the VM after installation completes:
 sudo reboot
+```
 
-# 6. Verify that the GPU is correctly recognized (after reboot):
+The machine will now reboot. After rebooting, you can verify the installation of the NVIDIA drivers and CUDA toolkit.
+
+```sh
+# 5. Verify that the GPU is correctly recognized (after reboot):
 nvidia-smi
 
-# 7. We recommend that you periodically update NVIDIA drivers after deployment.
+# 6. We recommend that you periodically update NVIDIA drivers after deployment.
 sudo apt update
 sudo apt full-upgrade
 ```
@@ -50,7 +51,7 @@ python3 --version
 
 # If Python is not installed or the version is too low, install it following these steps:
 sudo apt update
-sudo apt install python3 python3-pip python3-venv
+sudo apt install python3 python3-pip python3-venv -y
 
 # Create Virtual Environment
 # Using a virtual environment can avoid package conflict issues:
@@ -73,7 +74,8 @@ comfy --install-completion
 
 # Step 3: Install ComfyUI
 # Installing ComfyUI with comfy-cli is very simple, requiring just one command:
-comfy install --nvidia
+# use 'yes' to accept all prompts
+yes | comfy install --nvidia
 
 # Step 4: Install GPU Support
 # NVIDIA GPU (CUDA)
@@ -86,7 +88,7 @@ pip install torch torchvision torchaudio --extra-index-url https://download.pyto
 
 # Step 5: Launch ComfyUI
 # After installation is complete, launch ComfyUI:
-comfy launch
+# comfy launch
 
 # By default, ComfyUI will run on http://localhost:8188.
 
@@ -96,15 +98,13 @@ comfy launch
 comfy launch --background -- --listen 0.0.0.0 --port 8080
  
 # Use CPU mode
-comfy launch -- --cpu
+# comfy launch -- --cpu
  
 # Low VRAM mode
-comfy launch -- --lowvram
+# comfy launch -- --lowvram
  
 # Ultra-low VRAM mode
-comfy launch -- --novram
-
-# Note: The --background parameter may no longer be supported in some versions of ComfyUI. If you need to run in the background, consider using system-level tools such as nohup or screen.
+# comfy launch -- --novram
 ```
 
 ## 4. Using ComfyUI for Text to Image
@@ -132,7 +132,6 @@ cd comfy/ComfyUI/
 comfy model download --relative-path models/text_encoders/ --filename qwen_3_4b.safetensors --url https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors
 
 comfy model download --relative-path models/vae --filename ae.safetensors --url https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors
-
 
 comfy model download --relative-path models/diffusion_models/ --filename z_image_turbo_bf16.safetensors --url https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors
 
