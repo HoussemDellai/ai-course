@@ -4,9 +4,34 @@ This guide provides instructions on how to set up and run Text to Image and Text
 
 ## Steps to create the infrastructure
 
+### Option 1. Using Terraform (Recommended)
+
+
+In this guide, the provided Terraform template will create the following:
+
+1. Create the infrastructure for Ubuntu VM with Nvidia H100 GPU
+2. Install CUDA drivers on the VM
+3. Install ComfyUI on the VM
+4. Download the models for Text to Image and Text to Video generation
+
+```sh
+# Initialize Terraform
+terraform init
+
+# Review the Terraform plan
+terraform plan tfplan
+
+# Apply the Terraform configuration to create resources
+terraform apply tfplan
+```
+
+This should take about 15 minutes to create all the resources with the configuration defined in the Terraform files.
+
+### Option 2. Manual Setup
+
 ### 1. Create a Virtual Machine with Nvidia H100 GPU
 
-Create an Azure virtual machine with `Nvidia H100` GPUs like sku: `Standard NC40ads H100 v5`. Choose a Linux distribution of your choice like `Ubuntu Pro 24.04`.
+Create an Azure virtual machine with `Nvidia H100` GPUs like sku: `Standard NC40ads H100 v5`. Choose a Linux distribution of your choice like `Ubuntu Pro 24.04 LTS`.
 
 ### 2. Install CUDA Drivers
 
@@ -110,6 +135,8 @@ comfy launch --background -- --listen 0.0.0.0 --port 8080
 ## 4. Using ComfyUI for Text to Image
 
 Once ComfyUI is running, you can access the web interface via your browser at `http://<VM_IP_ADDRESS>:8080` (replace `<VM_IP_ADDRESS>` with the actual IP address of your VM).
+
+>Note that you should ensure that the VM's network security group (NSG) allows inbound traffic on port `8080`.
 
 You can create Text to Image generation workflows using the templates available in ComfyUI.
 
