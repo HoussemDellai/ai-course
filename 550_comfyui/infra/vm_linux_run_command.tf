@@ -4,7 +4,7 @@ resource "azurerm_virtual_machine_run_command" "run_command_install_nvidia_drive
   virtual_machine_id = azurerm_linux_virtual_machine.vm_linux.id
 
   source {
-    script = file("./install-nvidia-drivers.sh")
+    script = file("./01-install-nvidia-drivers.sh")
   }
 }
 
@@ -21,7 +21,7 @@ resource "azurerm_virtual_machine_run_command" "run_command_install_comfyui" {
   virtual_machine_id = azurerm_linux_virtual_machine.vm_linux.id
 
   source {
-    script = file("./install-comfyui.sh")
+    script = file("./02-install-comfyui.sh")
   }
 
   depends_on = [time_sleep.wait_20_seconds]
