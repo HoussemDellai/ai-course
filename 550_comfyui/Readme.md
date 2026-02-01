@@ -154,11 +154,13 @@ Then you will need to install the required models for `Wan 2.2 Text to Video`.
 
 ```sh
 comfy model download --relative-path models/text_encoders/ --filename umt5_xxl_fp8_e4m3fn_scaled.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+
 comfy model download --relative-path models/vae --filename wan_2.1_vae.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors
 
 comfy model download --relative-path models/diffusion_models/ --filename wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors
 
 comfy model download --relative-path models/diffusion_models/ --filename wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors
+
 comfy model download --relative-path models/loras/ --filename wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors
 
 comfy model download --relative-path models/loras/ --url https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors

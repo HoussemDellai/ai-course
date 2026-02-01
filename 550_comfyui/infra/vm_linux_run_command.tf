@@ -33,7 +33,7 @@ resource "azurerm_virtual_machine_run_command" "run_command_download_models" {
   virtual_machine_id = azurerm_linux_virtual_machine.vm_linux.id
 
   source {
-    script = file("./download-models.sh")
+    script = file("./03-download-models.sh")
   }
 
   depends_on = [azurerm_virtual_machine_run_command.run_command_install_comfyui]
