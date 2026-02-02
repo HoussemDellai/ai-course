@@ -20,7 +20,7 @@ resource "azurerm_network_interface" "nic_vm_linux" {
 }
 
 resource "azurerm_linux_virtual_machine" "vm_linux" {
-  name                            = "vm-linux"
+  name                            = "vm-linux-comfyui"
   resource_group_name             = azurerm_resource_group.rg.name
   location                        = azurerm_resource_group.rg.location
   size                            = "Standard_NC40ads_H100_v5"
@@ -30,9 +30,7 @@ resource "azurerm_linux_virtual_machine" "vm_linux" {
   priority                        = "Spot"
   eviction_policy                 = "Delete" # "Deallocate" # With Spot, there's no option of Stop-Deallocate for Ephemeral VMs, rather users need to Delete instead of deallocating them.
   network_interface_ids           = [azurerm_network_interface.nic_vm_linux.id]
-  # disk_controller_type            = "NVMe" # "SCSI" # "IDE" # "SCSI" is the default value. "NVMe" is only supported for Ephemeral OS Disk.
-
-  # custom_data = filebase64("./setup-comfyui.sh")
+  disk_controller_type            = "SCSI" # "NVMe" is not supported in this SKU
 
   os_disk {
     name                 = "os-disk-vm-linux"
@@ -53,16 +51,8 @@ resource "azurerm_linux_virtual_machine" "vm_linux" {
     version   = "latest"
   }
 
-  identity {
-    type = "SystemAssigned"
-  }
-
   boot_diagnostics {
     storage_account_uri = null
-  }
-
-  lifecycle {
-    ignore_changes = [identity]
   }
 }
 
@@ -72,4 +62,8 @@ output "vm_linux_public_ip" {
 
 output "vm_linux_private_ip" {
   value = azurerm_network_interface.nic_vm_linux.private_ip_address
+}
+
+output "comfyui_portal" {
+  value = "http://${azurerm_public_ip.pip_vm_linux.ip_address}:8188"
 }

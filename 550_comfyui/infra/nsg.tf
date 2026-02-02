@@ -29,7 +29,7 @@ resource "azurerm_network_security_rule" "allow_http" {
   source_address_prefix       = "*"
   source_port_range           = "*"
   destination_address_prefix  = "*"
-  destination_port_range      = "8080"
+  destination_port_range      = "8188"
 }
 
 resource "azurerm_subnet_network_security_group_association" "nsg-association" {

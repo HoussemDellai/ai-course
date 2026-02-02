@@ -1,18 +1,19 @@
 # Running Text to Image and Text to Video with ComfyUI and Nvidia H100 GPU
 
-This guide provides instructions on how to set up and run Text to Image and Text to Video generation using ComfyUI with an Nvidia H100 GPU.
+This guide provides instructions on how to set up and run `Text to Image` and `Text to Video` generation using `ComfyUI` with an `Nvidia H100 GPU` on Azure.
+
+
 
 ## Steps to create the infrastructure
 
 ### Option 1. Using Terraform (Recommended)
 
-
 In this guide, the provided Terraform template will create the following:
 
-1. Create the infrastructure for Ubuntu VM with Nvidia H100 GPU
-2. Install CUDA drivers on the VM
-3. Install ComfyUI on the VM
-4. Download the models for Text to Image and Text to Video generation
+0. Create the infrastructure for Ubuntu VM with `Nvidia H100 GPU`
+1. Install CUDA drivers on the VM
+2. Install `ComfyUI` on the VM
+3. Download the models for Text to Image (`Z-Image-Turbo`) and Text to Video generation (`Wan 2.2` and `LTX-2`)
 
 ```sh
 # Initialize Terraform
@@ -27,30 +28,37 @@ terraform apply tfplan
 
 This should take about 15 minutes to create all the resources with the configuration defined in the Terraform files.
 
+The following resources will be created:
+
+![Azure created resources](./images/resources.png)
+
+If you choose to use Terraform, after the deployment is complete, you can access the ComfyUI portal using the output link shown in the Terraform output. It should look like this `http://<VM_IP_ADDRESS>:8188`. And that should be the end of the setup. You can then proceed to use ComfyUI for Text to Image and Text to Video generation as described in the later sections.
+
 ### Option 2. Manual Setup
 
-### 1. Create a Virtual Machine with Nvidia H100 GPU
+### 0. Create a Virtual Machine with Nvidia H100 GPU
 
-Create an Azure virtual machine with `Nvidia H100` GPUs like sku: `Standard NC40ads H100 v5`. Choose a Linux distribution of your choice like `Ubuntu Pro 24.04 LTS`.
+Create an Azure virtual machine with `Nvidia H100` GPUs like sku: `Standard NC40ads H100 v5`. Choose a Linux distribution of your choice like `Ubuntu Pro 24.04 LTS`. Disable Secure Boot as it is not supported for GPU drivers installation with the Custom Extension.
 
-### 2. Install CUDA Drivers
+### 1. Install Nvidia GPU and CUDA Drivers
 
 SSH into the Ubuntu VM and install the CUDA drivers by following the official Microsoft documentation: [Install CUDA drivers on N-series VMs](https://learn.microsoft.com/en-us/azure/virtual-machines/linux/n-series-driver-setup#install-cuda-drivers-on-n-series-vms).
 
 ```sh
 # 1. Install ubuntu-drivers utility:
-sudo apt update && sudo apt install -y ubuntu-drivers-common
+sudo apt-get update
+sudo apt-get install ubuntu-drivers-common -y
 
 # 2. Install the latest NVIDIA drivers:
 sudo ubuntu-drivers install
 
 # 3. Download and install the CUDA toolkit from NVIDIA:
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-sudo apt install -y ./cuda-keyring_1.1-1_all.deb
-sudo apt update
-sudo apt -y install cuda-toolkit-13-1
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt-get update
+sudo apt-get -y install cuda-toolkit-13-1
 
-# 4. Reboot the VM after installation completes:
+# 4. Reboot the system to apply changes
 sudo reboot
 ```
 
@@ -61,11 +69,11 @@ The machine will now reboot. After rebooting, you can verify the installation of
 nvidia-smi
 
 # 6. We recommend that you periodically update NVIDIA drivers after deployment.
-sudo apt update
-sudo apt full-upgrade
+sudo apt-get update
+sudo apt-get full-upgrade -y
 ```
 
-### 3. Install ComfyUI on Ubuntu
+### 2. Install ComfyUI on Ubuntu
 
 Follow the instructions from the ComfyUI Wiki to install ComfyUI on your Ubuntu VM using Comfy CLI: [Install ComfyUI using Comfy CLI](https://comfyui-wiki.com/en/install/install-comfyui/install-comfyui-on-linux).
 
@@ -75,12 +83,11 @@ Follow the instructions from the ComfyUI Wiki to install ComfyUI on your Ubuntu 
 python3 --version
 
 # If Python is not installed or the version is too low, install it following these steps:
-sudo apt update
-sudo apt install python3 python3-pip python3-venv -y
+sudo apt-get update
+sudo apt-get install python3 python3-pip python3-venv -y
 
 # Create Virtual Environment
-# Using a virtual environment can avoid package conflict issues:
-# Create a virtual environment named comfy-env
+# Using a virtual environment can avoid package conflict issues
 python3 -m venv comfy-env
  
 # Activate the virtual environment
@@ -89,54 +96,33 @@ source comfy-env/bin/activate
 
 # Step 2: Install Comfy CLI
 # Install comfy-cli in the activated virtual environment:
-
 pip install comfy-cli
 
-# Configure Command Line Auto-completion (Optional)
-# To get a better user experience, you can enable command line auto-completion:
-
-comfy --install-completion
-
-# Step 3: Install ComfyUI
-# Installing ComfyUI with comfy-cli is very simple, requiring just one command:
+# Step 3: Install ComfyUI using Comfy CLI with NVIDIA GPU Support
 # use 'yes' to accept all prompts
 yes | comfy install --nvidia
 
-# Step 4: Install GPU Support
-# NVIDIA GPU (CUDA)
-# If you’re using an NVIDIA GPU, you need to install CUDA support:
-
-# Install PyTorch with CUDA support
+# Step 4: Install GPU Support for PyTorch
 pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
 
 # Note: Please choose the corresponding PyTorch version based on your CUDA version. Visit the PyTorch website for the latest installation commands.
 
-# Step 5: Launch ComfyUI
-# After installation is complete, launch ComfyUI:
-# comfy launch
-
+# Step 5. Launch ComfyUI
 # By default, ComfyUI will run on http://localhost:8188.
-
-# Common Launch Options
-# Specify listen address and port
 # and don't forget the double -- 
-comfy launch --background -- --listen 0.0.0.0 --port 8080
- 
-# Use CPU mode
-# comfy launch -- --cpu
- 
-# Low VRAM mode
-# comfy launch -- --lowvram
- 
-# Ultra-low VRAM mode
-# comfy launch -- --novram
+comfy launch --background -- --listen 0.0.0.0 --port 8188
 ```
 
-## 4. Using ComfyUI for Text to Image
+>Note that you can run ComfyUI with different modes based on your hardware capabilities:
+`--cpu`: Use CPU mode, if you don't have a compatible GPU
+`--lowvram`: Low VRAM mode
+`--novram`: Ultra-low VRAM mode
 
-Once ComfyUI is running, you can access the web interface via your browser at `http://<VM_IP_ADDRESS>:8080` (replace `<VM_IP_ADDRESS>` with the actual IP address of your VM).
+## 3. Using ComfyUI for Text to Image
 
->Note that you should ensure that the VM's network security group (NSG) allows inbound traffic on port `8080`.
+Once ComfyUI is running, you can access the web interface via your browser at `http://<VM_IP_ADDRESS>:8188` (replace `<VM_IP_ADDRESS>` with the actual IP address of your VM).
+
+>Note that you should ensure that the VM's network security group (NSG) allows inbound traffic on port `8188`.
 
 You can create Text to Image generation workflows using the templates available in ComfyUI.
 
@@ -166,6 +152,8 @@ comfy model download --relative-path models/loras/ --filename pixel_art_style_z_
 ```
 
 ![comfy-model-download-cli.png](./images/comfy-model-download-cli.png)
+
+>Note that here you can either use `comfy model download` command or `wget` to download the models into their corresponding folders.
 
 Once the models are downloaded, you can run the Text to Video workflow in ComfyUI. You can also change the parameters as needed like the prompt.
 
@@ -206,6 +194,10 @@ comfy model download --relative-path models/loras/ --filename ltx-2-19b-distille
 
 comfy model download --relative-path models/loras/ --filename ltx-2-19b-lora-camera-control-dolly-left.safetensors --url https://huggingface.co/Lightricks/LTX-2-19b-LoRA-Camera-Control-Dolly-Left/resolve/main/ltx-2-19b-lora-camera-control-dolly-left.safetensors
 ```
+
+## Important notes
+
+Secure Boot is not supported using Windows or Linux extensions. For more information on manually installing GPU drivers with Secure Boot enabled, see Azure N-series GPU driver setup for Linux. Src: https://learn.microsoft.com/en-us/azure/virtual-machines/extensions/hpccompute-gpu-linux
 
 ## Sources
 
