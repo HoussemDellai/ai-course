@@ -2,8 +2,6 @@
 
 This guide provides instructions on how to set up and run `Text to Image` and `Text to Video` generation using `ComfyUI` with an `Nvidia H100 GPU` on Azure.
 
-
-
 ## Steps to create the infrastructure
 
 ### Option 1. Using Terraform (Recommended)
