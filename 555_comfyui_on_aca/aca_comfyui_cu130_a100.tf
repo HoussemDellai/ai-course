@@ -1,5 +1,5 @@
 # resource "azurerm_container_app" "aca_comfyui_cu130_a100" {
-#   container_app_environment_id = azurerm_container_app_environment.env.id
+#   container_app_environment_id = azurerm_container_app_environment.aca_environment.id
 #   name                         = "comfyui-cu130-a100"
 #   resource_group_name          = azurerm_resource_group.rg.name
 #   revision_mode                = "Single"

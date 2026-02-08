@@ -1,5 +1,5 @@
 resource "azurerm_container_app" "aca_comfyui_cu126_a100" {
-  container_app_environment_id = azurerm_container_app_environment.env.id
+  container_app_environment_id = azurerm_container_app_environment.aca_environment.id
   name                         = "comfyui-cu126-a100"
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
@@ -47,8 +47,8 @@ resource "azurerm_container_app" "aca_comfyui_cu126_a100" {
 
     volume {
       name         = "storage-comfyui"
-      storage_name = azurerm_container_app_environment_storage.storage_aca_comfyui.name
-      storage_type = "AzureFile" # "EmptyDir"
+      storage_name = azurerm_container_app_environment_storage.storage_aca_comfyui_nfs.name # azurerm_container_app_environment_storage.storage_aca_comfyui.name
+      storage_type = "NfsAzureFile" # "AzureFile" # AzureFile (SMB) or NfsAzureFile (NFS) # Volume with Nfs Azure File storage is only supported for container app on managed environment with custom VNet.
     }
   }
 }

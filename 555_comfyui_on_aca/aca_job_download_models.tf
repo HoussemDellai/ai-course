@@ -2,7 +2,7 @@ resource "azurerm_container_app_job" "aca_job_download_models" {
   name                         = "aca-job-download-models"
   location                     = azurerm_resource_group.rg.location
   resource_group_name          = azurerm_resource_group.rg.name
-  container_app_environment_id = azurerm_container_app_environment.env.id
+  container_app_environment_id = azurerm_container_app_environment.aca_environment.id
   workload_profile_name        = "Consumption"
   replica_timeout_in_seconds   = 1200
   replica_retry_limit          = 10
@@ -24,14 +24,21 @@ resource "azurerm_container_app_job" "aca_job_download_models" {
       volume_mounts {
         name = "storage-comfyui"
         path = "/root/ComfyUI/"
-        # path = "/mnt/app-azure-file"
       }
     }
 
     volume {
       name         = "storage-comfyui"
-      storage_name = azurerm_container_app_environment_storage.storage_aca_comfyui.name
-      storage_type = "AzureFile" # "EmptyDir"
+      storage_name = azurerm_container_app_environment_storage.storage_aca_comfyui_nfs.name
+      storage_type = "NfsAzureFile" # "EmptyDir"
     }
   }
+}
+
+# trigger the job to start downloading models to the storage
+resource "azapi_resource_action" "start_job" {
+  type        = "Microsoft.App/jobs@2025-07-01"
+  resource_id = azurerm_container_app_job.aca_job_download_models.id
+  action      = "start"
+  method      = "POST"
 }
