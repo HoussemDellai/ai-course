@@ -37,6 +37,8 @@ Because of an issue with the Terraform provider, it won't create the Serverless 
 
 To mount NFS Azure Files, you must use a Container Apps environment with a custom VNet. The Storage account must be configured to allow access from the VNet. Src: https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts?tabs=nfs&pivots=azure-resource-manager#configuration-1
 
+The NFS protocol can only be used from a machine inside of a virtual network.
+
 🔍 SMB vs NFS — What’s the Difference?
 SMB (Server Message Block) and NFS (Network File System) are two protocols used to provide shared file storage over a network.
 They serve similar purposes but have different strengths, performance characteristics, and typical use cases.
@@ -52,3 +54,8 @@ They serve similar purposes but have different strengths, performance characteri
 | **File locking** | Mandatory locking | Advisory locking |
 | **Best use cases** | Windows applications, Office files, user profiles | Linux workloads, Kubernetes pods, HPC, data processing |
 | **Azure equivalent** | Azure Files (SMB) | Azure Files (NFS), Azure NetApp Files (NFS) |
+
+
+## Resources
+
+https://azureossd.github.io/2025/10/17/Setting-up-a-NFS-volume-with-Azure-Container-Apps/index.html
