@@ -1,6 +1,6 @@
 # !/bin/bash
 
-cd /root/comfy/ComfyUI/
+cd /root/ComfyUI/
 
 ########################################################
 # Download the Z-Image-Turbo Text to Image components

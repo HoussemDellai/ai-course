@@ -19,8 +19,7 @@ resource "azurerm_container_app_job" "aca_job_download_models" {
       cpu     = 0.5
       memory  = "1Gi"
       command = ["/bin/bash"]
-
-      args    = ["-c", "apt-get update && apt-get install -y wget && wget "]
+      args    = ["-c", "apt-get update && apt-get install -y wget && wget https://raw.githubusercontent.com/HoussemDellai/ai-course/refs/heads/main/555_comfyui_on_aca/download-models-comfyui.sh && chmod +x /download-models-comfyui.sh && /download-models-comfyui.sh"]
     #   args    = ["-c", "apt-get update && apt-get install -y wget && wget -O /root/ComfyUI/models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors > /root/ComfyUI/job2.txt"]
     #   args    = ["-c", "echo Downloading models... > /root/ComfyUI/job.txt && sleep 30 && echo Models downloaded!"]
 
