@@ -38,6 +38,17 @@ resource "azurerm_container_app" "aca_comfyui_cu126_t4" {
         name  = "CLI_ARGS"
         value = "--disable-xformers"
       }
+
+      volume_mounts {
+        name = "storage-comfyui"
+        path = "/root/ComfyUI/"
+      }
+    }
+
+    volume {
+      name         = "storage-comfyui"
+      storage_name = azurerm_container_app_environment_storage.storage_aca_comfyui.name
+      storage_type = "AzureFile" # "EmptyDir"
     }
   }
 }

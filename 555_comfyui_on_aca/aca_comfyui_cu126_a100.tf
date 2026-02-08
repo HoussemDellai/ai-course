@@ -42,7 +42,6 @@ resource "azurerm_container_app" "aca_comfyui_cu126_a100" {
       volume_mounts {
         name = "storage-comfyui"
         path = "/root/ComfyUI/"
-        # path = "/mnt/app-azure-file"
       }
     }
 
