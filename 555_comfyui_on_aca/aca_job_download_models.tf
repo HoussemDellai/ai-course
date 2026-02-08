@@ -4,7 +4,7 @@ resource "azurerm_container_app_job" "aca_job_download_models" {
   resource_group_name          = azurerm_resource_group.rg.name
   container_app_environment_id = azurerm_container_app_environment.env.id
   workload_profile_name        = "Consumption"
-  replica_timeout_in_seconds   = 600
+  replica_timeout_in_seconds   = 1200
   replica_retry_limit          = 10
 
   manual_trigger_config {
