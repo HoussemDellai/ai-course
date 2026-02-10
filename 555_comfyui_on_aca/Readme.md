@@ -29,13 +29,21 @@ The ComfyUI application is deployed as a containerized workload on Azure Contain
 
 The Azure Log Analytics workspace is set up to collect logs and metrics from the container app environment. You can use Azure Monitor to view and analyze the logs and metrics for your ComfyUI deployment.
 
+To view the properties and the usage of the GPU behind Container Apps, the command `nvidia-smi` is helpful.
+
+![nvidia-smi command](./images/nvidia-smi.png)
+
+ComfyUI produces rich logs about the operations.
+
 ## Important Notes
 
-The storage account key is required to create the storage link in your Container Apps environment. Container Apps does not support identity-based access to Azure file shares. Src: https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts-azure-files?tabs=bash#set-up-a-storage-account
+The storage account key is required to create the storage link in your Container Apps environment. Container Apps does not support identity-based access to Azure file shares. For that it is mandatory to disable `Secure Transfer` at the Storage Account. Src: https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts-azure-files?tabs=bash#set-up-a-storage-account
 
 Because of an issue with the Terraform provider, it won't create the Serverless GPU (A100 & T4) workload profiles. You will need to create them manually in the Azure Portal after running `terraform apply`.
 
-To mount NFS Azure Files, you must use a Container Apps environment with a custom VNet. The Storage account must be configured to allow access from the VNet. Src: https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts?tabs=nfs&pivots=azure-resource-manager#configuration-1
+Azure File Shares supports both `SMB` and `NFS`. Container Apps also supports both.
+
+To mount NFS Azure Files, you must use a Container Apps environment with a custom VNet. The Storage account must be configured to allow access from the VNet either using `Service Endpoint` or `Private Endpoint`. Src: https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts?tabs=nfs&pivots=azure-resource-manager#configuration-1
 
 The NFS protocol can only be used from a machine inside of a virtual network.
 
