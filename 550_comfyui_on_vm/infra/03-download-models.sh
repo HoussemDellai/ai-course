@@ -1,6 +1,12 @@
 # !/bin/bash
 
+# if folder doesn't exist create it
+mkdir -p /root/comfy/ComfyUI/
+
 cd /root/comfy/ComfyUI/
+
+# if folder doesn't exist create it
+mkdir -p models/text_encoders models/vae models/diffusion_models models/loras
 
 ########################################################
 # Download the Z-Image-Turbo Text to Image components
