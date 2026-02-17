@@ -11,19 +11,5 @@
   "extensionBundle": {
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
     "version": "[4.*, 5.0.0)"
-  },
-  "extensions": {
-    "mcp": {
-      "instructions": "Some test instructions on how to use the server",
-      "serverName": "TestServer",
-      "serverVersion": "2.0.0",
-      "encryptClientState": true,
-      "messageOptions": {
-        "useAbsoluteUriForEndpoint": false
-      },
-      "system": {
-        "webhookAuthorizationLevel": "System"
-      }
-    }    
   }
 }
