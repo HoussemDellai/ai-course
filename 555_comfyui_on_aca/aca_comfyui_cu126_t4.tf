@@ -51,6 +51,8 @@ resource "azurerm_container_app" "aca_comfyui_cu126_t4" {
       storage_type = "NfsAzureFile" # "AzureFile" # AzureFile (SMB) or NfsAzureFile (NFS) # Volume with Nfs Azure File storage is only supported for container app on managed environment with custom VNet.
     }
   }
+
+  depends_on = [ terraform_data.add_serverless_gpu_profile_GPU-NC8as-T4 ]
 }
 
 output "aca_comfyui_cu126_t4_fqdn" {

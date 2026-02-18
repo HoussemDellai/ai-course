@@ -7,7 +7,6 @@ resource "azurerm_storage_account" "storage" {
   shared_access_key_enabled = true
 
   tags = {
-    CostControl     = "Ignore"
     SecurityControl = "Ignore"
   }
 }

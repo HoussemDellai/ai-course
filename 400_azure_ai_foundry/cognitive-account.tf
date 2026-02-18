@@ -16,7 +16,6 @@ resource "azurerm_cognitive_account" "account" {
 
   tags = {
     SecurityControl = "Ignore"
-    CostControl     = "Ignore"
   }
 }
 

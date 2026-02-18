@@ -11,6 +11,5 @@ resource "azurerm_ai_services" "ai-services" {
 
   tags = {
     SecurityControl = "Ignore"
-    CostControl     = "Ignore"
   }
 }

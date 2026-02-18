@@ -9,7 +9,6 @@ resource "azurerm_storage_account" "storage" {
   # public_network_access_enabled   = true
 
   tags = {
-    CostControl     = "Ignore"
     SecurityControl = "Ignore"
   }
 }

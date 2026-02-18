@@ -1,4 +1,4 @@
 resource "azurerm_resource_group" "rg" {
-  name     = "rg-comfyui-aca-gpu-nvidia"
+  name     = "rg-aca-gpu-nvidia-comfyui"
   location = "swedencentral"
 }

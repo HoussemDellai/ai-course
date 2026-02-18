@@ -1,0 +1,13 @@
+{
+  "recommendations": [
+    "ms-azuretools.vscode-azurefunctions",
+    "ms-python.python",
+    "ms-python.black-formatter",
+    "ms-toolsai.jupyter",
+    "ms-azuretools.vscode-azureterraform",
+    "hashicorp.hcl",
+    "hashicorp.terraform",
+    "esbenp.prettier-vscode",
+    "vscode-icons-team.vscode-icons"
+  ]
+}

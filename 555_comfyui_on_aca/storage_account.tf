@@ -12,7 +12,6 @@ resource "azurerm_storage_account" "storage_comfyui" {
 
   tags = {
     SecurityControl = "Ignore"
-    CostControl     = "Ignore"
   }
 }
 

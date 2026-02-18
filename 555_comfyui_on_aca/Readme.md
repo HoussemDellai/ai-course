@@ -67,3 +67,48 @@ They serve similar purposes but have different strengths, performance characteri
 ## Resources
 
 https://azureossd.github.io/2025/10/17/Setting-up-a-NFS-volume-with-Azure-Container-Apps/index.html
+https://learn.microsoft.com/en-us/azure/container-apps/workload-profiles-overview
+
+### Consumption profile details
+
+| Profile names | vCPU range | Memory range | GPU type | Regions | Allocation |
+| --- | --- | --- | --- | --- | --- |
+| **Consumption** | 0.25-4 | 0.5-8 GiB |  | All supported regions | per replica |
+| **Consumption-GPU-NC24-A100, Consumption-GPU-NC8as-T4** | 8–24 | 56–220 GiB | NVIDIA T4, A100 | To see a full list of available regions, see [serverless GPU supported regions](https://learn.microsoft.com/en-us/azure/container-apps/gpu-serverless-overview#supported-regions) | per replica |
+
+All Consumption profiles support serverless scaling and are billed based on per‑replica usage.
+
+To get the supported profiles for a specific region, you can use the Azure CLI command:
+
+```sh
+az containerapp env workload-profile list-supported --location swedencentral -o table
+# Location       Name
+# -------------  -------------------------
+# swedencentral  D4
+# swedencentral  D8
+# swedencentral  D16
+# swedencentral  D32
+# swedencentral  E4
+# swedencentral  E8
+# swedencentral  E16
+# swedencentral  E32
+# swedencentral  Consumption
+# swedencentral  Flex
+# swedencentral  Consumption-GPU-NC24-A100
+# swedencentral  Consumption-GPU-NC8as-T4
+```
+
+### Dedicated profile details
+
+| Classification | Profile names | vCPU range | Memory range | GPU type | Regions | Allocation |
+| --- | --- | --- | --- | --- | --- | --- |
+| General Purpose | **D4, D8, D16, D32** | 4–32 | 16–128 GiB | None | All supported regions | per node |
+| Memory Optimized | **E4, E8, E16, E32** | 4–32 | 32–256 GiB | None | All supported regions | per node |
+| Confidential Compute | **DC4, DC8, DC16, DC32, DC48, DC64, DC96** | 4-96 | 16-384 GiB | None | UAENorth | per node |
+| GPU | **NC24-A100, NC48-A100, NC96-A100** | 24–96 | 220–880 GiB | A100 | West US 3, North Europe | per node |
+
+### Flexible profile details (preview)
+
+| Profile names | vCPU range | Memory range | Regions | Allocation |
+| --- | --- | --- | --- | --- |
+| **Flexible** | 0.25-4 | 0.5-16 GiB | Australia East, Brazil South, Canada Central, Canada East, Central India, East Asia, Germany West Central, Korea Central, North Europe, Southeast Asia, Sweden Central, UK West, West Central US, West US 3 | per replica |
