@@ -4,6 +4,7 @@
     "ms-python.python",
     "ms-python.black-formatter",
     "ms-toolsai.jupyter",
+    "ms-azuretools.vscode-bicep",
     "ms-azuretools.vscode-azureterraform",
     "hashicorp.hcl",
     "hashicorp.terraform",
