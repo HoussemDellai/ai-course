@@ -1,5 +1,3 @@
-# src: https://github.com/Azure-Samples/remote-mcp-functions-python/blob/main/src/function_app.py
-
 import json
 import logging
 
