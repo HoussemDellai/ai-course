@@ -31,19 +31,20 @@ resource "azurerm_service_plan" "app_service_plan_functions" {
 }
 
 resource "azurerm_function_app_flex_consumption" "function_app" {
-  name                          = "function-app-${var.prefix}"
+  name                          = "function-app-mcp-${var.prefix}"
   resource_group_name           = azurerm_resource_group.rg_functions.name
   location                      = azurerm_resource_group.rg_functions.location
   service_plan_id               = azurerm_service_plan.app_service_plan_functions.id
   public_network_access_enabled = true
   virtual_network_subnet_id     = null # Set to your subnet ID if you want to integrate with a VNet
   https_only                    = true
+  webdeploy_publish_basic_authentication_enabled = false
 
   storage_container_type            = "blobContainer"
   storage_container_endpoint        = "${azurerm_storage_account.storage_functions.primary_blob_endpoint}${azurerm_storage_container.container_functions.name}"
   storage_authentication_type       = "UserAssignedIdentity" # "StorageAccountConnectionString"
   storage_user_assigned_identity_id = azurerm_user_assigned_identity.identity_function_app.id
-  # storage_access_key          = azurerm_storage_account.storage_functions.primary_access_key
+  # # storage_access_key          = azurerm_storage_account.storage_functions.primary_access_key
 
   runtime_name           = "python"
   runtime_version        = "3.12" # 3.14 is in preview
