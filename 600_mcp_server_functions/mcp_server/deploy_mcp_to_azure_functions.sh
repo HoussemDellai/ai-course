@@ -11,4 +11,4 @@ func new --name HttpExample --template "HTTP trigger" --authlevel "function"
 # After you've successfully created your function app in Azure, you're now ready to deploy your local functions project by using the func azure functionapp publish command.
 # In your root project folder, run this func azure functionapp publish command:
 
-func azure functionapp publish function-app-700 --build remote
+func azure functionapp publish function-app-600 --build remote

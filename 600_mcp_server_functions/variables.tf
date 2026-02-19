@@ -1,3 +1,3 @@
 variable "prefix" {
-  default = "600"
+  default = "600a"
 }

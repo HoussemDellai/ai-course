@@ -1,3 +1,11 @@
+# resource "azurerm_service_plan" "app_service_plan_functions" {
+#   name                = "app-service-plan-functions"
+#   resource_group_name = azurerm_resource_group.rg.name
+#   location            = azurerm_resource_group.rg.location
+#   sku_name            = "FC1"
+#   os_type             = "Linux"
+# }
+
 # resource "azurerm_function_app_flex_consumption" "function_app" {
 #   name                                           = "function-app-mcp-${var.prefix}"
 #   resource_group_name                            = azurerm_resource_group.rg.name
@@ -15,7 +23,7 @@
 #   # # storage_access_key          = azurerm_storage_account.storage_functions.primary_access_key
 
 #   runtime_name           = "python"
-#   runtime_version        = "3.13" # 3.14 is in preview
+#   runtime_version        = "3.12" # 3.14 is in preview
 #   maximum_instance_count = 50
 #   instance_memory_in_mb  = 2048
 
@@ -33,12 +41,11 @@
 #   }
 
 #   app_settings = {
-#     AzureWebJobsStorage__accountName = azurerm_storage_account.storage_functions.name
-#     # AzureWebJobsStorage__credential      = "managedidentity"
-#     # AzureWebJobsStorage__clientId        = azurerm_user_assigned_identity.identity_function_app.client_id
-#     # AzureWebJobsStorage__blobServiceUri  = azurerm_storage_account.storage_functions.primary_blob_endpoint
-#     # AzureWebJobsStorage__queueServiceUri = azurerm_storage_account.storage_functions.primary_queue_endpoint
-#     # AzureWebJobsStorage__tableServiceUri = azurerm_storage_account.storage_functions.primary_table_endpoint
+#     AzureWebJobsStorage__credential      = "managedidentity"
+#     AzureWebJobsStorage__clientId        = azurerm_user_assigned_identity.identity_function_app.client_id
+#     AzureWebJobsStorage__blobServiceUri  = azurerm_storage_account.storage_functions.primary_blob_endpoint
+#     AzureWebJobsStorage__queueServiceUri = azurerm_storage_account.storage_functions.primary_queue_endpoint
+#     AzureWebJobsStorage__tableServiceUri = azurerm_storage_account.storage_functions.primary_table_endpoint
 
 #     # application_insights_connection_string = azurerm_application_insights.app_insights.connection_string
 #     # application_insights_key               = azurerm_application_insights.app_insights.instrumentation_key
