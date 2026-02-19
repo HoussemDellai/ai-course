@@ -98,19 +98,19 @@ resource "azurerm_role_assignment" "storage_blob_user" {
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
-# Storage Queue Data Contributor
-resource "azurerm_role_assignment" "storage_queue_mi" {
-  scope                = azurerm_storage_account.storage_functions.id
-  role_definition_name = "Storage Queue Data Contributor"
-  principal_id         = azurerm_user_assigned_identity.identity_function_app.principal_id
-}
+# # Storage Queue Data Contributor
+# resource "azurerm_role_assignment" "storage_queue_mi" {
+#   scope                = azurerm_storage_account.storage_functions.id
+#   role_definition_name = "Storage Queue Data Contributor"
+#   principal_id         = azurerm_user_assigned_identity.identity_function_app.principal_id
+# }
 
-# Storage Table Data Contributor
-resource "azurerm_role_assignment" "storage_table_mi" {
-  scope                = azurerm_storage_account.storage_functions.id
-  role_definition_name = "Storage Table Data Contributor"
-  principal_id         = azurerm_user_assigned_identity.identity_function_app.principal_id
-}
+# # Storage Table Data Contributor
+# resource "azurerm_role_assignment" "storage_table_mi" {
+#   scope                = azurerm_storage_account.storage_functions.id
+#   role_definition_name = "Storage Table Data Contributor"
+#   principal_id         = azurerm_user_assigned_identity.identity_function_app.principal_id
+# }
 
 # data "azurerm_client_config" "current" {}
 
