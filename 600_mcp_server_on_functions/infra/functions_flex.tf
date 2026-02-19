@@ -62,3 +62,4 @@ resource "azurerm_role_assignment" "storage_roleassignment" {
 output "functions_hostname" {
   value = azapi_resource.function_app.output.properties.defaultHostName
 }
+

@@ -5,7 +5,7 @@
             "id": "functions-mcp-extension-system-key",
             "description": "Azure Functions MCP Extension System Key",
             "password": true,
-			"default": "KryvhEWNU_55AAyX0JgWApEn3fq5qtXC9RQFrybE9Q5iAzFu52MiNQ=="
+			"default": "33enEV9LLxYxQBrohMD9SpxjA9T5wxMba1SGBn5pVLISAzFucxry4Q=="
         },
         {
             "type": "promptString",
