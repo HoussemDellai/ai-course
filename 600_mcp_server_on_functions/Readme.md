@@ -77,9 +77,11 @@ az functionapp keys list -g rg-mcp-server-on-functions-600a -n function-app-mcp-
 # 33enEV9LLxYxQBrohMD9SpxjA9T5wxMba1SGBn5pVLISAzFucxry4Q==
 ```
 
-Now you need to start the MCP Server by clicking the Start link in the mcp.json file.
+Now you need to start the MCP Server by clicking the Start link in the `mcp.json` file.
 
 ![start MCP Server](./images/start_mcp_server.png)
+
+Note that you will be interrupted by VS Code to enter the Function name and system key for MCP extension.
 
 Then you should be able to use it in the Chat window in Github Copilot.
 
