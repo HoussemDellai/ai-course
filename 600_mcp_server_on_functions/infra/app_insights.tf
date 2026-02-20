@@ -10,17 +10,3 @@ resource "azurerm_application_insights" "app_insights" {
   internet_query_enabled        = true
   local_authentication_disabled = true
 }
-
-output "app_insights_instrumentation_key" {
-  value     = azurerm_application_insights.app_insights.instrumentation_key
-  sensitive = true
-}
-
-output "app_insights_instrumentation_connection_string" {
-  value     = azurerm_application_insights.app_insights.connection_string
-  sensitive = true
-}
-
-output "app_insights_app_id" {
-  value = azurerm_application_insights.app_insights.app_id
-}

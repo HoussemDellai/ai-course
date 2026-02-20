@@ -38,19 +38,19 @@ resource "azapi_resource" "function_app" {
             name  = "AzureWebJobsStorage__accountName",
             value = azurerm_storage_account.storage_functions.name
           },
-          # {
-          #   name  = "APPLICATIONINSIGHTS_AUTHENTICATION_STRING",
-          #   value = "Authorization=AAD;ClientId=${azapi_resource.function_app.identity[0].principal_id}"
-          # }
           {
             name  = "APPLICATIONINSIGHTS_CONNECTION_STRING",
             value = azurerm_application_insights.app_insights.connection_string
           }
+          # {
+          #   name  = "APPLICATIONINSIGHTS_AUTHENTICATION_STRING",
+          #   value = "Authorization=AAD;ClientId=${azapi_resource.function_app.identity[0].principal_id}"
+          # }
         ]
       }
     }
   }
-  
+
   response_export_values = ["id", "name", "location", "identity", "properties.defaultHostName"]
 }
 
@@ -58,10 +58,6 @@ resource "azurerm_role_assignment" "storage_roleassignment" {
   scope                = azurerm_storage_account.storage_functions.id
   role_definition_name = "Storage Blob Data Owner"
   principal_id         = azapi_resource.function_app.identity[0].principal_id
-}
-
-output "functions_hostname" {
-  value = azapi_resource.function_app.output.properties.defaultHostName
 }
 
 # get the system keys for the function app
@@ -72,6 +68,10 @@ data "azapi_resource_action" "function_app_system_keys" {
   method      = "POST"
 
   response_export_values = ["*"]
+}
+
+output "functions_hostname" {
+  value = azapi_resource.function_app.output.properties.defaultHostName
 }
 
 output "function_app_system_keys_mcp_extension" {
