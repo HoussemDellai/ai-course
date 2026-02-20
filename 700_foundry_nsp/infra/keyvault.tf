@@ -11,7 +11,7 @@ resource "azurerm_key_vault" "keyvault" {
 }
 
 resource "azurerm_key_vault_secret" "secret" {
-  name         = "secret-password-${var.prefix}"
+  name         = "secret-pass-${var.prefix}"
   value        = "@Aa123456789"
   key_vault_id = azurerm_key_vault.keyvault.id
 
