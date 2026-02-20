@@ -63,3 +63,17 @@ output "functions_hostname" {
   value = azapi_resource.function_app.output.properties.defaultHostName
 }
 
+# get the system keys for the function app
+data "azapi_resource_action" "function_app_system_keys" {
+  type        = "Microsoft.Web/sites/host@2024-04-01"
+  resource_id = "${azapi_resource.function_app.id}/host/default"
+  action      = "listkeys"
+  method      = "POST"
+
+  response_export_values = ["*"]
+}
+
+output "function_app_system_keys" {
+  value     = data.azapi_resource_action.function_app_system_keys.output
+  sensitive = true
+}
