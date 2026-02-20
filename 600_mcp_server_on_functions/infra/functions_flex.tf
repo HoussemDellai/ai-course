@@ -75,6 +75,6 @@ output "functions_hostname" {
 }
 
 output "function_app_system_keys_mcp_extension" {
-  value     = data.azapi_resource_action.function_app_system_keys.output.systemKeys.mcp_extension
+  value     = try(data.azapi_resource_action.function_app_system_keys.output.systemKeys.mcp_extension, "")
   sensitive = true
 }

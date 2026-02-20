@@ -2,7 +2,7 @@
 
 ## 1. Deploy the Azure resources using Terraform
 
-Use Terraform to deploy and configure the required resources.
+Use Terraform to deploy and configure the required resources. Make sure to run the command inside the `infra` folder.
 
 ```sh
 terraform init -upgrade
@@ -16,7 +16,7 @@ The following resources will be created.
 ## 2. Deploy the MCP Server as Azure Functions
 
 Use the sample MCP Server available under `mcp_server` folder implementation in Python and NodeJs.
-Deploy it to Azure Functions using `func azure functionapp publish` command.
+Deploy it to Azure Functions using `func azure functionapp publish` command.  Make sure to run the command inside the `mcp_server` folder.
 
 ```sh
 func azure functionapp publish <function-app-name> --build remote
