@@ -50,7 +50,8 @@ resource "azapi_resource" "function_app" {
       }
     }
   }
-  # depends_on = [azapi_resource.serverFarm, azurerm_application_insights.appInsights, azurerm_storage_account.storage]
+  
+  response_export_values = ["id", "name", "location", "identity", "properties.defaultHostName"]
 }
 
 resource "azurerm_role_assignment" "storage_roleassignment" {
@@ -73,7 +74,7 @@ data "azapi_resource_action" "function_app_system_keys" {
   response_export_values = ["*"]
 }
 
-output "function_app_system_keys" {
-  value     = data.azapi_resource_action.function_app_system_keys.output
+output "function_app_system_keys_mcp_extension" {
+  value     = data.azapi_resource_action.function_app_system_keys.output.systemKeys.mcp_extension
   sensitive = true
 }
