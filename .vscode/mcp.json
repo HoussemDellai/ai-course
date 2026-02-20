@@ -4,14 +4,12 @@
             "type": "promptString",
             "id": "functions-mcp-extension-system-key",
             "description": "Azure Functions MCP Extension System Key",
-            "password": true,
-			"default": "gYBP-T-7slGyuSEgEOCnwA4AXvag65liE0kjChC4HbgLAzFuoJud_A=="
+            "password": true
         },
         {
             "type": "promptString",
             "id": "functionapp-name",
-            "description": "Azure Functions App Name",
-			"default": "function-app-mcp-600"
+            "description": "Azure Functions App Name"
         }
     ],
     "servers": {
