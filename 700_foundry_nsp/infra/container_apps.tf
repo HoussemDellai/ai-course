@@ -134,6 +134,10 @@ resource "azurerm_container_app" "aca_agent" {
         value = azapi_resource.connection_bing_search_custom.name
       }
       env {
+        name  = "BING_CONFIGURATION_NAME"
+        value = azapi_resource.configuration_bing_search_custom.name
+      }
+      env {
         name  = "BING_CUSTOM_INSTANCE_NAME"
         value = azapi_resource.configuration_bing_search_custom.name
       }

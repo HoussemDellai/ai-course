@@ -18,7 +18,8 @@ resource "azurerm_role_assignment" "foundry_project_acrpull" {
   principal_id         = azurerm_cognitive_account_project.project.identity.0.principal_id
 }
 
-resource "azurerm_role_assignment" "role_azure_ai_user_foundry_project" {
+# Assign the Azure AI User role on your Foundry resource to your project's managed identity.
+resource "azurerm_role_assignment" "role_azure_ai_user_foundry" {
   scope                = azurerm_cognitive_account.foundry.id
   role_definition_name = "Azure AI User"
   principal_id         = azurerm_cognitive_account_project.project.identity.0.principal_id

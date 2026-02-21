@@ -100,3 +100,7 @@ output "keys_bing_search_custom" {
   value     = data.azapi_resource_action.keys_bing_search_custom.sensitive_output
   sensitive = true
 }
+
+output "configuration_bing_search_custom_name" {
+  value = azapi_resource.configuration_bing_search_custom.name
+}

@@ -65,3 +65,7 @@ resource "azapi_resource" "connection_foundry_app_insights" {
     }
   }
 }
+
+output "bing_custom_search_connection_name" {
+  value = azapi_resource.connection_bing_search_custom.name
+}

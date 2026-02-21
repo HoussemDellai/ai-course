@@ -31,12 +31,12 @@ resource "azurerm_cognitive_account" "foundry" {
 #   principal_id         = data.azurerm_client_config.current.object_id
 # }
 
-# # Azure AI User
-# resource "azurerm_role_assignment" "ai-user" {
-#   scope                = azurerm_cognitive_account.foundry.id
-#   role_definition_name = "Azure AI User"
-#   principal_id         = data.azurerm_client_config.current.object_id
-# }
+# Assign the Azure AI User role on your Foundry resource to your user principal.
+resource "azurerm_role_assignment" "ai-user" {
+  scope                = azurerm_cognitive_account.foundry.id
+  role_definition_name = "Azure AI User"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
 
 # # Azure AI Project Manager
 # resource "azurerm_role_assignment" "ai-project-manager" {

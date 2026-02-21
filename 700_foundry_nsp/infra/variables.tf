@@ -7,5 +7,5 @@ variable "hosted_agent_name" {
 }
 
 variable "hosted_agent_version" {
-  default = "v1.3.0-bingcustomsearch"
+  default = "v1.4.0-bingcustomsearch"
 }
