@@ -1,0 +1,2 @@
+- Host MCP Server in Container Apps: https://github.com/Azure-Samples/mcp-container-ts
+- Code interpreter with Foundry tools and with Container Apps

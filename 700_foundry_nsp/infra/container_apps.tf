@@ -127,7 +127,7 @@ resource "azurerm_container_app" "aca_agent" {
       }
       env {
         name  = "AZURE_AI_MODEL_DEPLOYMENT_NAME"
-        value = azurerm_cognitive_deployment.gpt_4o_mini.name
+        value = azurerm_cognitive_deployment.gpt_52.name
       }
       env {
         name  = "BING_CUSTOM_CONNECTION_NAME"
@@ -136,26 +136,6 @@ resource "azurerm_container_app" "aca_agent" {
       env {
         name  = "BING_CONFIGURATION_NAME"
         value = azapi_resource.configuration_bing_search_custom.name
-      }
-      env {
-        name  = "BING_CUSTOM_INSTANCE_NAME"
-        value = azapi_resource.configuration_bing_search_custom.name
-      }
-      env {
-        name  = "BING_CUSTOM_SEARCH_INSTANCE_NAME"
-        value = azapi_resource.bing_search_custom.name
-      }
-      env {
-        name  = "BING_CUSTOM_SEARCH_PROJECT_CONNECTION_NAME"
-        value = azapi_resource.connection_bing_search_custom.name
-      }
-      env {
-        name  = "BING_CUSTOM_CONNECTION_ID"
-        value = azapi_resource.connection_bing_search_custom.id
-      }
-      env {
-        name  = "BING_CUSTOM_SEARCH_PROJECT_CONNECTION_ID"
-        value = azapi_resource.connection_bing_search_custom.id
       }
       env {
         name  = "AZURE_CLIENT_ID" # Needed for authentication with User Assigned Identity and DefaultAzureCredential()
@@ -231,25 +211,29 @@ resource "azurerm_container_app" "aca_agent_monitoring" {
         value = azapi_resource.connection_bing_search_custom.name
       }
       env {
-        name  = "BING_CUSTOM_INSTANCE_NAME"
+        name  = "BING_CONFIGURATION_NAME"
         value = azapi_resource.configuration_bing_search_custom.name
       }
-      env {
-        name  = "BING_CUSTOM_SEARCH_INSTANCE_NAME"
-        value = azapi_resource.bing_search_custom.name
-      }
-      env {
-        name  = "BING_CUSTOM_SEARCH_PROJECT_CONNECTION_NAME"
-        value = azapi_resource.connection_bing_search_custom.name
-      }
-      env {
-        name  = "BING_CUSTOM_CONNECTION_ID"
-        value = azapi_resource.connection_bing_search_custom.id
-      }
-      env {
-        name  = "BING_CUSTOM_SEARCH_PROJECT_CONNECTION_ID"
-        value = azapi_resource.connection_bing_search_custom.id
-      }
+      # env {
+      #   name  = "BING_CUSTOM_INSTANCE_NAME"
+      #   value = azapi_resource.configuration_bing_search_custom.name
+      # }
+      # env {
+      #   name  = "BING_CUSTOM_SEARCH_INSTANCE_NAME"
+      #   value = azapi_resource.bing_search_custom.name
+      # }
+      # env {
+      #   name  = "BING_CUSTOM_SEARCH_PROJECT_CONNECTION_NAME"
+      #   value = azapi_resource.connection_bing_search_custom.name
+      # }
+      # env {
+      #   name  = "BING_CUSTOM_CONNECTION_ID"
+      #   value = azapi_resource.connection_bing_search_custom.id
+      # }
+      # env {
+      #   name  = "BING_CUSTOM_SEARCH_PROJECT_CONNECTION_ID"
+      #   value = azapi_resource.connection_bing_search_custom.id
+      # }
       env {
         name  = "AZURE_CLIENT_ID" # Needed for authentication with User Assigned Identity and DefaultAzureCredential()
         value = azurerm_user_assigned_identity.identity_aca.client_id
@@ -303,10 +287,10 @@ resource "azurerm_container_app" "aca_inspector_gadget" {
   }
 }
 
-output "aca_agent_fqdn" {
+output "aca_agent_endpoint" {
   value = azurerm_container_app.aca_agent.ingress.0.fqdn
 }
 
-output "aca_inspector_gadget_fqdn" {
+output "aca_inspector_gadget_endpoint" {
   value = azurerm_container_app.aca_inspector_gadget.ingress.0.fqdn
 }

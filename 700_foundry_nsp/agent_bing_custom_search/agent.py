@@ -1,17 +1,15 @@
-import os
+
 from agent_framework import ChatAgent
 from agent_framework_azure_ai import AzureAIAgentClient
 
 from azure.ai.agentserver.agentframework import from_agent_framework
-
-from azure.identity import DefaultAzureCredential as SyncDefaultAzureCredential
-
-from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
-
 from azure.ai.agents.models import BingCustomSearchTool
-
 from azure.ai.projects import AIProjectClient
 
+from azure.identity import DefaultAzureCredential as SyncDefaultAzureCredential
+from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
+
+import os
 from dotenv import load_dotenv
 
 load_dotenv()

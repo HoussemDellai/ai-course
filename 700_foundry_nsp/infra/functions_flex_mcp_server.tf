@@ -59,7 +59,7 @@ resource "azapi_resource" "function_app" {
     }
   }
 
-  response_export_values = ["id", "name", "location", "identity", "properties.defaultHostName"]
+  response_export_values = [] # ["id", "name", "location", "identity"] # , "properties.defaultHostName"]
 }
 
 resource "azurerm_role_assignment" "storage_roleassignment" {
@@ -69,7 +69,7 @@ resource "azurerm_role_assignment" "storage_roleassignment" {
 }
 
 output "functions_hostname" {
-  value = azapi_resource.function_app.output.properties.defaultHostName
+  value = "https://${azapi_resource.function_app.name}.azurewebsites.net" # azapi_resource.function_app.output.properties.defaultHostName
 }
 
 # get the system keys for the function app

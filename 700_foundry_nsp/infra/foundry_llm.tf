@@ -1,18 +1,18 @@
-# resource "azurerm_cognitive_deployment" "gpt_52" {
-#   name                 = "gpt-5.2"
-#   cognitive_account_id = azurerm_cognitive_account.foundry.id
+resource "azurerm_cognitive_deployment" "gpt_52" {
+  name                 = "gpt-5.2"
+  cognitive_account_id = azurerm_cognitive_account.foundry.id
 
-#   sku {
-#     name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
-#     capacity = 10
-#   }
+  sku {
+    name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
+    capacity = 1000
+  }
 
-#   model {
-#     format  = "OpenAI"
-#     name    = "gpt-5.2"
-#     version = "2025-12-11"
-#   }
-# }
+  model {
+    format  = "OpenAI"
+    name    = "gpt-5.2"
+    version = "2025-12-11"
+  }
+}
 
 resource "azurerm_cognitive_deployment" "gpt_4o_mini" {
   name                 = "gpt-4o-mini"
@@ -64,5 +64,5 @@ resource "azurerm_cognitive_deployment" "mistral_document_ai" {
 }
 
 output "llm_model_deployment_name" {
-  value = azurerm_cognitive_deployment.gpt_4o_mini.name
+  value = azurerm_cognitive_deployment.gpt_52.name
 }
