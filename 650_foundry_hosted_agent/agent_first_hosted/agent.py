@@ -22,7 +22,8 @@ Environment variables:
 
 async def main():
     async with (
-        AzureCliCredential() as credential,
+        # AzureCliCredential() as credential,
+        DefaultAzureCredential() as credential,
         AzureAIAgentClient(
             project_endpoint=os.environ["AZURE_AI_PROJECT_ENDPOINT"],
             model_deployment_name=os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"],
