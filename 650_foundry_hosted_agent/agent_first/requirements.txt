@@ -1,0 +1,18 @@
+agent-framework
+agent-framework-azure-ai
+
+azure-ai-agentserver-core
+azure-ai-agentserver-agentframework
+
+# agent-framework==1.0.0rc1
+# agent-framework-azure-ai==1.0.0rc1
+
+# azure-ai-agentserver-core==1.0.0b13
+# azure-ai-agentserver-agentframework==1.0.0b13
+
+azure-identity
+python-dotenv>=1.0.0
+
+# Temp fix for error: AttributeError: type object 'SpanAttributes' has no attribute 'LLM_SYSTEM'
+# Src: https://github.com/microsoft/agent-framework/issues/4160
+opentelemetry-semantic-conventions-ai==0.4.13

@@ -1,4 +1,3 @@
-
 resource "azurerm_cognitive_account_project" "project" {
   name                 = "foundry-project-${var.prefix}"
   cognitive_account_id = azurerm_cognitive_account.foundry.id

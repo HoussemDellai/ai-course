@@ -19,7 +19,7 @@ Use the sample MCP Server available under `mcp_server` folder implementation in 
 Deploy it to Azure Functions using `func azure functionapp publish` command.  Make sure to run the command inside the `mcp_server` folder.
 
 ```sh
-func azure functionapp publish <function-app-name> --build remote
+func azure functionapp publish function-app-mcp-600 --build remote # replace function name
 ```
 
 Verify that the functions are deployed correctly either by seeing their names at the end of the logs like following:
@@ -73,7 +73,7 @@ Note how it takes two parameter inputs: the name of the Azure Function and the s
 Or you can also retrieve it using Azure command line:
 
 ```sh
-az functionapp keys list -g rg-mcp-server-on-functions-600a -n function-app-mcp-600a --query systemKeys.mcp_extension -o tsv
+az functionapp keys list -g rg-mcp-server-on-functions-600 -n function-app-mcp-600 --query systemKeys.mcp_extension -o tsv
 # 33enEV9LLxYxQBrohMD9SpxjA9T5wxMba1SGBn5pVLISAzFucxry4Q==
 ```
 
@@ -100,6 +100,12 @@ Retrieve snippet1 and apply to newFile.py
 ```
 
 You should see the saved snippet in the Storage Account -> Blob Containers.
+
+![Snippets saved as blobs](./images/snippets-blob.png)
+
+## Monitoring MCP Servers with Application Insights
+
+You can check the logs and metrics coming from the Azure Functions in Application Insights.
 
 ## More resources
 

@@ -1,2 +1,5 @@
 - Host MCP Server in Container Apps: https://github.com/Azure-Samples/mcp-container-ts
+- MCP Server with API Center
 - Code interpreter with Foundry tools and with Container Apps
+- A2A
+- Multi-agent orchestration

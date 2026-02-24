@@ -1,7 +1,12 @@
-agent-framework==1.0.0b251223
-agent-framework-azure-ai==1.0.0b251223
-azure-ai-agentserver-agentframework==1.0.0b7
-azure-ai-agentserver-core==1.0.0b7
+agent-framework
+agent-framework-azure-ai
+azure-ai-agentserver-agentframework
+azure-ai-agentserver-core
+
+# agent-framework==1.0.0b251223
+# agent-framework-azure-ai==1.0.0b251223
+# azure-ai-agentserver-agentframework==1.0.0b7
+# azure-ai-agentserver-core==1.0.0b7
 
 azure-ai-projects
 

@@ -9,6 +9,8 @@
 *tfplan
 *tfplan.json
 
+*.venv
+
 # Crash log files
 crash.log
 

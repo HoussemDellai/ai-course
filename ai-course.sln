@@ -2,7 +2,29 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "020_azure_openai_csharp", "020_azure_openai_csharp", "{9A0E9C08-A3E7-5683-01B6-38E1B3D363DC}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "203_ag_ui", "203_ag_ui", "{BBFC7847-3BE8-7F3A-EEA1-65D7595502E9}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "_050_speech_to_text", "_050_speech_to_text", "{7ECECDC4-8833-D911-4E12-0A485F6A4C00}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "200_agentic_framework_hello", "200_agentic_framework_hello", "{0599EDDA-676D-4677-84E2-227DAC4B1E1A}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "200_azure_openai_csharp", "020_azure_openai_csharp\200_azure_openai_csharp.csproj", "{2D0A1A6C-E42F-8815-5CDA-4305DACB58B7}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "server", "server", "{6F4AC01C-3F42-845A-B60C-BBD84640BB2D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "agui-server", "203_ag_ui\server\agui-server.csproj", "{ECA614B6-EFEF-3ABD-B5F5-EE2E8A1DFBA3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpeechToTextApp", "_050_speech_to_text\SpeechToTextApp\SpeechToTextApp.csproj", "{5BF51CA2-0D7B-9525-2090-AA3816F767B6}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "csharp", "csharp", "{F9F4626F-7316-78B4-5177-64F74B1CD604}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgentAsMcpTool", "200_agentic_framework_hello\csharp\AgentAsMcpTool\AgentAsMcpTool.csproj", "{9D36CA9A-2A4B-234D-D5DE-A9A5D9059F4D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgentFramework101", "200_agentic_framework_hello\csharp\AgentFramework101\AgentFramework101.csproj", "{5DF6FC74-2F10-50A4-354D-00BAD2EF9C32}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgentObservabilityOtel", "200_agentic_framework_hello\csharp\AgentObservabilityOtel\AgentObservabilityOtel.csproj", "{AD169B78-4447-5E64-4B5A-E89AF22DFA9D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -14,11 +36,41 @@ Global
 		{2D0A1A6C-E42F-8815-5CDA-4305DACB58B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2D0A1A6C-E42F-8815-5CDA-4305DACB58B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2D0A1A6C-E42F-8815-5CDA-4305DACB58B7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ECA614B6-EFEF-3ABD-B5F5-EE2E8A1DFBA3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ECA614B6-EFEF-3ABD-B5F5-EE2E8A1DFBA3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ECA614B6-EFEF-3ABD-B5F5-EE2E8A1DFBA3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ECA614B6-EFEF-3ABD-B5F5-EE2E8A1DFBA3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5BF51CA2-0D7B-9525-2090-AA3816F767B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5BF51CA2-0D7B-9525-2090-AA3816F767B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5BF51CA2-0D7B-9525-2090-AA3816F767B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5BF51CA2-0D7B-9525-2090-AA3816F767B6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9D36CA9A-2A4B-234D-D5DE-A9A5D9059F4D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9D36CA9A-2A4B-234D-D5DE-A9A5D9059F4D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9D36CA9A-2A4B-234D-D5DE-A9A5D9059F4D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9D36CA9A-2A4B-234D-D5DE-A9A5D9059F4D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5DF6FC74-2F10-50A4-354D-00BAD2EF9C32}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5DF6FC74-2F10-50A4-354D-00BAD2EF9C32}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5DF6FC74-2F10-50A4-354D-00BAD2EF9C32}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5DF6FC74-2F10-50A4-354D-00BAD2EF9C32}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AD169B78-4447-5E64-4B5A-E89AF22DFA9D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AD169B78-4447-5E64-4B5A-E89AF22DFA9D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AD169B78-4447-5E64-4B5A-E89AF22DFA9D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AD169B78-4447-5E64-4B5A-E89AF22DFA9D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{2D0A1A6C-E42F-8815-5CDA-4305DACB58B7} = {9A0E9C08-A3E7-5683-01B6-38E1B3D363DC}
+		{6F4AC01C-3F42-845A-B60C-BBD84640BB2D} = {BBFC7847-3BE8-7F3A-EEA1-65D7595502E9}
+		{ECA614B6-EFEF-3ABD-B5F5-EE2E8A1DFBA3} = {6F4AC01C-3F42-845A-B60C-BBD84640BB2D}
+		{5BF51CA2-0D7B-9525-2090-AA3816F767B6} = {7ECECDC4-8833-D911-4E12-0A485F6A4C00}
+		{F9F4626F-7316-78B4-5177-64F74B1CD604} = {0599EDDA-676D-4677-84E2-227DAC4B1E1A}
+		{9D36CA9A-2A4B-234D-D5DE-A9A5D9059F4D} = {F9F4626F-7316-78B4-5177-64F74B1CD604}
+		{5DF6FC74-2F10-50A4-354D-00BAD2EF9C32} = {F9F4626F-7316-78B4-5177-64F74B1CD604}
+		{AD169B78-4447-5E64-4B5A-E89AF22DFA9D} = {F9F4626F-7316-78B4-5177-64F74B1CD604}
+	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
-		SolutionGuid = {115DFD45-5B66-4F04-823F-A9FA70B6F96E}
+		SolutionGuid = {EFFC010F-E8A6-4FBF-A88B-D406F57A7873}
 	EndGlobalSection
 EndGlobal
