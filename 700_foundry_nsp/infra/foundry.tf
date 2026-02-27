@@ -52,22 +52,22 @@ resource "azurerm_role_assignment" "ai-user" {
 # #   principal_id         = azurerm_ai_foundry_project.ai-foundry-project.identity.0.principal_id # azapi_resource.project.identity.0.principal_id
 # # }
 
-## Added AI Foundry account purger to avoid running into InUseSubnetCannotBeDeleted-lock caused by the agent subnet delegation.
-## The azapi_resource_action.purge_ai_foundry (only gets executed during destroy) purges the AI foundry account removing /subnets/snet-agent/serviceAssociationLinks/legionservicelink so the agent subnet can get properly removed.
-resource "azapi_resource_action" "purge_ai_foundry" {
-  method      = "DELETE"
-  resource_id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.CognitiveServices/locations/${azurerm_resource_group.rg.location}/resourceGroups/${azurerm_resource_group.rg.name}/deletedAccounts/foundry-${var.prefix}"
-  type        = "Microsoft.Resources/resourceGroups/deletedAccounts@2021-04-30"
-  when        = "destroy"
+# ## Added AI Foundry account purger to avoid running into InUseSubnetCannotBeDeleted-lock caused by the agent subnet delegation.
+# ## The azapi_resource_action.purge_ai_foundry (only gets executed during destroy) purges the AI foundry account removing /subnets/snet-agent/serviceAssociationLinks/legionservicelink so the agent subnet can get properly removed.
+# resource "azapi_resource_action" "purge_ai_foundry" {
+#   method      = "DELETE"
+#   resource_id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.CognitiveServices/locations/${azurerm_resource_group.rg.location}/resourceGroups/${azurerm_resource_group.rg.name}/deletedAccounts/foundry-${var.prefix}"
+#   type        = "Microsoft.Resources/resourceGroups/deletedAccounts@2021-04-30"
+#   when        = "destroy"
 
-  depends_on = [time_sleep.purge_ai_foundry_cooldown]
-}
+#   depends_on = [time_sleep.purge_ai_foundry_cooldown]
+# }
 
-resource "time_sleep" "purge_ai_foundry_cooldown" {
-  destroy_duration = "900s" # 10-15m is enough time to let the backend remove the /subnets/snet-agent/serviceAssociationLinks/legionservicelink
+# resource "time_sleep" "purge_ai_foundry_cooldown" {
+#   destroy_duration = "900s" # 10-15m is enough time to let the backend remove the /subnets/snet-agent/serviceAssociationLinks/legionservicelink
 
-  # depends_on = [azurerm_subnet.subnet_agent]
-}
+#   # depends_on = [azurerm_subnet.subnet_agent]
+# }
 
 output "foundry_name" {
   value = azurerm_cognitive_account.foundry.name

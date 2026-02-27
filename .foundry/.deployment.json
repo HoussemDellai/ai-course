@@ -1,0 +1,9 @@
+{
+  "hostedAgentDeployOptions": {
+    "dockerContextPath": "c:\\Users\\azureuser\\Desktop\\ai-course",
+    "dockerfilePath": "c:\\Users\\azureuser\\Desktop\\ai-course\\650_foundry_hosted_agent\\agent_local_tools\\Dockerfile",
+    "cpu": "0.5",
+    "memory": "1.0Gi",
+    "agentName": "agent-local-tools"
+  }
+}

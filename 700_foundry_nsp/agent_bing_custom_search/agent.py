@@ -1,4 +1,3 @@
-
 from agent_framework import ChatAgent
 from agent_framework_azure_ai import AzureAIAgentClient
 

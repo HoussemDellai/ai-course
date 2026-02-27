@@ -50,50 +50,6 @@ resource "azurerm_role_assignment" "role_azure_ai_user_aca" {
   principal_id         = azurerm_user_assigned_identity.identity_aca.principal_id
 }
 
-# resource "azurerm_container_app" "aca_gpu" {
-#   name                         = "aca-gpu"
-#   container_app_environment_id = azurerm_container_app_environment.env.id
-#   resource_group_name          = azurerm_resource_group.rg.name
-#   revision_mode                = "Single"
-#   workload_profile_name        = "GPU-NC8as-T4"
-
-#   identity {
-#     type         = "UserAssigned"
-#     identity_ids = [azurerm_user_assigned_identity.identity_aca.id]
-#   }
-
-#   registry {
-#     server   = azurerm_container_registry.acr.login_server
-#     identity = azurerm_user_assigned_identity.identity_aca.id
-#   }
-
-#   template {
-#     min_replicas = 1
-#     max_replicas = 3
-
-#     container {
-#       name   = "aca-gpu"
-#       image  = "mcr.microsoft.com/k8se/gpu-quickstart:latest"
-#       cpu    = 4
-#       memory = "8Gi"
-#     }
-#   }
-
-#   ingress {
-#     allow_insecure_connections = false
-#     external_enabled           = true
-#     target_port                = 80
-#     transport                  = "auto"
-
-#     traffic_weight {
-#       latest_revision = true
-#       percentage      = 100
-#     }
-#   }
-
-#   depends_on = [azurerm_role_assignment.role_acrpull_aca]
-# }
-
 resource "azurerm_container_app" "aca_agent" {
   name                         = "aca-agent"
   container_app_environment_id = azurerm_container_app_environment.env.id
