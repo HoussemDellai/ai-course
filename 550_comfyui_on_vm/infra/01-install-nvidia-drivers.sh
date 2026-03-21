@@ -20,9 +20,9 @@ sudo apt-get install cuda-toolkit-13-1 -y
 # 4. Reboot the system to apply changes
 sudo reboot
 
-# # 5. Verify that the GPU is correctly recognized (after reboot):
+# [Optional] 5. Verify that the GPU is correctly recognized (after reboot):
 # nvidia-smi
 
-# # 6. We recommend that you periodically update NVIDIA drivers after deployment.
+# [Optional] 6. We recommend that you periodically update NVIDIA drivers after deployment.
 # sudo apt-get update
 # sudo apt-get full-upgrade -y

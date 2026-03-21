@@ -1,4 +1,4 @@
-# !/bin/bash
+#!/bin/bash
 
 ###################################
 ### 2. Install ComfyUI on Ubuntu

@@ -1,4 +1,4 @@
-# !/bin/bash
+#!/bin/bash
 
 # if folder doesn't exist create it
 mkdir -p /root/comfy/ComfyUI/
