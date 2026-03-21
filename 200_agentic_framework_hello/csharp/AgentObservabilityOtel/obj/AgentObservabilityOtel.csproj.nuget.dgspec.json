@@ -1,25 +1,32 @@
 {
   "format": 1,
   "restore": {
-    "D:\\projects\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj": {}
+    "C:\\Users\\azureuser\\Desktop\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj": {}
   },
   "projects": {
-    "D:\\projects\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj": {
+    "C:\\Users\\azureuser\\Desktop\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\projects\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj",
+        "projectUniqueName": "C:\\Users\\azureuser\\Desktop\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj",
         "projectName": "AgentObservabilityOtel",
-        "projectPath": "D:\\projects\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj",
-        "packagesPath": "C:\\Users\\hodellai\\.nuget\\packages\\",
-        "outputPath": "D:\\projects\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\obj\\",
+        "projectPath": "C:\\Users\\azureuser\\Desktop\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj",
+        "packagesPath": "C:\\Users\\azureuser\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\azureuser\\Desktop\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\obj\\",
         "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
         "configFilePaths": [
-          "C:\\Users\\hodellai\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\azureuser\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
           "net10.0"
         ],
         "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -84,7 +91,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json",
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.103/PortableRuntimeIdentifierGraph.json",
           "packagesToPrune": {
             "Microsoft.AspNetCore": "(,10.0.32767]",
             "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",

@@ -1,25 +1,32 @@
 {
   "format": 1,
   "restore": {
-    "D:\\projects\\ai-course\\020_azure_openai_csharp\\200_azure_openai_csharp.csproj": {}
+    "C:\\Users\\azureuser\\Desktop\\ai-course\\020_azure_openai_csharp\\200_azure_openai_csharp.csproj": {}
   },
   "projects": {
-    "D:\\projects\\ai-course\\020_azure_openai_csharp\\200_azure_openai_csharp.csproj": {
+    "C:\\Users\\azureuser\\Desktop\\ai-course\\020_azure_openai_csharp\\200_azure_openai_csharp.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\projects\\ai-course\\020_azure_openai_csharp\\200_azure_openai_csharp.csproj",
+        "projectUniqueName": "C:\\Users\\azureuser\\Desktop\\ai-course\\020_azure_openai_csharp\\200_azure_openai_csharp.csproj",
         "projectName": "200_azure_openai_csharp",
-        "projectPath": "D:\\projects\\ai-course\\020_azure_openai_csharp\\200_azure_openai_csharp.csproj",
-        "packagesPath": "C:\\Users\\hodellai\\.nuget\\packages\\",
-        "outputPath": "D:\\projects\\ai-course\\020_azure_openai_csharp\\obj\\",
+        "projectPath": "C:\\Users\\azureuser\\Desktop\\ai-course\\020_azure_openai_csharp\\200_azure_openai_csharp.csproj",
+        "packagesPath": "C:\\Users\\azureuser\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\azureuser\\Desktop\\ai-course\\020_azure_openai_csharp\\obj\\",
         "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
         "configFilePaths": [
-          "C:\\Users\\hodellai\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\azureuser\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
         ],
         "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -64,6 +71,24 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
+          "downloadDependencies": [
+            {
+              "name": "Microsoft.AspNetCore.App.Ref",
+              "version": "[8.0.24, 8.0.24]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Host.win-x64",
+              "version": "[8.0.24, 8.0.24]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Ref",
+              "version": "[8.0.24, 8.0.24]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Ref",
+              "version": "[8.0.24, 8.0.24]"
+            }
+          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
