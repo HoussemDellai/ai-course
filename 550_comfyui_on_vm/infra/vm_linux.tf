@@ -56,12 +56,12 @@ resource "azurerm_linux_virtual_machine" "vm_linux" {
   }
 }
 
-output "vm_linux_public_ip" {
-  value = azurerm_public_ip.pip_vm_linux.ip_address
-}
-
 output "vm_linux_private_ip" {
   value = azurerm_network_interface.nic_vm_linux.private_ip_address
+}
+
+output "vm_linux_public_ip" {
+  value = azurerm_public_ip.pip_vm_linux.ip_address
 }
 
 output "comfyui_portal" {
