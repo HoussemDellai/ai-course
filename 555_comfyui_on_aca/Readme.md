@@ -14,8 +14,12 @@ This repository contains the code and instructions to run ComfyUI on Azure Conta
 
 ```bash
 terraform init
-terraform apply
+terraform apply --auto-approve
 ```
+
+The foolowing resources will be created:
+
+![Azure Resources](./images/resources.png)
 
 ## ComfyUI Deployment
 
