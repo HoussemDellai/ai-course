@@ -217,6 +217,60 @@ wget -P models/diffusion_models/ https://huggingface.co/black-forest-labs/FLUX.2
 wget -P models/diffusion_models/ https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/resolve/main/flux-2-klein-9b-fp8.safetensors
 ```
 
+## Monitoring GPU Usage
+
+You can monitor the GPU usage on your VM using the `nvidia-smi` command. This will show you the current GPU utilization, memory usage, and the processes that are using the GPU.
+
+```sh
+nvidia-smi
+# +-----------------------------------------------------------------------------------------+
+# | NVIDIA-SMI 580.126.09             Driver Version: 580.126.09     CUDA Version: 13.0     |
+# +-----------------------------------------+------------------------+----------------------+
+# | GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+# | Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+# |                                         |                        |               MIG M. |
+# |=========================================+========================+======================|
+# |   0  NVIDIA H100 NVL                Off |   00000001:00:00.0 Off |                    0 |
+# | N/A   50C    P0             97W /  400W |   34719MiB /  95830MiB |      0%      Default |
+# |                                         |                        |             Disabled |
+# +-----------------------------------------+------------------------+----------------------+
+
+# +-----------------------------------------------------------------------------------------+
+# | Processes:                                                                              |
+# |  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+# |        ID   ID                                                               Usage      |
+# |=========================================================================================|
+# |    0   N/A  N/A            5004      C   ...mfyui/0/comfy-env/bin/python3      34710MiB |
+# +-----------------------------------------------------------------------------------------+
+```
+
+You can watch for the GPU utilization and memory usage to see how ComfyUI is utilizing the GPU resources during Text to Image and Text to Video generation.
+
+```sh
+watch -n 1 nvidia-smi
+```
+
+There is also an option to use `gpustat` for a more concise view of GPU usage. You can install it with the following command:
+
+```sh
+sudo apt-get update
+sudo apt-get install gpustat
+```
+
+Then you can run `gpustat` to monitor GPU usage:
+
+```sh
+gpustat
+# vm-linux-comfyui    Sat Mar 21 15:18:09 2026  580.126.09
+# [0] NVIDIA H100 NVL | 42°C,   0 % | 34718 / 95830 MB | root(34710M)
+```
+
+You can also use `gpustat` with the `--watch` option to continuously monitor the GPU usage in real-time:
+
+```sh
+gpustat --show-power --watch | grep "NVIDIA H100 NVL"
+```
+
 ## Important notes
 
 Secure Boot is not supported using Windows or Linux extensions. For more information on manually installing GPU drivers with Secure Boot enabled, see Azure N-series GPU driver setup for Linux. Src: https://learn.microsoft.com/en-us/azure/virtual-machines/extensions/hpccompute-gpu-linux
