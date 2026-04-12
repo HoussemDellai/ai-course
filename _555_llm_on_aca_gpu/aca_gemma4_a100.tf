@@ -40,6 +40,7 @@ resource "azurerm_container_app" "aca_gemma4_cu130_a100" {
         "--tensor-parallel-size", "1",
         "--max-model-len", "8736",
         "--gpu-memory-utilization", "0.85",
+        "--limit-mm-per-prompt", "image=4,audio=1,video=1",
         "--host", "0.0.0.0",
         "--port", "8000"
       ]
