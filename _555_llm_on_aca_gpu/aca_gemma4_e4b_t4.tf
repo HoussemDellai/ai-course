@@ -40,7 +40,6 @@ resource "azurerm_container_app" "aca_gemma4_e4b_it_t4" {
         "--tensor-parallel-size", "1",
         "--max-model-len", "1024",
         "--gpu-memory-utilization", "0.90",
-        "--limit-mm-per-prompt", jsonencode({ "images" : 1, "videos" : 0, "audios" : 0 }),
         "--host", "0.0.0.0",
         "--port", "8000"
       ]
@@ -55,10 +54,10 @@ resource "azurerm_container_app" "aca_gemma4_e4b_it_t4" {
       # }
 
 
-      # vllm serve google/gemma-4-31B-it \
+      # vllm serve google/gemma-4-E4B-it \
       #   --tensor-parallel-size 1 \
-      #   --max-model-len 8736 \
-      #   --gpu-memory-utilization 0.85 \
+      #   --max-model-len 1024 \
+      #   --gpu-memory-utilization 0.90 \
       #   --host 0.0.0.0 \
       #   --port 8000
 
