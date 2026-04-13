@@ -29,8 +29,8 @@ resource "azurerm_container_app" "aca_gemma4_e4b_it_a100" {
     container {
       image  = "vllm/vllm-openai:gemma4-cu130"
       name   = "gemma4-cu130"
-      cpu    = 10      # 24      # 8
-      memory = "100Gi" # "220Gi" # "56Gi"
+      cpu    = 6      # 24      # 8
+      memory = "60Gi" # "220Gi" # "56Gi"
       # args    = []
       # command = []
 
