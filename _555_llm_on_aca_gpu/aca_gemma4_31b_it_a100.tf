@@ -41,6 +41,10 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
         "--max-model-len", "8736",
         "--gpu-memory-utilization", "0.85",
         "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
+        "--enable-auto-tool-choice",
+        "--tool-call-parser", "gemma4",
+        "--reasoning-parser", "gemma4",
+        "--chat-template", "examples/tool_chat_template_gemma4.jinja",
         "--host", "0.0.0.0",
         "--port", "8000"
       ]

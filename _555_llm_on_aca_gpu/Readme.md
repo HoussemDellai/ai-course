@@ -24,3 +24,4 @@ The foolowing resources will be created:
 ## Important notes
 
 The Gemma 4 E4B model weights alone consume more than what the T4 can hold. The model already used 15.28 GiB and still needed another 1.25 GiB when it crashed while creating the lm_head layer.
+
