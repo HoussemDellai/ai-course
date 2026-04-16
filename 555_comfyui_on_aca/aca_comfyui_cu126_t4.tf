@@ -29,8 +29,8 @@ resource "azurerm_container_app" "aca_comfyui_cu126_t4" {
     container {
       image   = "yanwk/comfyui-boot:cu126-slim"
       name    = "comfyui"
-      cpu     = 8      # 8
-      memory  = "56Gi" # "56Gi"
+      cpu     = 2      # 8 max for NC8as T4, 24 for NC24 A100
+      memory  = "10Gi" # "56Gi" max for NC8as T4, 220Gi for NC24 A100
       args    = []
       command = []
 

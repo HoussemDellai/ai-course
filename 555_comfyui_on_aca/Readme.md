@@ -116,3 +116,41 @@ az containerapp env workload-profile list-supported --location swedencentral -o 
 | Profile names | vCPU range | Memory range | Regions | Allocation |
 | --- | --- | --- | --- | --- |
 | **Flexible** | 0.25-4 | 0.5-16 GiB | Australia East, Brazil South, Canada Central, Canada East, Central India, East Asia, Germany West Central, Korea Central, North Europe, Southeast Asia, Sweden Central, UK West, West Central US, West US 3 | per replica |
+
+### Cost of GPU serverless profiles
+
+### NC T4 v3 Monthly Cost Breakdown
+
+| Resource                | Calculation                       | Monthly Cost ($) |
+| ----------------------- | --------------------------------- | ---------------- |
+| NC T4 v3 (GPU)          | 0.000095 × 60 × 60 × 24 × 30      | 246.24           |
+| NC T4 v3 (vCPU ×8)      | 0.000024 × 60 × 60 × 24 × 30 × 8  | 497.664          |
+| NC T4 v3 (Memory ×56GB) | 0.000003 × 60 × 60 × 24 × 30 × 56 | 435.456          |
+| **TOTAL**               | 246.24 + 497.664 + 435.456        | **1,179.36**     |
+
+### NC A100 v4 Monthly Cost Breakdown
+
+| Resource                   | Calculation                        | Monthly Cost ($) |
+| -------------------------- | ---------------------------------- | ---------------- |
+| NC A100 v4 (GPU)           | 0.000688 × 60 × 60 × 24 × 30       | 1,783.296        |
+| NC A100 v4 (vCPU ×24)      | 0.000024 × 60 × 60 × 24 × 30 × 24  | 1,492.992        |
+| NC A100 v4 (Memory ×220GB) | 0.000003 × 60 × 60 × 24 × 30 × 220 | 1,710.72         |
+| **TOTAL**                  | 1,783.296 + 1,492.992 + 1,710.72   | **4,987.008**    |
+
+*The GPU prices shown above are in addition to the active usage vCPU and RAM prices for your Container App
+
+## Important notes
+
+* In Serverless GPU profiles, the GPU cost is in addition to the active usage vCPU and RAM prices for your Container App.
+You pay for the entire GPU cost, even if your Container App only uses a fraction of the GPU's resources.
+But, for CPU and Memory, you only pay for the resources your Container App actually reserves.
+To reduce cost, it is very important to right-size the vCPU and Memory for your Container App when using Serverless GPU profiles. You can use Azure Monitor to track the actual resource usage of your Container App and adjust the vCPU and Memory accordingly.
+
+Here is the vCPU, Memory and GPU consumption for the NC T4 v3 and NC A100 v4 Serverless GPU profiles with ComfyUI when running typical workloads.
+
+![](./images/gpu_a100.png)
+![](./images/vcpu_memory_a100.png)
+![](./images/gpu_t4.png)
+![](./images/vcpu_memory_t4.png)
+
+* Serverless GPU `NC A100 v4` profile VMs doesn't support latest NVIDIA drivers. Here we are not using the latest version of Cuda version. If you try a later version you may encounter the error: `/usr/local/lib64/python3.13/site-packages/torch/cuda/__init__.py:180: UserWarning: CUDA initialization: The NVIDIA driver on your system is too old (found version 12040). Please update your GPU driver`.

@@ -29,8 +29,8 @@
 #     container {
 #       image   = "yanwk/comfyui-boot:cu130-slim"
 #       name    = "comfyui"
-#       cpu     = 24      # 8
-#       memory  = "220Gi" # "56Gi"
+#       cpu     = 2     # 8 max for NC8as T4, 24 for NC24 A100
+#       memory  = "4Gi" # "56Gi" max for NC8as T4, 220Gi for NC24 A100
 #       args    = []
 #       command = []
 
@@ -38,8 +38,21 @@
 #         name  = "CLI_ARGS"
 #         value = "--disable-xformers"
 #       }
+
+#       volume_mounts {
+#         name = "storage-comfyui"
+#         path = "/root/ComfyUI/"
+#       }
+#     }
+
+#     volume {
+#       name         = "storage-comfyui"
+#       storage_name = azurerm_container_app_environment_storage.storage_aca_comfyui_nfs.name # azurerm_container_app_environment_storage.storage_aca_comfyui.name
+#       storage_type = "NfsAzureFile"                                                         # "AzureFile" # AzureFile (SMB) or NfsAzureFile (NFS) # Volume with Nfs Azure File storage is only supported for container app on managed environment with custom VNet.
 #     }
 #   }
+
+#   depends_on = [terraform_data.add_serverless_gpu_profile_GPU-NC24-A100]
 # }
 
 # output "aca_comfyui_cu130_a100_fqdn" {
