@@ -25,3 +25,10 @@ The foolowing resources will be created:
 
 The Gemma 4 E4B model weights alone consume more than what the T4 can hold. The model already used 15.28 GiB and still needed another 1.25 GiB when it crashed while creating the lm_head layer.
 
+## Cost of GPU Usage (USD/Month)
+
+| VM SKU              | Cost VM Regular | Cost VM Spot |      Cost ACA |
+| --------------------| --------------: | -----------: | ------------: |
+| **NC8as_T4_v3**     |             610 |          183 |   362 – 1,179 |
+| **NC24ads_A100_v4** |           3,388 |          610 | 1,836 – 4,987 |
+| **NC40ads_H100_v5** |           6,531 |        4,703 |           N.A |
