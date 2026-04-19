@@ -1,28 +1,51 @@
 {
-    "inputs": [
-        {
-            "type": "promptString",
-            "id": "functions-mcp-extension-system-key",
-            "description": "Azure Functions MCP Extension System Key",
-            "password": true
-        },
-        {
-            "type": "promptString",
-            "id": "functionapp-name",
-            "description": "Azure Functions App Name"
-        }
-    ],
-    "servers": {
-        "remote-mcp-server-function": {
-            "type": "http",
-            "url": "https://${input:functionapp-name}.azurewebsites.net/runtime/webhooks/mcp",
-            "headers": {
-                "x-functions-key": "${input:functions-mcp-extension-system-key}"
-            }
-        },
-        "local-mcp-server-function": {
-            "type": "http",
-            "url": "http://0.0.0.0:7071/runtime/webhooks/mcp"
-        }
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "functions-mcp-extension-system-key",
+      "description": "Azure Functions MCP Extension System Key",
+      "password": true
+    },
+    {
+      "type": "promptString",
+      "id": "functionapp-name",
+      "description": "Azure Functions App Name"
     }
+  ],
+  "servers": {
+    "drawio": {
+      "command": "npx",
+      "args": ["-y", "@drawio/mcp"]
+    },
+    // "apim-outbound-ips": {
+    //   "type": "http",
+    //   "url": "https://apim-genai-dpg3p-360.azure-api.net/myip/mcp"
+    // },
+    // "remote-mcp-server-function": {
+    //   "type": "http",
+    //   "url": "https://${input:functionapp-name}.azurewebsites.net/runtime/webhooks/mcp",
+    //   "headers": {
+    //     "x-functions-key": "${input:functions-mcp-extension-system-key}"
+    //   }
+    // },
+    // "local-mcp-server-function": {
+    //   "type": "http",
+    //   "url": "http://0.0.0.0:7071/runtime/webhooks/mcp"
+    // },
+    "web-search": {
+      "args": ["open-websearch@latest"],
+      "command": "npx",
+      "env": {
+        "MODE": "stdio",
+        "DEFAULT_SEARCH_ENGINE": "duckduckgo",
+        "ALLOWED_SEARCH_ENGINES": "duckduckgo,bing,exa"
+      }
+    }
+    // "web-search": {
+    //   "transport": {
+    //     "type": "streamableHttp",
+    //     "url": "http://localhost:3000/mcp"
+    //   }
+    // }
+  }
 }
