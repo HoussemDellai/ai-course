@@ -33,7 +33,7 @@ resource "azurerm_container_app" "mcp_server" {
 
       env {
         name  = "DEFAULT_SEARCH_ENGINE"
-        value = "bing" # bing, duckduckgo, exa, brave, baidu, csdn, juejin, startpage
+        value = "duckduckgo" # bing, duckduckgo, exa, brave, baidu, csdn, juejin, startpage
       }
       env {
         name  = "ALLOWED_SEARCH_ENGINES"
