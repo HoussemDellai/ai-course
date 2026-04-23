@@ -7,14 +7,14 @@ resource "azurerm_container_app_environment_storage" "storage_aca_llm_nfs" {
   access_mode                  = "ReadWrite" # "ReadOnly"
 }
 
-resource "azurerm_container_app_environment_storage" "storage_aca_llm_smb" {
-  name                         = "storage-aca-llm-smb"
-  container_app_environment_id = azurerm_container_app_environment.aca_environment.id
-  account_name                 = azurerm_storage_account.storage_llm.name
-  share_name                   = azurerm_storage_share.fileshare_llm.name
-  access_key                   = azurerm_storage_account.storage_llm.primary_access_key
-  access_mode                  = "ReadWrite" # "ReadOnly"
-}
+# resource "azurerm_container_app_environment_storage" "storage_aca_llm_smb" {
+#   name                         = "storage-aca-llm-smb"
+#   container_app_environment_id = azurerm_container_app_environment.aca_environment.id
+#   account_name                 = azurerm_storage_account.storage_llm.name
+#   share_name                   = azurerm_storage_share.fileshare_llm.name
+#   access_key                   = azurerm_storage_account.storage_llm.primary_access_key
+#   access_mode                  = "ReadWrite" # "ReadOnly"
+# }
 
 # role assignment to allow ACA environment to access the storage account File Share
 resource "azurerm_role_assignment" "aca_env_storage_blob_data_contributor" {

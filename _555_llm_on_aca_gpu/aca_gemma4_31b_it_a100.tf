@@ -22,7 +22,7 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
     min_replicas                     = 0
     max_replicas                     = 1
     polling_interval_in_seconds      = 30
-    cooldown_period_in_seconds       = 300
+    cooldown_period_in_seconds       = 1800 # 300
     termination_grace_period_seconds = 30
     revision_suffix                  = ""
 
@@ -55,12 +55,32 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
 
       env {
         name  = "VLLM_CACHE_ROOT"
-        value = "~/.cache/vllm"
+        value = "/root/.cache/vllm" # "~/.cache/vllm"
+      }
+
+      env {
+        name  = "HF_HOME"
+        value = "/root/.cache/huggingface" # Defaults to "~/.cache/huggingface" unless XDG_CACHE_HOME is set.
+      }
+
+      env {
+        name  = "HF_HUB_CACHE"
+        value = "/root/.cache/huggingface/hub" # Defaults to "$HF_HOME/hub" (e.g. "~/.cache/huggingface/hub" by default).
+      }
+
+      env {
+        name  = "HF_ASSETS_CACHE"
+        value = "/root/.cache/huggingface/assets" # Defaults to "$HF_HOME/assets" (e.g. "~/.cache/huggingface/assets" by default).
+      }
+
+      env {
+        name  = "HF_HUB_VERBOSITY"
+        value = "warning" # {"debug", "info", "warning", "error", "critical"}, Defaults to "warning".
       }
 
       volume_mounts {
         name = "storage-llm"
-        path = "~/.cache/" # "/root/.cache/huggingface/"
+        path = "/root/.cache/" # "/root/.cache/huggingface/"
       }
     }
 
