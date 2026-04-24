@@ -4,9 +4,9 @@ resource "azapi_resource" "aca_session_pool" {
   name                      = "acasessionpool"
   location                  = azurerm_resource_group.rg.location
   schema_validation_enabled = false
-  response_export_values    = ["properties.poolManagementEndpoint"]
+  response_export_values    = ["properties.poolManagementEndpoint", "properties.mcpServerSettings.mcpServerEndpoint"]
 
-  body = {
+   body = {
     properties = {
       containerType      = "PythonLTS"
       poolManagementType = "Dynamic"
@@ -61,5 +61,8 @@ output "sessionpool_apikey" {
 
 output "sessionpool_management_endpoint" {
   value = azapi_resource.aca_session_pool.output.properties.poolManagementEndpoint
-  
+}
+
+output "mcp_sessionpool_endpoint" {
+  value = azapi_resource.aca_session_pool.output.properties.mcpServerSettings.mcpServerEndpoint
 }
