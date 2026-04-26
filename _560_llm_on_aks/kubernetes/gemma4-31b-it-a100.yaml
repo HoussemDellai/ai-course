@@ -1,0 +1,124 @@
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: llm-cache-pvc
+#   namespace: default
+# spec:
+#   accessModes:
+#     - ReadWriteMany
+#   storageClassName: azurefile-csi-nfs
+#   resources:
+#     requests:
+#       storage: 100Gi
+# ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gemma-4-31b-it-a100
+  namespace: default
+  labels:
+    app: gemma-4-31b-it-a100
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gemma-4-31b-it-a100
+  template:
+    metadata:
+      labels:
+        app: gemma-4-31b-it-a100
+    spec:
+      terminationGracePeriodSeconds: 30
+      tolerations:
+        - key: "kubernetes.azure.com/scalesetpriority"
+          operator: "Equal"
+          value: "spot"
+          effect: "NoSchedule"
+        - key: "node.kubernetes.io/disk-pressure"
+          operator: "Exists"
+          effect: "NoSchedule"
+      nodeSelector:
+        apps: phi-4
+      containers:
+        - name: gemma4-cu130
+          image: vllm/vllm-openai:gemma4-cu130
+          args:
+            - "--model"
+            - "google/gemma-4-31B-it"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--max-model-len"
+            - "8736"
+            - "--gpu-memory-utilization"
+            - "0.85"
+            - "--limit-mm-per-prompt"
+            - '{"images": 4, "videos": 1, "audios": 1}'
+            - "--enable-auto-tool-choice"
+            - "--tool-call-parser"
+            - "gemma4"
+            - "--reasoning-parser"
+            - "gemma4"
+            - "--chat-template"
+            - "examples/tool_chat_template_gemma4.jinja"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          # env:
+          #   - name: VLLM_CACHE_ROOT
+          #     value: "/root/.cache/vllm"
+          #   - name: HF_HOME
+          #     value: "/root/.cache/huggingface"
+          #   - name: HF_HUB_CACHE
+          #     value: "/root/.cache/huggingface/hub"
+          #   - name: HF_ASSETS_CACHE
+          #     value: "/root/.cache/huggingface/assets"
+          #   - name: HF_HUB_VERBOSITY
+          #     value: "warning"
+          # volumeMounts:
+          #   - name: storage-llm
+          #     mountPath: /root/.cache/
+          resources:
+            requests:
+              cpu: "1"
+              memory: "8Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "24"
+              memory: "220Gi"
+              nvidia.com/gpu: "1"
+          # readinessProbe:
+          #   httpGet:
+          #     path: /health
+          #     port: 8000
+          #   initialDelaySeconds: 120
+          #   periodSeconds: 10
+          # livenessProbe:
+          #   httpGet:
+          #     path: /health
+          #     port: 8000
+          #   initialDelaySeconds: 120
+          #   periodSeconds: 30
+      # volumes:
+      #   - name: storage-llm
+      #     persistentVolumeClaim:
+      #       claimName: llm-cache-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gemma-4-31b-it-a100
+  namespace: default
+  labels:
+    app: gemma-4-31b-it-a100
+spec:
+  type: LoadBalancer
+  selector:
+    app: gemma-4-31b-it-a100
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP

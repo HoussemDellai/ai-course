@@ -21,7 +21,6 @@ resource "azurerm_subnet" "snet_aca" {
   }
 }
 
-# snet PE
 resource "azurerm_subnet" "snet_pe" {
   name                 = "snet-pe"
   resource_group_name  = azurerm_virtual_network.vnet.resource_group_name

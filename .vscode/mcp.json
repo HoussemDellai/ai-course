@@ -40,12 +40,20 @@
         "DEFAULT_SEARCH_ENGINE": "duckduckgo",
         "ALLOWED_SEARCH_ENGINES": "duckduckgo,bing,exa"
       }
-    }
+    },
     // "web-search": {
     //   "transport": {
     //     "type": "streamableHttp",
     //     "url": "http://localhost:3000/mcp"
     //   }
     // }
+    "aca_sessionpool_python": {
+      "url": "https://swedencentral.dynamicsessions.io/subscriptions/dcef7009-6b94-4382-afdc-17eb160d709a/resourceGroups/rg-aca-gpu-nvidia-555/sessionPools/acasessionpool/mcp",
+      "type": "http",
+
+      "headers": {
+        "x-ms-apikey": "9dfe4e513169445fba9f0e3748deb544"
+      }
+    }
   }
 }
