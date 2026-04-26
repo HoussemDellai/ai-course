@@ -16,9 +16,8 @@ resource "azurerm_storage_account" "storage_llm" {
 }
 
 resource "azurerm_storage_share" "fileshare_llm" {
-  name               = "fileshare-llm"
+  name               = "fileshare-models"
   storage_account_id = azurerm_storage_account.storage_llm.id
   enabled_protocol   = "NFS" # "SMB" or "NFS". Defaults to SMB
   quota              = 1024  # GB
 }
-

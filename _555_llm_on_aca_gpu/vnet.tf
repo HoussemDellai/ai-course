@@ -6,10 +6,11 @@ resource "azurerm_virtual_network" "vnet" {
 }
 
 resource "azurerm_subnet" "snet_aca" {
-  name                 = "snet-aca"
-  resource_group_name  = azurerm_virtual_network.vnet.resource_group_name
-  virtual_network_name = azurerm_virtual_network.vnet.name
-  address_prefixes     = ["10.0.1.0/26"]
+  name                            = "snet-aca"
+  resource_group_name             = azurerm_virtual_network.vnet.resource_group_name
+  virtual_network_name            = azurerm_virtual_network.vnet.name
+  address_prefixes                = ["10.0.1.0/26"]
+  default_outbound_access_enabled = true
 
   delegation {
     name = "delegation"
@@ -22,8 +23,9 @@ resource "azurerm_subnet" "snet_aca" {
 }
 
 resource "azurerm_subnet" "snet_pe" {
-  name                 = "snet-pe"
-  resource_group_name  = azurerm_virtual_network.vnet.resource_group_name
-  virtual_network_name = azurerm_virtual_network.vnet.name
-  address_prefixes     = ["10.0.2.0/27"]
+  name                            = "snet-pe"
+  resource_group_name             = azurerm_virtual_network.vnet.resource_group_name
+  virtual_network_name            = azurerm_virtual_network.vnet.name
+  address_prefixes                = ["10.0.2.0/27"]
+  default_outbound_access_enabled = true
 }
