@@ -19,7 +19,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "nc24ads_a100_v4" {
 
   node_labels = {
     "kubernetes.azure.com/scalesetpriority" = "spot"
-    "apps"                                  = "phi-4"
+    "apps"                                  = "llm"
   }
 
   node_taints = [

@@ -1,19 +1,32 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-cache-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: managed-csi-premium
+  resources:
+    requests:
+      storage: 512Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gemma-4-31b-it-a100-nvme
+  name: gemma-4-31b-it-a100-disk
   namespace: default
   labels:
-    app: gemma-4-31b-it-a100-nvme
+    app: gemma-4-31b-it-a100-disk
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: gemma-4-31b-it-a100-nvme
+      app: gemma-4-31b-it-a100-disk
   template:
     metadata:
       labels:
-        app: gemma-4-31b-it-a100-nvme
+        app: gemma-4-31b-it-a100-disk
     spec:
       terminationGracePeriodSeconds: 30
       tolerations:
@@ -21,24 +34,11 @@ spec:
           operator: "Equal"
           value: "spot"
           effect: "NoSchedule"
-        - key: "nvidia.com/gpu"
+        - key: "node.kubernetes.io/disk-pressure"
           operator: "Exists"
           effect: "NoSchedule"
       nodeSelector:
-        apps: phi-4
-      initContainers:
-        - name: init-nvme
-          image: busybox:1.36
-          command:
-            - sh
-            - -c
-            - |
-              echo "Preparing local NVMe disk for model cache..."
-              mkdir -p /nvme/cache
-              chmod 777 /nvme/cache
-          volumeMounts:
-            - name: local-nvme
-              mountPath: /nvme
+        apps: llm
       containers:
         - name: gemma4-cu130
           image: vllm/vllm-openai:gemma4-cu130
@@ -79,49 +79,33 @@ spec:
             - name: HF_HUB_VERBOSITY
               value: "warning"
           volumeMounts:
-            - name: local-nvme
+            - name: storage-llm
               mountPath: /root/.cache/
-              subPath: cache
           resources:
             requests:
               cpu: "1"
               memory: "8Gi"
               nvidia.com/gpu: "1"
-              ephemeral-storage: "200Gi"
             limits:
               cpu: "24"
               memory: "220Gi"
               nvidia.com/gpu: "1"
-              ephemeral-storage: "400Gi"
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 120
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 120
-            periodSeconds: 30
       volumes:
-        - name: local-nvme
-          hostPath:
-            path: /mnt
-            type: DirectoryOrCreate
+        - name: storage-llm
+          persistentVolumeClaim:
+            claimName: llm-cache-pvc
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: gemma-4-31b-it-a100-nvme
+  name: gemma-4-31b-it-a100-disk
   namespace: default
   labels:
-    app: gemma-4-31b-it-a100-nvme
+    app: gemma-4-31b-it-a100-disk
 spec:
   type: LoadBalancer
   selector:
-    app: gemma-4-31b-it-a100-nvme
+    app: gemma-4-31b-it-a100-disk
   ports:
     - port: 80
       targetPort: 8000

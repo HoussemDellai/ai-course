@@ -5,6 +5,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   dns_prefix                = "aks"
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
+  k
 
   network_profile {
     network_plugin      = "azure" # var.aks_network_plugin # "kubenet", "azure", "none"
