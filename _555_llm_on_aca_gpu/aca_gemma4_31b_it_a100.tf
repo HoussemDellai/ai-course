@@ -22,7 +22,7 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
     min_replicas                     = 0
     max_replicas                     = 1
     polling_interval_in_seconds      = 30
-    cooldown_period_in_seconds       = 1800 # 300
+    cooldown_period_in_seconds       = 1800 # 300 # 3600 # 
     termination_grace_period_seconds = 30
     revision_suffix                  = ""
 
@@ -36,8 +36,8 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
       args = [
         "--model", "google/gemma-4-31B-it",
         "--tensor-parallel-size", "1",
-        "--max-model-len", "8736",
-        "--gpu-memory-utilization", "0.85",
+        "--max-model-len", "262144",
+        "--gpu-memory-utilization", "0.9",
         "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
         "--enable-auto-tool-choice",
         "--tool-call-parser", "gemma4",

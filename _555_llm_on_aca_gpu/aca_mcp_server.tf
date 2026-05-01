@@ -37,7 +37,7 @@ resource "azurerm_container_app" "mcp_server" {
       }
       env {
         name  = "ALLOWED_SEARCH_ENGINES"
-        value = "" #	empty (all available) or comma-separated list of allowed engines from the above list
+        value = "duckduckgo" #	empty (all available) or comma-separated list of allowed engines from the above list
       }
       env {
         name  = "PORT"
