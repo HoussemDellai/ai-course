@@ -37,7 +37,7 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
         "--model", "google/gemma-4-31B-it",
         "--tensor-parallel-size", "1",
         "--max-model-len", "262144",
-        "--gpu-memory-utilization", "0.9",
+        "--gpu-memory-utilization", "0.85",
         "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
         "--enable-auto-tool-choice",
         "--tool-call-parser", "gemma4",

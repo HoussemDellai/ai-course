@@ -26,7 +26,7 @@ resource "azurerm_container_app" "mcp_server" {
     termination_grace_period_seconds = 30
 
     container {
-      image  = "ghcr.io/aas-ee/open-web-search:v2.1.6"
+      image  = "ghcr.io/aas-ee/open-web-search:v2.1.8"
       name   = "mcp-server"
       cpu    = 0.5
       memory = "1Gi"
