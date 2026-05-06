@@ -5,7 +5,6 @@ resource "azurerm_kubernetes_cluster" "aks" {
   dns_prefix                = "aks"
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
-  k
 
   network_profile {
     network_plugin      = "azure" # var.aks_network_plugin # "kubenet", "azure", "none"
@@ -30,6 +29,16 @@ resource "azurerm_kubernetes_cluster" "aks" {
       node_soak_duration_in_minutes = 1
       undrainable_node_behavior     = "Cordon" # "Schedule"
     }
+  }
+
+  web_app_routing {
+    default_nginx_controller = "External" # None, Internal, External and AnnotationControlled. Defaults to AnnotationControlled.
+    dns_zone_ids             = []
+  }
+
+  workload_autoscaler_profile {
+    keda_enabled                    = true
+    vertical_pod_autoscaler_enabled = false
   }
 
   identity {

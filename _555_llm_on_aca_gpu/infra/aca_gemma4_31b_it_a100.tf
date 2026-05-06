@@ -33,26 +33,13 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
       memory = "8Gi" # "220Gi" # "56Gi"
 
       # The image entrypoint stays as-is; these are the args you passed after the image name.
-      args = [
-        "--model", "google/gemma-4-31B-it",
-        "--tensor-parallel-size", "1",
-        "--max-model-len", "262144",
-        "--gpu-memory-utilization", "0.85",
-        "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
-        "--speculative-config", jsonencode({ "model": "gg-hf-am/gemma-4-31B-it-assistant", "num_speculative_tokens": 4 }),
-        "--enable-auto-tool-choice",
-        "--tool-call-parser", "gemma4",
-        "--reasoning-parser", "gemma4",
-        "--chat-template", "examples/tool_chat_template_gemma4.jinja",
-        "--host", "0.0.0.0",
-        "--port", "8000"
-      ]
       # args = [
       #   "--model", "google/gemma-4-31B-it",
       #   "--tensor-parallel-size", "1",
       #   "--max-model-len", "262144",
       #   "--gpu-memory-utilization", "0.85",
       #   "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
+      #   "--speculative-config", jsonencode({ "model": "gg-hf-am/gemma-4-31B-it-assistant", "num_speculative_tokens": 4 }),
       #   "--enable-auto-tool-choice",
       #   "--tool-call-parser", "gemma4",
       #   "--reasoning-parser", "gemma4",
@@ -60,6 +47,19 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
       #   "--host", "0.0.0.0",
       #   "--port", "8000"
       # ]
+      args = [
+        "--model", "google/gemma-4-31B-it",
+        "--tensor-parallel-size", "1",
+        "--max-model-len", "262144",
+        "--gpu-memory-utilization", "0.85",
+        "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
+        "--enable-auto-tool-choice",
+        "--tool-call-parser", "gemma4",
+        "--reasoning-parser", "gemma4",
+        "--chat-template", "examples/tool_chat_template_gemma4.jinja",
+        "--host", "0.0.0.0",
+        "--port", "8000"
+      ]
 
       # # Optional: HF token if needed for gated models
       # env {

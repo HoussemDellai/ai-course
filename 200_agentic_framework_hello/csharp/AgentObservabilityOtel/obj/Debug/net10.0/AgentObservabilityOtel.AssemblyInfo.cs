@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AgentObservabilityOtel")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+99b4a987fc961be137f4ac23d42a3d076f45aba1")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5473f1cc2ae3664f4005ab06537fa09e3262f780")]
 [assembly: System.Reflection.AssemblyProductAttribute("AgentObservabilityOtel")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AgentObservabilityOtel")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
