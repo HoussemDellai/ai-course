@@ -39,7 +39,7 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
         "--max-model-len", "262144",
         "--gpu-memory-utilization", "0.85",
         "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
-        "--speculative-config", jsonencode({"model": "gg-hf-am/gemma-4-31B-it-assistant", "num_speculative_tokens": 4}),
+        "--speculative-config", jsonencode({ "model": "gg-hf-am/gemma-4-31B-it-assistant", "num_speculative_tokens": 4 }),
         "--enable-auto-tool-choice",
         "--tool-call-parser", "gemma4",
         "--reasoning-parser", "gemma4",
