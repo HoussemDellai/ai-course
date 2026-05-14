@@ -1,6 +1,6 @@
-resource "azurerm_container_app" "mcp_server" {
+resource "azurerm_container_app" "mcp_server_open_web_search" {
   container_app_environment_id = azurerm_container_app_environment.aca_environment.id
-  name                         = "mcp-server"
+  name                         = "aca-mcp-server-open-web-search"
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
   workload_profile_name        = "Consumption"
@@ -26,18 +26,26 @@ resource "azurerm_container_app" "mcp_server" {
     termination_grace_period_seconds = 30
 
     container {
-      image  = "ghcr.io/aas-ee/open-web-search:v2.1.8"
+      image  = "ghcr.io/aas-ee/open-web-search:v2.1.10"
       name   = "mcp-server"
       cpu    = 0.5
       memory = "1Gi"
 
       env {
         name  = "DEFAULT_SEARCH_ENGINE"
-        value = "duckduckgo" # bing, duckduckgo, exa, brave, baidu, csdn, juejin, startpage
+        value = "startpage" # bing, duckduckgo, exa, brave, baidu, csdn, juejin, startpage
       }
       env {
         name  = "ALLOWED_SEARCH_ENGINES"
-        value = "duckduckgo" #	empty (all available) or comma-separated list of allowed engines from the above list
+        value = "duckduckgo,startpage" #	empty (all available) or comma-separated list of allowed engines from the above list
+      }
+      env {
+        name  = "ENABLE_CORS"
+        value = "true"
+      }
+      env {
+        name  = "CORS_ORIGIN"
+        value = "*"
       }
       env {
         name  = "PORT"
@@ -47,6 +55,6 @@ resource "azurerm_container_app" "mcp_server" {
   }
 }
 
-output "aca_mcp_server_fqdn" {
-  value = azurerm_container_app.mcp_server.ingress.0.fqdn
+output "aca_mcp_server_open_web_search_fqdn" {
+  value = azurerm_container_app.mcp_server_open_web_search.ingress.0.fqdn
 }

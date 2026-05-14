@@ -31,8 +31,8 @@ resource "azurerm_container_app" "aca_debugger" {
       name    = "nginx"
       cpu     = 1
       memory  = "2Gi"
-      command = ["/bin/bash"]
-      args    = ["-c", "apt-get update && apt-get install -y wget"]
+      # command = ["/bin/bash"]
+      # args    = ["-c", "apt-get update && apt-get install -y wget"]
 
 
       volume_mounts {

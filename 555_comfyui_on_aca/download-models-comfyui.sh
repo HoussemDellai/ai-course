@@ -100,3 +100,35 @@ wget -P models/vae/ \
 
 wget -P models/clip_vision/ \
   https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors
+
+# ########################################################
+# # Download Image Ernie components
+# ########################################################
+
+wget -P models/diffusion_models/ \
+  https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/main/diffusion_models/ernie-image-turbo.safetensors
+
+wget -P models/text_encoders/ \
+  https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/main/text_encoders/ministral-3-3b.safetensors
+
+wget -P models/text_encoders/ \
+  https://huggingface.co/Comfy-Org/ERNIE-Image/resolve/main/text_encoders/ernie-image-prompt-enhancer.safetensors
+
+# ########################################################
+# # Download LTX 2.3 components
+# ########################################################
+
+wget -P models/checkpoints/ \
+  https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-dev-fp8.safetensors
+
+wget -P models/latent_upscale_models/ \
+  https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
+
+wget -P models/loras/ \
+  https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-distilled-lora-384.safetensors
+
+wget -P models/loras/ \
+  https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/loras/gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors
+
+wget -P models/text_encoders/ \
+  https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors
