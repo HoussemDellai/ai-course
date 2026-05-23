@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("agui-server")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+429281389d049e8d6ce1e2e1f329fe8734b66da8")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5990c11a55df13b8251fa934847443744d267308")]
 [assembly: System.Reflection.AssemblyProductAttribute("agui-server")]
 [assembly: System.Reflection.AssemblyTitleAttribute("agui-server")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
