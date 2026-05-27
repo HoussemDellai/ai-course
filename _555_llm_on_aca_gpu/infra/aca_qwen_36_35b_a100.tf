@@ -35,16 +35,16 @@ resource "azurerm_container_app" "aca_qwen_36_35b_a100" {
       args = [
         "--model", "Qwen/Qwen3.6-35B-A3B",
         "--tensor-parallel-size", "1",
-        "--max-model-len", "262144",
-        "--gpu-memory-utilization", "0.85",
+        "--max-model-len", "131072",
+        "--gpu-memory-utilization", "0.92",
         "--enable-auto-tool-choice",
         "--tool-call-parser", "qwen3_coder",
         "--reasoning-parser", "qwen3",
-        "--speculative-config", jsonencode({"method": "mtp", "num_speculative_tokens": 2}),
         "--enable-prefix-caching",
         "--host", "0.0.0.0",
         "--port", "8000"
       ]
+        # "--speculative-config", jsonencode({"method": "mtp", "num_speculative_tokens": 2}),
 
       # # Optional: HF token if needed for gated models
       # env {
