@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AgentAsMcpTool")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f1b3f5b23380d629b1684bdc0f53d71fec1d958f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c1d0244ab302486cd3cc529f2525b0b8a6b2f710")]
 [assembly: System.Reflection.AssemblyProductAttribute("AgentAsMcpTool")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AgentAsMcpTool")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

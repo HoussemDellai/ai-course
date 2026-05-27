@@ -1,6 +1,6 @@
-resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
+resource "azurerm_container_app" "aca_qwen_36_35b_a100" {
   container_app_environment_id = azurerm_container_app_environment.aca_environment.id
-  name                         = "gemma-4-31b-it-a100"
+  name                         = "qwen-3-6-35b-a100"
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
   workload_profile_name        = "GPU-NC24-A100" # "GPU-NC8as-T4"
@@ -27,38 +27,21 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
     revision_suffix                  = ""
 
     container {
-      image  = "vllm/vllm-openai:gemma4-cu130"
-      name   = "gemma4-cu130"
-      cpu    = 1     # 24      # 8
-      memory = "8Gi" # "220Gi" # "56Gi"
-
-      # The image entrypoint stays as-is; these are the args you passed after the image name.
-      # args = [
-      #   "--model", "google/gemma-4-31B-it",
-      #   "--tensor-parallel-size", "1",
-      #   "--max-model-len", "262144",
-      #   "--gpu-memory-utilization", "0.85",
-      #   "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
-      #   "--speculative-config", jsonencode({ "model": "gg-hf-am/gemma-4-31B-it-assistant", "num_speculative_tokens": 4 }),
-      #   "--enable-auto-tool-choice",
-      #   "--tool-call-parser", "gemma4",
-      #   "--reasoning-parser", "gemma4",
-      #   "--chat-template", "examples/tool_chat_template_gemma4.jinja",
-      #   "--host", "0.0.0.0",
-      #   "--port", "8000"
-      # ]
-      
-      # src: https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html#pip-nvidia-cuda
+      image  = "vllm/vllm-openai"
+      name   = "Qwen3.6-35B-A3B"
+      cpu    = 24      # 8
+      memory = "220Gi" # "56Gi"
+      # src: https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3.5.html#docker
       args = [
-        "--model", "google/gemma-4-31B-it",
+        "--model", "Qwen/Qwen3.6-35B-A3B",
         "--tensor-parallel-size", "1",
         "--max-model-len", "262144",
         "--gpu-memory-utilization", "0.85",
-        "--limit-mm-per-prompt", jsonencode({ "images" : 4, "videos" : 1, "audios" : 1 }),
         "--enable-auto-tool-choice",
-        "--tool-call-parser", "gemma4",
-        "--reasoning-parser", "gemma4",
-        "--chat-template", "examples/tool_chat_template_gemma4.jinja",
+        "--tool-call-parser", "qwen3_coder",
+        "--reasoning-parser", "qwen3",
+        "--speculative-config", jsonencode({"method": "mtp", "num_speculative_tokens": 2}),
+        "--enable-prefix-caching",
         "--host", "0.0.0.0",
         "--port", "8000"
       ]
@@ -115,6 +98,6 @@ resource "azurerm_container_app" "aca_gemma4_31b_it_a100" {
   depends_on = [terraform_data.add_serverless_gpu_profile_GPU-NC24-A100]
 }
 
-output "aca_gemma4_31b_it_a100_fqdn" {
-  value = azurerm_container_app.aca_gemma4_31b_it_a100.ingress.0.fqdn
+output "aca_qwen_36_35b_a100_fqdn" {
+  value = azurerm_container_app.aca_qwen_36_35b_a100.ingress.0.fqdn
 }
