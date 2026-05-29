@@ -35,12 +35,13 @@ resource "azurerm_container_app" "aca_qwen_36_35b_a100" {
       args = [
         "--model", "Qwen/Qwen3.6-35B-A3B",
         "--tensor-parallel-size", "1",
-        "--max-model-len", "131072",
+        "--max-model-len", "4000",
         "--gpu-memory-utilization", "0.92",
         "--enable-auto-tool-choice",
         "--tool-call-parser", "qwen3_coder",
         "--reasoning-parser", "qwen3",
         "--enable-prefix-caching",
+        "--max-num-seqs", "200",
         "--host", "0.0.0.0",
         "--port", "8000"
       ]
