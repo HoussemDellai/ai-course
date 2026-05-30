@@ -29,13 +29,13 @@ resource "azurerm_container_app" "aca_qwen_36_35b_a100" {
     container {
       image  = "vllm/vllm-openai"
       name   = "qwen36-35b-a3b"
-      cpu    = 24      # 8
-      memory = "220Gi" # "56Gi"
+      cpu    = 2 # 24      # 8
+      memory = "8Gi" # "220Gi" # "56Gi"
       # src: https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3.5.html#docker
       args = [
         "--model", "Qwen/Qwen3.6-35B-A3B",
         "--tensor-parallel-size", "1",
-        "--max-model-len", "4000",
+        "--max-model-len", "65536",
         "--gpu-memory-utilization", "0.92",
         "--enable-auto-tool-choice",
         "--tool-call-parser", "qwen3_coder",
