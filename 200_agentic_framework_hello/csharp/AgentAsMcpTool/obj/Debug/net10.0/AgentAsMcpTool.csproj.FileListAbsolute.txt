@@ -1,6 +1,0 @@
-D:\projects\ai-course\200_agentic_framework_hello\csharp\AgentAsMcpTool\obj\Debug\net10.0\AgentAsMcpTool.csproj.AssemblyReference.cache
-D:\projects\ai-course\200_agentic_framework_hello\csharp\AgentAsMcpTool\obj\Debug\net10.0\AgentAsMcpTool.GeneratedMSBuildEditorConfig.editorconfig
-D:\projects\ai-course\200_agentic_framework_hello\csharp\AgentAsMcpTool\obj\Debug\net10.0\AgentAsMcpTool.AssemblyInfoInputs.cache
-D:\projects\ai-course\200_agentic_framework_hello\csharp\AgentAsMcpTool\obj\Debug\net10.0\AgentAsMcpTool.AssemblyInfo.cs
-D:\projects\ai-course\200_agentic_framework_hello\csharp\AgentAsMcpTool\obj\Debug\net10.0\AgentAsMcpTool.csproj.CoreCompileInputs.cache
-D:\projects\ai-course\200_agentic_framework_hello\csharp\AgentAsMcpTool\obj\Debug\net10.0\AgentAsMcpTool.sourcelink.json
