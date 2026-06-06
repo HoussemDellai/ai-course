@@ -1,0 +1,211 @@
+<mxfile>
+  <diagram name="LLM on ACA GPU" id="arch-diagram">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" adaptiveColors="auto">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="LLM on Azure Container Apps with GPU" style="text;html=1;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="400" y="20" width="600" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Terraform-managed infrastructure | Sweden Central" style="text;html=1;fontSize=13;fontStyle=2;align=center;verticalAlign=middle;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="400" y="55" width="600" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Resource Group container -->
+        <mxCell id="rg" value="Resource Group: rg-aca-gpu-nvidia-555" style="swimlane;startSize=30;fillColor=#F5F5F5;strokeColor=#666666;fontStyle=1;fontSize=14;rounded=1;arcSize=4;swimlaneLine=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="1520" height="1060" as="geometry" />
+        </mxCell>
+
+        <!-- VNet container -->
+        <mxCell id="vnet" value="VNet: vnet-aca (10.0.0.0/16)" style="swimlane;startSize=28;fillColor=#E6F2FF;strokeColor=#4D9BFF;fontStyle=1;fontSize=12;rounded=1;arcSize=6;swimlaneLine=0;" vertex="1" parent="rg">
+          <mxGeometry x="30" y="50" width="940" height="980" as="geometry" />
+        </mxCell>
+
+        <!-- Subnet container -->
+        <mxCell id="subnet" value="Subnet: snet-aca (10.0.1.0/26) | Delegation: Microsoft.App/environments" style="swimlane;startSize=26;fillColor=#E8F5E9;strokeColor=#43A047;fontStyle=0;fontSize=11;rounded=1;arcSize=6;swimlaneLine=0;" vertex="1" parent="vnet">
+          <mxGeometry x="20" y="40" width="900" height="920" as="geometry" />
+        </mxCell>
+
+        <!-- ACA Environment container -->
+        <mxCell id="aca_env" value="Container App Environment: aca-env-gpu-llm" style="swimlane;startSize=30;fillColor=#FFF3E0;strokeColor=#FB8C00;fontStyle=1;fontSize=12;rounded=1;arcSize=6;swimlaneLine=0;" vertex="1" parent="subnet">
+          <mxGeometry x="15" y="40" width="870" height="860" as="geometry" />
+        </mxCell>
+
+        <!-- Workload Profiles box -->
+        <mxCell id="wp_box" value="Workload Profiles" style="swimlane;startSize=24;fillColor=#FFF8E1;strokeColor=#FFB300;fontStyle=1;fontSize=11;rounded=1;arcSize=8;swimlaneLine=0;" vertex="1" parent="aca_env">
+          <mxGeometry x="15" y="40" width="840" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="wp_consumption" value="Consumption" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCEDC8;strokeColor=#689F38;fontSize=10;fontStyle=1;" vertex="1" parent="wp_box">
+          <mxGeometry x="15" y="30" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="wp_d4" value="D4 (0-1)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCEDC8;strokeColor=#689F38;fontSize=10;fontStyle=1;" vertex="1" parent="wp_box">
+          <mxGeometry x="150" y="30" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="wp_t4" value="GPU NC8as-T4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#EF6C00;fontSize=10;fontStyle=1;" vertex="1" parent="wp_box">
+          <mxGeometry x="285" y="30" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="wp_a100" value="GPU NC24-A100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCCBC;strokeColor=#D84315;fontSize=10;fontStyle=1;" vertex="1" parent="wp_box">
+          <mxGeometry x="430" y="30" width="130" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- GPU Container Apps Section -->
+        <mxCell id="gpu_section_label" value="GPU-Accelerated LLM Containers (NC24-A100)" style="text;html=1;fontSize=12;fontStyle=5;align=left;verticalAlign=middle;fontColor=#D84315;" vertex="1" parent="aca_env">
+          <mxGeometry x="15" y="125" width="400" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Gemma 4 31B IT A100 (vLLM) -->
+        <mxCell id="gemma_vllm" value="" style="swimlane;startSize=0;fillColor=#FFFFFF;strokeColor=#1565C0;rounded=1;arcSize=10;shadow=1;" vertex="1" parent="aca_env">
+          <mxGeometry x="15" y="155" width="400" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="gemma_vllm_title" value="gemma-4-31b-it-a100" style="text;html=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="gemma_vllm">
+          <mxGeometry x="15" y="10" width="370" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="gemma_vllm_subtitle" value="vLLM OpenAI-Compatible Server" style="text;html=1;fontSize=11;fontStyle=2;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#666666;" vertex="1" parent="gemma_vllm">
+          <mxGeometry x="15" y="30" width="370" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="gemma_vllm_details" value="&lt;div style='text-align:left;font-size:10px;line-height:1.6'&gt;&lt;b&gt;Image:&lt;/b&gt; vllm/vllm-openai:gemma4-cu130&lt;br/&gt;&lt;b&gt;Model:&lt;/b&gt; google/gemma-4-31B-it&lt;br/&gt;&lt;b&gt;GPU Profile:&lt;/b&gt; GPU-NC24-A100&lt;br/&gt;&lt;b&gt;Port:&lt;/b&gt; 8000 | &lt;b&gt;Replicas:&lt;/b&gt; 1-10&lt;br/&gt;&lt;b&gt;Max Ctx Len:&lt;/b&gt; 8736 | &lt;b&gt;GPU Util:&lt;/b&gt; 85%&lt;br/&gt;&lt;b&gt;Features:&lt;/b&gt; Tool calling, Reasoning, Multimodal&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;" vertex="1" parent="gemma_vllm">
+          <mxGeometry x="10" y="60" width="380" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- Gemma 4 31B IT A100 DockerHub -->
+        <mxCell id="gemma_dh" value="" style="swimlane;startSize=0;fillColor=#FFFFFF;strokeColor=#1565C0;rounded=1;arcSize=10;shadow=1;" vertex="1" parent="aca_env">
+          <mxGeometry x="435" y="155" width="400" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="gemma_dh_title" value="gemma-4-31b-it-a100-dockerhub" style="text;html=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="gemma_dh">
+          <mxGeometry x="15" y="10" width="370" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="gemma_dh_subtitle" value="Pre-built DockerHub Image" style="text;html=1;fontSize=11;fontStyle=2;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#666666;" vertex="1" parent="gemma_dh">
+          <mxGeometry x="15" y="30" width="370" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="gemma_dh_details" value="&lt;div style='text-align:left;font-size:10px;line-height:1.6'&gt;&lt;b&gt;Image:&lt;/b&gt; ai/gemma4:31B&lt;br/&gt;&lt;b&gt;Model:&lt;/b&gt; Gemma 4 31B (built-in)&lt;br/&gt;&lt;b&gt;GPU Profile:&lt;/b&gt; GPU-NC24-A100&lt;br/&gt;&lt;b&gt;Port:&lt;/b&gt; 8000 | &lt;b&gt;Replicas:&lt;/b&gt; 1-10&lt;br/&gt;&lt;b&gt;CPU:&lt;/b&gt; 1 | &lt;b&gt;Memory:&lt;/b&gt; 8Gi&lt;br/&gt;&lt;b&gt;Format:&lt;/b&gt; Pre-packaged inference server&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;" vertex="1" parent="gemma_dh">
+          <mxGeometry x="10" y="60" width="380" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- Consumption Apps Section -->
+        <mxCell id="cons_section_label" value="Consumption Workload Containers" style="text;html=1;fontSize=12;fontStyle=5;align=left;verticalAlign=middle;fontColor=#2E7D32;" vertex="1" parent="aca_env">
+          <mxGeometry x="15" y="365" width="350" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Open WebUI -->
+        <mxCell id="openwebui" value="" style="swimlane;startSize=0;fillColor=#FFFFFF;strokeColor=#2E7D32;rounded=1;arcSize=10;shadow=1;" vertex="1" parent="aca_env">
+          <mxGeometry x="15" y="395" width="400" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="owui_title" value="Open WebUI" style="text;html=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="openwebui">
+          <mxGeometry x="15" y="10" width="370" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="owui_subtitle" value="Chat Interface for LLM" style="text;html=1;fontSize=11;fontStyle=2;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#666666;" vertex="1" parent="openwebui">
+          <mxGeometry x="15" y="30" width="370" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="owui_details" value="&lt;div style='text-align:left;font-size:10px;line-height:1.6'&gt;&lt;b&gt;Image:&lt;/b&gt; ghcr.io/open-webui/open-webui:main&lt;br/&gt;&lt;b&gt;Profile:&lt;/b&gt; Consumption&lt;br/&gt;&lt;b&gt;Port:&lt;/b&gt; 8080 | &lt;b&gt;Replicas:&lt;/b&gt; 1&lt;br/&gt;&lt;b&gt;CPU:&lt;/b&gt; 0.5 | &lt;b&gt;Memory:&lt;/b&gt; 1Gi&lt;br/&gt;&lt;b&gt;Backend:&lt;/b&gt; Connects to Gemma 4 31B (vLLM)&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;" vertex="1" parent="openwebui">
+          <mxGeometry x="10" y="55" width="380" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- MCP Server -->
+        <mxCell id="mcpserver" value="" style="swimlane;startSize=0;fillColor=#FFFFFF;strokeColor=#6A1B9A;rounded=1;arcSize=10;shadow=1;" vertex="1" parent="aca_env">
+          <mxGeometry x="435" y="395" width="400" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="mcp_title" value="MCP Server (Web Search)" style="text;html=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="mcpserver">
+          <mxGeometry x="15" y="10" width="370" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="mcp_subtitle" value="Model Context Protocol - Search Tool" style="text;html=1;fontSize=11;fontStyle=2;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#666666;" vertex="1" parent="mcpserver">
+          <mxGeometry x="15" y="30" width="370" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="mcp_details" value="&lt;div style='text-align:left;font-size:10px;line-height:1.6'&gt;&lt;b&gt;Image:&lt;/b&gt; ghcr.io/aas-ee/open-web-search:v2.1.6&lt;br/&gt;&lt;b&gt;Profile:&lt;/b&gt; Consumption&lt;br/&gt;&lt;b&gt;Port:&lt;/b&gt; 3000 | &lt;b&gt;Replicas:&lt;/b&gt; 1&lt;br/&gt;&lt;b&gt;CPU:&lt;/b&gt; 0.5 | &lt;b&gt;Memory:&lt;/b&gt; 1Gi&lt;br/&gt;&lt;b&gt;Search Engine:&lt;/b&gt; Bing (default)&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;" vertex="1" parent="mcpserver">
+          <mxGeometry x="10" y="55" width="380" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Commented-out apps section -->
+        <mxCell id="inactive_label" value="Inactive / Commented-Out Container Apps" style="text;html=1;fontSize=12;fontStyle=5;align=left;verticalAlign=middle;fontColor=#9E9E9E;" vertex="1" parent="aca_env">
+          <mxGeometry x="15" y="585" width="400" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Inactive apps -->
+        <mxCell id="inactive_e2b_a100" value="Gemma 4 E2B (A100)&#xa;google/gemma-4-E2B-it | GPU-NC24-A100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#BDBDBD;fontColor=#9E9E9E;fontSize=11;dashed=1;dashPattern=5 5;" vertex="1" parent="aca_env">
+          <mxGeometry x="15" y="620" width="270" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="inactive_e2b_t4" value="Gemma 4 E2B (T4)&#xa;google/gemma-4-E2B-it | GPU-NC8as-T4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#BDBDBD;fontColor=#9E9E9E;fontSize=11;dashed=1;dashPattern=5 5;" vertex="1" parent="aca_env">
+          <mxGeometry x="300" y="620" width="270" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="inactive_e4b_a100" value="Gemma 4 E4B (A100)&#xa;google/gemma-4-E4B-it | GPU-NC24-A100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#BDBDBD;fontColor=#9E9E9E;fontSize=11;dashed=1;dashPattern=5 5;" vertex="1" parent="aca_env">
+          <mxGeometry x="585" y="620" width="270" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Log Analytics (outside VNet, inside RG) -->
+        <mxCell id="log_analytics" value="" style="swimlane;startSize=0;fillColor=#FFFFFF;strokeColor=#0277BD;rounded=1;arcSize=10;shadow=1;" vertex="1" parent="rg">
+          <mxGeometry x="1010" y="50" width="280" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="la_title" value="Log Analytics Workspace" style="text;html=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="log_analytics">
+          <mxGeometry x="10" y="10" width="260" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="la_details" value="&lt;div style='text-align:left;font-size:10px;line-height:1.6'&gt;&lt;b&gt;Name:&lt;/b&gt; workspace-aca-555&lt;br/&gt;&lt;b&gt;SKU:&lt;/b&gt; PerGB2018&lt;br/&gt;&lt;b&gt;Retention:&lt;/b&gt; 30 days&lt;br/&gt;&lt;b&gt;Purpose:&lt;/b&gt; ACA Environment logs&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;" vertex="1" parent="log_analytics">
+          <mxGeometry x="10" y="35" width="260" height="95" as="geometry" />
+        </mxCell>
+
+        <!-- AI Foundry Section -->
+        <mxCell id="foundry_section" value="" style="swimlane;startSize=0;fillColor=#FFFFFF;strokeColor=#7B1FA2;rounded=1;arcSize=10;shadow=1;" vertex="1" parent="rg">
+          <mxGeometry x="1010" y="220" width="280" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="foundry_title" value="Azure AI Foundry" style="text;html=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="foundry_section">
+          <mxGeometry x="10" y="10" width="260" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="foundry_subtitle" value="AI Services (Cognitive Account)" style="text;html=1;fontSize=11;fontStyle=2;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#666666;" vertex="1" parent="foundry_section">
+          <mxGeometry x="10" y="30" width="260" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="foundry_details" value="&lt;div style='text-align:left;font-size:10px;line-height:1.6'&gt;&lt;b&gt;Name:&lt;/b&gt; foundry-555&lt;br/&gt;&lt;b&gt;Kind:&lt;/b&gt; AIServices | &lt;b&gt;SKU:&lt;/b&gt; S0&lt;br/&gt;&lt;b&gt;Identity:&lt;/b&gt; SystemAssigned&lt;br/&gt;&lt;b&gt;Public Access:&lt;/b&gt; Enabled&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;" vertex="1" parent="foundry_section">
+          <mxGeometry x="10" y="55" width="260" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="foundry_project_box" value="Project: foundry-project-555 | Identity: SystemAssigned (AI User)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#9C27B0;fontSize=10;align=left;" vertex="1" parent="foundry_section">
+          <mxGeometry x="10" y="125" width="255" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="foundry_model_box" value="Model: GPT-5.2 (2025-12-11) | GlobalStandard | Capacity: 1000" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAF6;strokeColor=#3F51B5;fontSize=10;align=left;" vertex="1" parent="foundry_section">
+          <mxGeometry x="10" y="162" width="255" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- RBAC box -->
+        <mxCell id="rbac_box" value="" style="swimlane;startSize=0;fillColor=#FFFFFF;strokeColor=#F57F17;rounded=1;arcSize=10;shadow=1;" vertex="1" parent="rg">
+          <mxGeometry x="1010" y="450" width="280" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="rbac_title" value="RBAC Assignments" style="text;html=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="rbac_box">
+          <mxGeometry x="10" y="10" width="260" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="rbac_details" value="&lt;div style='text-align:left;font-size:10px;line-height:1.6'&gt;&lt;b&gt;User Principal:&lt;/b&gt; Azure AI User on Foundry&lt;br/&gt;&lt;b&gt;Project MI:&lt;/b&gt; Azure AI User on Foundry&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;" vertex="1" parent="rbac_box">
+          <mxGeometry x="10" y="35" width="260" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- Notebooks box -->
+        <mxCell id="nb_box" value="" style="swimlane;startSize=0;fillColor=#FFFFFF;strokeColor=#455A64;rounded=1;arcSize=10;shadow=1;" vertex="1" parent="rg">
+          <mxGeometry x="1010" y="580" width="280" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="nb_title" value="Jupyter Notebooks" style="text;html=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="nb_box">
+          <mxGeometry x="10" y="5" width="260" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="nb_details" value="&lt;div style='text-align:left;font-size:10px;line-height:1.7'&gt;llm.ipynb - Direct LLM interaction&lt;br/&gt;ollama.ipynb - Ollama client&lt;br/&gt;foundry.ipynb - Azure AI Foundry&lt;br/&gt;lang_chain.ipynb - LangChain integration&lt;br/&gt;agent_framework.ipynb - Agent framework&lt;br/&gt;claude.ipynb - Claude model testing&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fillColor=none;strokeColor=none;" vertex="1" parent="nb_box">
+          <mxGeometry x="10" y="30" width="260" height="125" as="geometry" />
+        </mxCell>
+
+        <!-- Connections -->
+        <mxCell id="edge_owui_gemma" value="OPENAI_API_BASE_URL /v1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1565C0;strokeWidth=2;fontStyle=2;fontSize=10;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="aca_env" source="openwebui" target="gemma_vllm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ACA Env -> Log Analytics -->
+        <mxCell id="edge_aca_la" value="Logs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0277BD;strokeWidth=1;dashed=1;fontSize=10;exitX=1;exitY=0;entryX=0;entryY=0.5;" edge="1" parent="rg" source="vnet" target="log_analytics">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- External Users -->
+        <mxCell id="user" value="Users / Clients" style="shape=actor;whiteSpace=wrap;html=1;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="10" width="50" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Terraform label -->
+        <mxCell id="tf_label" value="Infrastructure as Code&#xa;Terraform (azurerm + azapi)&#xa;Terraform &gt;= 1.14" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFF9C4;strokeColor=#F9A825;shadow=1;rounded=0;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="10" width="210" height="60" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
