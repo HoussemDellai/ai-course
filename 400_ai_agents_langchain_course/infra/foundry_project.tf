@@ -2,8 +2,8 @@ resource "azurerm_cognitive_account_project" "project" {
   name                 = "foundry-project-${var.prefix}"
   cognitive_account_id = azurerm_cognitive_account.foundry.id
   location             = azurerm_cognitive_account.foundry.location
-  description          = "Example cognitive services project"
-  display_name         = "Example Project"
+  description          = "Azure Foundry services project"
+  display_name         = "Foundry Project"
 
   identity {
     type = "SystemAssigned"

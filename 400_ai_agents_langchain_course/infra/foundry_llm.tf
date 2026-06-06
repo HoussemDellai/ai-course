@@ -37,3 +37,7 @@ output "llm_model_deployment_name_kimi" {
 output "llm_model_deployment_name_chatgpt" {
   value = azurerm_cognitive_deployment.gpt_54.name
 }
+
+output "llm_model_deployment_name" {
+  value = azurerm_cognitive_deployment.gpt_54.name
+}
