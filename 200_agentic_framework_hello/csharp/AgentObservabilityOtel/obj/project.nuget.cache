@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "xLaTZBC5/pQ=",
+  "dgSpecHash": "WxYcB9Sz2YA=",
   "success": true,
   "projectFilePath": "C:\\Users\\azureuser\\Desktop\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj",
   "expectedPackageFiles": [
@@ -28,5 +28,18 @@
     "C:\\Users\\azureuser\\.nuget\\packages\\system.numerics.tensors\\10.0.1\\system.numerics.tensors.10.0.1.nupkg.sha512",
     "C:\\Users\\azureuser\\.nuget\\packages\\system.security.cryptography.protecteddata\\4.5.0\\system.security.cryptography.protecteddata.4.5.0.nupkg.sha512"
   ],
-  "logs": []
+  "logs": [
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "message": "Package 'OpenTelemetry.Api' 1.14.0 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-g94r-2vxg-569j",
+      "projectPath": "C:\\Users\\azureuser\\Desktop\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\azureuser\\Desktop\\ai-course\\200_agentic_framework_hello\\csharp\\AgentObservabilityOtel\\AgentObservabilityOtel.csproj",
+      "libraryId": "OpenTelemetry.Api",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
 }

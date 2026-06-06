@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "elruJ/2jH5w=",
+  "dgSpecHash": "tRRkJliKY64=",
   "success": true,
   "projectFilePath": "C:\\Users\\azureuser\\Desktop\\ai-course\\203_ag_ui\\server\\agui-server.csproj",
   "expectedPackageFiles": [
@@ -27,5 +27,18 @@
     "C:\\Users\\azureuser\\.nuget\\packages\\system.numerics.tensors\\10.0.2\\system.numerics.tensors.10.0.2.nupkg.sha512",
     "C:\\Users\\azureuser\\.nuget\\packages\\system.security.cryptography.protecteddata\\4.5.0\\system.security.cryptography.protecteddata.4.5.0.nupkg.sha512"
   ],
-  "logs": []
+  "logs": [
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "message": "Package 'OpenTelemetry.Api' 1.13.1 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-g94r-2vxg-569j",
+      "projectPath": "C:\\Users\\azureuser\\Desktop\\ai-course\\203_ag_ui\\server\\agui-server.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\azureuser\\Desktop\\ai-course\\203_ag_ui\\server\\agui-server.csproj",
+      "libraryId": "OpenTelemetry.Api",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
 }
