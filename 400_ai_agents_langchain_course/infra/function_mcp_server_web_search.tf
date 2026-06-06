@@ -25,15 +25,13 @@ resource "azurerm_storage_account" "function_storage" {
 }
 
 resource "azurerm_linux_function_app" "mcp_server_open_web_search" {
-  name                = "func-mcp-server-web-search-${var.prefix}"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  service_plan_id     = azurerm_service_plan.function_plan.id
-
+  name                       = "func-mcp-server-web-search-${var.prefix}"
+  location                   = azurerm_resource_group.rg.location
+  resource_group_name        = azurerm_resource_group.rg.name
+  service_plan_id            = azurerm_service_plan.function_plan.id
   storage_account_name       = azurerm_storage_account.function_storage.name
   storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
-
-  https_only = true
+  https_only                 = true
 
   identity {
     type = "SystemAssigned"
