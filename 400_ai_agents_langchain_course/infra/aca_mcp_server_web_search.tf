@@ -1,3 +1,19 @@
+resource "azurerm_container_app_environment" "aca_environment" {
+  name                           = "aca-environment"
+  location                       = azurerm_resource_group.rg.location
+  resource_group_name            = azurerm_resource_group.rg.name
+  public_network_access          = "Enabled"
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
+}
+
 resource "azurerm_container_app" "mcp_server_open_web_search" {
   container_app_environment_id = azurerm_container_app_environment.aca_environment.id
   name                         = "aca-mcp-server-open-web-search"

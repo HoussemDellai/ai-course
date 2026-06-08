@@ -1,0 +1,8 @@
+langchain 
+langgraph 
+langchain-openai 
+langchain-mcp-adapters 
+langchain_azure_cosmosdb
+langchain-azure-dynamic-sessions
+
+markdownify
