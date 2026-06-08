@@ -1,9 +1,0 @@
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\agui-server.csproj.AssemblyReference.cache
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\rpswa.dswa.cache.json
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\agui-server.GeneratedMSBuildEditorConfig.editorconfig
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\agui-server.AssemblyInfoInputs.cache
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\agui-server.AssemblyInfo.cs
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\agui-server.csproj.CoreCompileInputs.cache
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\agui-server.MvcApplicationPartsAssemblyInfo.cs
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\agui-server.MvcApplicationPartsAssemblyInfo.cache
-D:\projects\ai-course\203_ag_ui\server\obj\Debug\net10.0\agui-server.sourcelink.json
