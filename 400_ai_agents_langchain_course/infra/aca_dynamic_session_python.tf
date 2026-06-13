@@ -1,7 +1,7 @@
 resource "azapi_resource" "aca_session_pool_python" {
   type                      = "Microsoft.App/sessionPools@2025-02-02-preview"
   parent_id                 = azurerm_resource_group.rg.id
-  name                      = "acasessionpool-python"
+  name                      = "aca-sessionpool-python"
   location                  = azurerm_resource_group.rg.location
   schema_validation_enabled = false
   response_export_values    = ["properties.poolManagementEndpoint", "properties.mcpServerSettings.mcpServerEndpoint"]
