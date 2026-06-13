@@ -21,7 +21,7 @@ resource "azurerm_linux_web_app" "mcp_server_open_web_search" {
     always_on = true # keep the container warm (requires Basic SKU or higher)
 
     application_stack {
-      docker_image_name   = "aas-ee/open-web-search:v2.1.11"
+      docker_image_name   = "aas-ee/open-web-search:v2.1.11" # check here for newer versions: https://github.com/Aas-ee/open-webSearch/pkgs/container/open-web-search
       docker_registry_url = "https://ghcr.io"
     }
   }
