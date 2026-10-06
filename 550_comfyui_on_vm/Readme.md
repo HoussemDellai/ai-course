@@ -96,14 +96,13 @@ source comfy-env/bin/activate
 # Install comfy-cli in the activated virtual environment:
 pip install comfy-cli
 
-# Step 3: Install ComfyUI using Comfy CLI with NVIDIA GPU Support
+# Step 3: Install ComfyUI using Comfy CLI with NVIDIA GPU Support and PyTorch for CUDA 13.0 (cu130)
+# Without --cuda-version, comfy installs a cu126 build of PyTorch (ComfyUI needs cu130+ for optimized CUDA ops)
 # use 'yes' to accept all prompts
-yes | comfy install --nvidia
+yes | comfy install --nvidia --cuda-version 13.0
 
-# Step 4: Install GPU Support for PyTorch
-pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
-
-# Note: Please choose the corresponding PyTorch version based on your CUDA version. Visit the PyTorch website for the latest installation commands.
+# Step 4: Verify PyTorch can use the GPU
+python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'available', torch.cuda.is_available())"
 
 # Step 5. Launch ComfyUI
 # By default, ComfyUI will run on http://localhost:8188.

@@ -12,6 +12,11 @@ resource "azurerm_virtual_machine_run_command" "run_command_install_nvidia_drive
 resource "time_sleep" "wait_20_seconds" {
   create_duration = "20s"
 
+  # re-run the wait whenever the drivers script changes (it is re-executed and reboots the VM)
+  triggers = {
+    script_hash = filesha256("./01-install-nvidia-drivers.sh")
+  }
+
   depends_on = [azurerm_virtual_machine_run_command.run_command_install_nvidia_drivers]
 }
 

@@ -2,6 +2,12 @@
 
 This repository contains the code and instructions to run ComfyUI on Azure Container Apps (ACA) with serverless GPU (A100 & T4). The infrastructure is provisioned using Terraform, and the ComfyUI application is deployed as a containerized workload on ACA.
 
+## Video available
+
+Watch the video tutorial here : [https://www.youtube.com/watch?v=WMYlQNLkMJQ](https://www.youtube.com/watch?v=WMYlQNLkMJQ)
+
+![Video Thumbnail](./images/youtube.png)
+
 ## Prerequisites
 
 - An Azure account with sufficient permissions to create resources.
@@ -17,7 +23,7 @@ terraform init
 terraform apply --auto-approve
 ```
 
-The foolowing resources will be created:
+The following resources will be created:
 
 ![Azure Resources](./images/resources.png)
 

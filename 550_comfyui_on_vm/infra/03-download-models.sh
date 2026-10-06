@@ -91,3 +91,22 @@ wget -P models/loras/ \
 # wget -P models/diffusion_models/ https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9b-fp8/resolve/main/flux-2-klein-base-9b-fp8.safetensors
 
 # wget -P models/diffusion_models/ https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/resolve/main/flux-2-klein-9b-fp8.safetensors
+
+# #######################################################
+# # Download MiniMax Text to Video components
+# #######################################################
+
+wget -P models/loras/ \
+  https://huggingface.co/lightx2v/Minimax-h3-Turbo/blob/main/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
+
+wget -P models/vae/ \
+  https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/vae/minimax_h3_audio_vae_fp32.safetensors
+
+wget -P models/vae/ \
+  https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/vae/minimax_h3_video_vae_int8_convrot.safetensors
+
+wget -P models/diffusion_models/ \
+  https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors
+
+wget -P models/text_encoders/ \
+  https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors

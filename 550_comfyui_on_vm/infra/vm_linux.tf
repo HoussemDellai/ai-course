@@ -4,6 +4,10 @@ resource "azurerm_public_ip" "pip_vm_linux" {
   location            = azurerm_resource_group.rg.location
   allocation_method   = "Static"
   sku                 = "Standard"
+
+  lifecycle {
+    ignore_changes = [ip_tags]
+  }
 }
 
 resource "azurerm_network_interface" "nic_vm_linux" {
