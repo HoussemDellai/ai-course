@@ -20,7 +20,7 @@ async def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("prompt")
     p.add_argument("--minutes", type=float, default=5.0)
-    p.add_argument("--model", default=None, help="wan22, ltx2 or hunyuan15")
+    p.add_argument("--model", default=None, help="wan22, ltx2, ltx25 or hunyuan15")
     p.add_argument("--no-narration", action="store_true")
     p.add_argument("--image", type=Path, default=None,
                    help="reference photo (PNG, JPEG or WebP) of a person or a scene to build the video from")
