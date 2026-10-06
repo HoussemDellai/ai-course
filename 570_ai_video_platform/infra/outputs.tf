@@ -15,6 +15,10 @@ output "comfyui_url" {
   value = local.comfyui_url
 }
 
+output "gpu_stats_url" {
+  value = local.gpu_stats_url
+}
+
 output "vm_public_ip" {
   value = azurerm_public_ip.pip_vm.ip_address
 }

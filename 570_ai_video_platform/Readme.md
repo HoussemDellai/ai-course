@@ -45,12 +45,12 @@ terraform apply   # about 1 h: GPU driver, ComfyUI, ~121 GB of model downloads, 
 
 Terraform creates:
 
-- **VNets**: one for the GPU VM and one for Container Apps (in `italynorth`). They aren't peered, so the app reaches ComfyUI (port 8188) through the VM's static **public IP**, and the NSG allows port 8188 from anywhere.
+- **VNets**: one for the GPU VM and one for Container Apps (in `italynorth`). They aren't peered, so the app reaches ComfyUI (port 8188) and the GPU stats exporter (port 8189) through the VM's static **public IP**, and the NSG allows both ports from anywhere.
 
 > [!WARNING]
-> ComfyUI has no authentication. Anyone who knows the VM's public IP can use it and queue jobs on your GPU. Deallocate the VM when you aren't using it.
+> ComfyUI has no authentication. Anyone who knows the VM's public IP can use it and queue jobs on your GPU. The GPU stats exporter has no authentication either, but it's read-only and exposes only GPU utilisation, VRAM, temperature and power. Deallocate the VM when you aren't using it.
 
-- **GPU VM** (H100, Ubuntu 24.04, managed 512 GB Premium SSD). Three Run Commands install the NVIDIA driver (then reboot), install ComfyUI as a `systemd` service, and download the models ([infra/scripts](infra/scripts)). The scripts are idempotent.
+- **GPU VM** (H100, Ubuntu 24.04, managed 512 GB Premium SSD). Run Commands install the NVIDIA driver (then reboot), install ComfyUI as a `systemd` service, download the models, and install a small GPU stats exporter (`nvidia-smi` over HTTP, `gpu-stats` service on port 8189) ([infra/scripts](infra/scripts)). The scripts are idempotent. The exporter is independent of ComfyUI, so updating it never restarts a render.
 - **Microsoft Foundry** resource (`AIServices`, keys disabled), a project, and the **gpt-6-astra** deployment. The same resource provides **Azure AI Speech**; its custom domain is what enables Entra ID auth for TTS.
 - **Storage account** (shared keys disabled). Downloads use short-lived *user delegation* SAS URLs.
 - **ACR**. The image is built with `az acr build` (no local Docker needed) and rebuilt whenever the app code changes.
@@ -61,7 +61,18 @@ terraform output app_url
 terraform output -raw api_key
 ```
 
-Open `app_url` in a browser, paste the API key, describe your video, pick the duration and the model, then click **Generate video**.
+Open `app_url` in a browser, paste the API key, describe your video, pick the duration and the model, then send it.
+
+The web UI follows the GitHub Copilot app (dark theme). Your videos are listed in a sidebar. Each video opens as a session: your prompt, then a live timeline of what the agent is doing. The five pipeline steps expand into their operations:
+
+- each agent call
+- each clip, with its ComfyUI server, prompt id, seed, prompt and retries
+- each narration
+- each ffmpeg and upload step
+
+Each operation has a status and a duration, and shows the warnings logged while it ran. Retries keep the earlier runs, and steps resumed from saved artifacts show as *reused*.
+
+The top bar shows the **live GPU utilisation** (average util % and VRAM used/total, refreshed every 2 s), or *GPU offline* when the VM is deallocated. Click it to see, for each GPU: utilisation, VRAM, temperature, power draw, and a chart of the last 2 minutes. The app reads it from the exporters listed in `GPU_STATS_URLS`; leave the variable empty to hide the badge.
 
 > [!IMPORTANT]
 > The GPU VM costs money even when idle. Deallocate it between batches with `az vm deallocate -g rg-aivideo570 -n vm-comfyui` and start it again with `az vm start` (ComfyUI starts automatically). Set `vm_spot = true` for a cheaper Spot VM; clips already rendered survive an eviction thanks to resume.
@@ -79,9 +90,14 @@ curl -s -X POST "$URL/api/videos" -H "X-API-Key: $KEY" -H "Content-Type: applica
 
 curl -s "$URL/api/videos/<id>" -H "X-API-Key: $KEY"              # status, clips_done/clips_total
 curl -s "$URL/api/videos/<id>/storyboard" -H "X-API-Key: $KEY"   # brief, scenes, narration, shot prompts
+curl -s "$URL/api/videos/<id>/operations" -H "X-API-Key: $KEY"   # timeline: steps, agent calls, clips, ffmpeg...
+curl -sN "$URL/api/videos/<id>/events?key=$KEY"                  # live Server-Sent Events: state, op, end
 curl -sL "$URL/api/videos/<id>/download" -H "X-API-Key: $KEY" -o video.mp4
 curl -s -X POST "$URL/api/videos/<id>/retry" -H "X-API-Key: $KEY" # resume a failed job
+curl -s "$URL/api/gpu" -H "X-API-Key: $KEY"                      # live GPU stats of every VM in GPU_STATS_URLS
 ```
+
+`/events` first sends the job state and all its operations, then each change as it happens, and `end` once the job is finished. If another replica runs the job, the stream follows it through the artifact store instead (about 2 s behind).
 
 | Field | Default | Notes |
 |---|---|---|
@@ -98,7 +114,7 @@ curl -s -X POST "$URL/api/videos/<id>/retry" -H "X-API-Key: $KEY" # resume a fai
 cd app
 python -m venv .venv && .venv/Scripts/activate        # source .venv/bin/activate on Linux/macOS
 pip install -r requirements.txt -r requirements-dev.txt
-cp .env.sample .env                                    # fill in values from `terraform output` (COMFYUI_URLS = comfyui_url)
+cp .env.sample .env                                    # fill in values from `terraform output` (COMFYUI_URLS = comfyui_url, GPU_STATS_URLS = gpu_stats_url)
 python main.py                                         # http://localhost:8000
 # or, without the API:
 python generate.py "A short film about a robot learning to paint" --minutes 0.5 --model ltx2
@@ -113,7 +129,7 @@ cd app
 pytest
 ```
 
-The tests check every ComfyUI workflow graph (placeholders, links, node types) and the ComfyUI client (submit, poll, download, retry with a new seed). They also run the **real Agent Framework workflow with real ffmpeg** against a fake ComfyUI, fake LLM agents and fake TTS. That covers the whole pipeline, narration longer than a scene, resume without re-rendering, reattaching to an in-flight ComfyUI prompt, concurrent retries, jobs locked by another replica, audio/video sync, and the REST API.
+The tests check every ComfyUI workflow graph (placeholders, links, node types) and the ComfyUI client (submit, poll, download, retry with a new seed). They also run the **real Agent Framework workflow with real ffmpeg** against a fake ComfyUI, fake LLM agents and fake TTS. That covers the whole pipeline, narration longer than a scene, resume without re-rendering, reattaching to an in-flight ComfyUI prompt, concurrent retries, jobs locked by another replica, audio/video sync, the operation timeline (live, persisted, across retries and replicas), the REST API with its event stream, and the live GPU stats (exporter parsing, offline VMs, `/api/gpu`).
 
 ## Project layout
 
@@ -124,17 +140,19 @@ The tests check every ComfyUI workflow graph (placeholders, links, node types) a
 │   ├── generate.py                 # CLI: one video, no API
 │   ├── Dockerfile
 │   ├── video_platform/
-│   │   ├── workflow.py             # Agent Framework workflow (5 executors)
+│   │   ├── workflow.py             # Agent Framework workflow (5 executors, each recorded as a timeline step)
 │   │   ├── agents.py               # prompt-enhancer, story-outliner, shot-writer agents
 │   │   ├── comfyui.py              # ComfyUI API client + multi-server pool
+│   │   ├── gpu.py                  # live GPU stats from the VM exporters (/api/gpu)
 │   │   ├── comfy_workflows/        # API-format workflows for the 3 models
 │   │   ├── video_models.py         # model registry: resolution, fps, frames, prompt guide, license
 │   │   ├── speech.py               # Azure AI Speech TTS (Entra ID)
 │   │   ├── media.py                # ffmpeg: normalize, concat, narration mix
 │   │   ├── storage.py              # Blob / local artifact store
-│   │   ├── jobs.py                 # background jobs, resume, retry
-│   │   ├── api.py                  # REST API
-│   │   └── static/index.html       # minimal web UI
+│   │   ├── jobs.py                 # background jobs, resume, retry, live notifications
+│   │   ├── operations.py           # operation timeline (steps, agent calls, clips...) + log capture
+│   │   ├── api.py                  # REST API + Server-Sent Events
+│   │   └── static/index.html       # web UI (Copilot-style sessions and live timeline)
 │   └── tests/
 ├── images/architecture.drawio      # architecture diagram (draw.io, Azure icons) + .png export
 └── infra/                          # Terraform + VM scripts
@@ -143,6 +161,6 @@ The tests check every ComfyUI workflow graph (placeholders, links, node types) a
 ## Going further
 
 - **Character consistency**: generate a reference image per character (e.g. Qwen-Image or Z-Image-Turbo, already used in [550_comfyui_on_vm](../550_comfyui_on_vm)) and switch the shots to image-to-video workflows.
-- **Scale out**: run several GPU VMs (or a VM Scale Set) and list them all in `COMFYUI_URLS`.
+- **Scale out**: run several GPU VMs (or a VM Scale Set) and list them all in `COMFYUI_URLS` (and their exporters in `GPU_STATS_URLS`).
 - **Music**: add a music-generation step and mix it under the narration in `media.mix_narration`.
 - **Hosted agent**: the same workflow can be exposed as a Foundry hosted agent with `agent-framework-foundry-hosting`.

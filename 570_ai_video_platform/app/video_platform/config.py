@@ -21,6 +21,7 @@ class Settings:
     speech_endpoint: str = ""
     tts_voice: str = "en-US-AndrewMultilingualNeural"
     comfyui_urls: list[str] = field(default_factory=lambda: ["http://127.0.0.1:8188"])
+    gpu_stats_urls: list[str] = field(default_factory=list)
     default_video_model: str = "wan22"
     storage_account_url: str = ""
     storage_container: str = "videos"
@@ -45,6 +46,7 @@ class Settings:
             speech_endpoint=e("SPEECH_ENDPOINT", ""),
             tts_voice=e("TTS_VOICE", "en-US-AndrewMultilingualNeural"),
             comfyui_urls=_list(e("COMFYUI_URLS", "http://127.0.0.1:8188")),
+            gpu_stats_urls=_list(e("GPU_STATS_URLS", "")),
             default_video_model=e("DEFAULT_VIDEO_MODEL", "wan22"),
             storage_account_url=e("STORAGE_ACCOUNT_URL", ""),
             storage_container=e("STORAGE_CONTAINER", "videos"),

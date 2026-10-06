@@ -22,10 +22,10 @@ resource "azurerm_virtual_network" "vnet_aca" {
 
 # Container Apps environment (workload profiles) needs a delegated subnet of at least /27.
 resource "azurerm_subnet" "snet_aca" {
-  name                 = "snet-aca"
+  name                 = "snet-aca-env"
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet_aca.name
-  address_prefixes     = ["10.11.2.0/23"]
+  address_prefixes     = ["10.11.0.0/23"]
 
   delegation {
     name = "aca"
@@ -56,6 +56,21 @@ resource "azurerm_network_security_rule" "allow_comfyui_from_internet" {
   source_port_range           = "*"
   destination_address_prefix  = "*"
   destination_port_range      = "8188"
+}
+
+# The web page shows live GPU utilisation read from the exporter on port 8189 (read-only GPU stats, no auth).
+resource "azurerm_network_security_rule" "allow_gpu_stats_from_internet" {
+  network_security_group_name = azurerm_network_security_group.nsg_vm.name
+  resource_group_name         = azurerm_resource_group.rg.name
+  name                        = "allow-gpu-stats-from-internet"
+  access                      = "Allow"
+  priority                    = 106
+  direction                   = "Inbound"
+  protocol                    = "Tcp"
+  source_address_prefix       = "*"
+  source_port_range           = "*"
+  destination_address_prefix  = "*"
+  destination_port_range      = "8189"
 }
 
 resource "azurerm_network_security_rule" "allow_ssh" {

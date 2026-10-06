@@ -7,7 +7,7 @@ resource "azurerm_log_analytics_workspace" "logs" {
 }
 
 resource "azurerm_container_app_environment" "env" {
-  name                       = "aca-environment-${var.prefix}"
+  name                       = "aca-env-${var.prefix}"
   resource_group_name        = azurerm_resource_group.rg.name
   location                   = "italynorth" # "swedencentral" # azurerm_resource_group.rg.location
   logs_destination           = "log-analytics"
@@ -92,6 +92,10 @@ resource "azurerm_container_app" "app" {
       env {
         name  = "COMFYUI_URLS"
         value = local.comfyui_url
+      }
+      env {
+        name  = "GPU_STATS_URLS"
+        value = local.gpu_stats_url
       }
       env {
         name  = "DEFAULT_VIDEO_MODEL"

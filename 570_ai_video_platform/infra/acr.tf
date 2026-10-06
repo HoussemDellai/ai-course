@@ -13,7 +13,8 @@ locals {
     if !startswith(f, ".venv/") && !strcontains(f, "__pycache__") && !startswith(f, "tests/") && !startswith(f, ".") && !startswith(f, "output/")
   ])
   app_hash  = substr(sha256(join("", [for f in local.app_files : filesha256("${local.app_dir}/${f}")])), 0, 12)
-  app_image = "${azurerm_container_registry.acr.login_server}/video-platform:${local.app_hash}"
+  app_image = "${azurerm_container_registry.acr.login_server}/video-platform:1.0.0"
+  # app_image = "${azurerm_container_registry.acr.login_server}/video-platform:${local.app_hash}"
 }
 
 # # Builds the orchestrator image in ACR (no local Docker needed). Re-runs when the app code changes.

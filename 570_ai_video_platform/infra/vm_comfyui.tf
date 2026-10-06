@@ -117,7 +117,25 @@ resource "azurerm_virtual_machine_run_command" "download_models" {
   depends_on = [azurerm_virtual_machine_run_command.install_comfyui]
 }
 
+# Independent of ComfyUI (02/03): installing or updating the exporter never restarts a running render.
+resource "azurerm_virtual_machine_run_command" "install_gpu_stats" {
+  name               = "04-install-gpu-stats"
+  location           = azurerm_linux_virtual_machine.vm.location
+  virtual_machine_id = azurerm_linux_virtual_machine.vm.id
+
+  source {
+    script = replace(
+      replace(file("${path.module}/scripts/04-install-gpu-stats.sh"), "\r\n", "\n"),
+      "__EXPORTER_B64__",
+      base64encode(replace(file("${path.module}/scripts/gpu_stats_exporter.py"), "\r\n", "\n"))
+    )
+  }
+
+  depends_on = [time_sleep.wait_for_reboot]
+}
+
 # The Container Apps VNet (italynorth) isn't peered with the VM VNet, so ACA reaches ComfyUI through the VM's public IP.
 locals {
-  comfyui_url = "http://${azurerm_public_ip.pip_vm.ip_address}:8188"
+  comfyui_url   = "http://${azurerm_public_ip.pip_vm.ip_address}:8188"
+  gpu_stats_url = "http://${azurerm_public_ip.pip_vm.ip_address}:8189"
 }

@@ -24,6 +24,7 @@ from . import media
 from .agents import CreativeTeam, shots_for_duration
 from .comfyui import ComfyUIPool
 from .config import Settings
+from .operations import OperationRecorder, OpKind
 from .schemas import CreativeBrief, JobStatus, Scene, Storyboard, VideoRequest
 from .speech import Narrator
 from .storage import ArtifactStore, read_json, write_json
@@ -46,6 +47,7 @@ class PipelineDeps:
     narrator: Narrator | None
     store: ArtifactStore
     progress: ProgressCallback  # async (job_id, status=None, **fields)
+    ops: Callable[[str], OperationRecorder]  # job_id -> live operation log of the current run
 
 
 @dataclass
@@ -84,6 +86,10 @@ def narration_name(i: int) -> str:
     return f"narration/scene_{i:03d}.wav"
 
 
+def format_seconds(seconds: float) -> str:
+    return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
+
+
 async def gather_all(coros: list[Awaitable[T]]) -> list[T]:
     """Like asyncio.gather, but cancels the remaining work as soon as one task fails."""
     try:
@@ -101,14 +107,24 @@ class EnhancePromptExecutor(Executor):
 
     @handler
     async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
-        await self.deps.progress(job.job_id, JobStatus.enhancing)
-        saved = await read_json(self.deps.store, job.job_id, "brief.json")
-        if saved:
-            job.brief = CreativeBrief.model_validate(saved)
-        else:
-            job.brief = await self.deps.team.enhance(job.request.prompt, job.request.duration_minutes * 60)
-            await write_json(self.deps.store, job.job_id, "brief.json", job.brief.model_dump())
-        await self.deps.progress(job.job_id, title=job.brief.title)
+        d = self.deps
+        ops = d.ops(job.job_id)
+        async with ops.op(OpKind.step, "Enhance prompt", step=self.id) as step:
+            await d.progress(job.job_id, JobStatus.enhancing)
+            saved = await read_json(d.store, job.job_id, "brief.json")
+            if saved:
+                job.brief = CreativeBrief.model_validate(saved)
+                step.reuse()
+            else:
+                async with ops.op(OpKind.agent, "prompt-enhancer", summary="Writing the creative brief",
+                                  model=d.settings.foundry_model) as agent:
+                    job.brief = await d.team.enhance(job.request.prompt, job.request.duration_minutes * 60)
+                    count = len(job.brief.characters)
+                    agent.set(summary=f"{count} character{'' if count == 1 else 's'} · {job.brief.narration_language}",
+                              detail=f"{job.brief.logline}\n\nStyle: {job.brief.visual_style}\nTone: {job.brief.tone}")
+                await write_json(d.store, job.job_id, "brief.json", job.brief.model_dump())
+            step.set(summary=job.brief.title)
+            await d.progress(job.job_id, title=job.brief.title)
         await ctx.send_message(job)
 
 
@@ -120,29 +136,45 @@ class PlanStoryboardExecutor(Executor):
     @handler
     async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
         assert job.brief is not None
-        await self.deps.progress(job.job_id, JobStatus.planning)
-        saved = await read_json(self.deps.store, job.job_id, "storyboard.json")
-        if saved:
-            job.storyboard = Storyboard.model_validate(saved)
-        else:
-            total_shots = shots_for_duration(job.request.duration_minutes * 60, job.model.clip_seconds)
-            outline = await self.deps.team.outline(job.brief, total_shots, job.model.clip_seconds)
-            # Shot prompts for all scenes are written in parallel.
-            shot_lists = await gather_all([
-                self.deps.team.write_shots(job.brief, scene, i, len(outline.scenes), job.model)
-                for i, scene in enumerate(outline.scenes)
-            ])
-            job.storyboard = Storyboard(
-                brief=job.brief,
-                video_model=job.model.key,
-                clip_seconds=job.model.clip_seconds,
-                scenes=[
-                    Scene(title=s.title, summary=s.summary, narration=s.narration, shots=shots)
-                    for s, shots in zip(outline.scenes, shot_lists)
-                ],
-            )
-            await write_json(self.deps.store, job.job_id, "storyboard.json", job.storyboard.model_dump())
-        await self.deps.progress(job.job_id, clips_total=len(job.storyboard.shots))
+        d = self.deps
+        ops = d.ops(job.job_id)
+        model = d.settings.foundry_model
+        async with ops.op(OpKind.step, "Plan storyboard", step=self.id) as step:
+            await d.progress(job.job_id, JobStatus.planning)
+            saved = await read_json(d.store, job.job_id, "storyboard.json")
+            if saved:
+                job.storyboard = Storyboard.model_validate(saved)
+                step.reuse()
+            else:
+                total_shots = shots_for_duration(job.request.duration_minutes * 60, job.model.clip_seconds)
+                async with ops.op(OpKind.agent, "story-outliner", summary=f"Outlining {total_shots} shots",
+                                  model=model) as agent:
+                    outline = await d.team.outline(job.brief, total_shots, job.model.clip_seconds)
+                    agent.set(summary=f"{len(outline.scenes)} scenes · {total_shots} shots",
+                              detail="\n".join(f"{i + 1}. {s.title} ({s.shot_count} shots)"
+                                               for i, s in enumerate(outline.scenes)))
+
+                async def write_shots(i: int, scene) -> list:
+                    async with ops.op(OpKind.agent, f"shot-writer · scene {i + 1}/{len(outline.scenes)}",
+                                      summary=scene.title, model=model) as agent:
+                        shots = await d.team.write_shots(job.brief, scene, i, len(outline.scenes), job.model)
+                        agent.set(summary=f"{scene.title} · {len(shots)} prompts")
+                        return shots
+
+                # Shot prompts for all scenes are written in parallel.
+                shot_lists = await gather_all([write_shots(i, scene) for i, scene in enumerate(outline.scenes)])
+                job.storyboard = Storyboard(
+                    brief=job.brief,
+                    video_model=job.model.key,
+                    clip_seconds=job.model.clip_seconds,
+                    scenes=[
+                        Scene(title=s.title, summary=s.summary, narration=s.narration, shots=shots)
+                        for s, shots in zip(outline.scenes, shot_lists)
+                    ],
+                )
+                await write_json(d.store, job.job_id, "storyboard.json", job.storyboard.model_dump())
+            step.set(summary=f"{len(job.storyboard.scenes)} scenes · {len(job.storyboard.shots)} shots")
+            await d.progress(job.job_id, clips_total=len(job.storyboard.shots))
         await ctx.send_message(job)
 
 
@@ -155,39 +187,67 @@ class GenerateClipsExecutor(Executor):
     async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
         assert job.storyboard is not None
         d = self.deps
+        ops = d.ops(job.job_id)
         shots = job.storyboard.shots
-        await d.progress(job.job_id, JobStatus.generating)
-        done = 0
+        scene_titles = [scene.title for scene in job.storyboard.scenes for _ in scene.shots]
+        done = reused = 0
         lock = asyncio.Lock()
 
-        async def one(i: int) -> Path:
-            nonlocal done
-            local = job.work_dir / clip_name(i)
-            if not local.exists() and not await d.store.download(job.job_id, clip_name(i), local):
-                pending = await read_json(d.store, job.job_id, pending_name(i))
+        async with ops.op(OpKind.step, "Generate clips", step=self.id, model=job.model.display_name,
+                          servers=d.comfy.size) as step:
+            step.progress(0, len(shots))
+            await d.progress(job.job_id, JobStatus.generating)
 
-                async def remember(server: str, prompt_id: str) -> None:
-                    await write_json(d.store, job.job_id, pending_name(i), {"server": server, "prompt_id": prompt_id})
+            async def one(i: int) -> Path:
+                nonlocal done, reused
+                local = job.work_dir / clip_name(i)
+                async with ops.op(OpKind.clip, f"Shot {i + 1}/{len(shots)}", summary=scene_titles[i],
+                                  detail=shots[i].prompt, queued=True, seed=job.seed + i) as op:
+                    if local.exists() or await d.store.download(job.job_id, clip_name(i), local):
+                        op.reuse()
+                        reused += 1
+                    else:
+                        pending = await read_json(d.store, job.job_id, pending_name(i))
+                        resume = pending if isinstance(pending, dict) else None
+                        if resume:
+                            op.start()
+                            op.update(server=resume.get("server"), prompt_id=resume.get("prompt_id"))
+                            op.log(f"Reattaching to ComfyUI prompt {resume.get('prompt_id')}")
+                        submissions = 0
 
-                await d.comfy.generate_clip(
-                    model=job.model,
-                    prompt=shots[i].prompt,
-                    seed=job.seed + i,
-                    dest=local,
-                    filename_prefix=f"aivideo/{job.job_id}/shot_{i:03d}",
-                    timeout=d.settings.clip_timeout_seconds,
-                    retries=d.settings.clip_retries,
-                    resume=pending if isinstance(pending, dict) else None,
-                    on_submitted=remember,
-                )
-                await d.store.upload(job.job_id, clip_name(i), local)
-            async with lock:
-                done += 1
-                await d.progress(job.job_id, clips_done=done)
-            return local
+                        async def remember(server: str, prompt_id: str) -> None:
+                            nonlocal submissions
+                            submissions += 1
+                            op.start()
+                            op.update(server=server, prompt_id=prompt_id, attempt=submissions)
+                            op.log(f"Submitted to {server} as prompt {prompt_id}")
+                            await write_json(d.store, job.job_id, pending_name(i),
+                                             {"server": server, "prompt_id": prompt_id})
 
-        # As many clips in flight as there are ComfyUI servers (the pool queues the rest).
-        job.clips = await gather_all([one(i) for i in range(len(shots))])
+                        await d.comfy.generate_clip(
+                            model=job.model,
+                            prompt=shots[i].prompt,
+                            seed=job.seed + i,
+                            dest=local,
+                            filename_prefix=f"aivideo/{job.job_id}/shot_{i:03d}",
+                            timeout=d.settings.clip_timeout_seconds,
+                            retries=d.settings.clip_retries,
+                            resume=resume,
+                            on_submitted=remember,
+                        )
+                        await d.store.upload(job.job_id, clip_name(i), local)
+                async with lock:
+                    done += 1
+                    step.progress(done, len(shots))
+                    await d.progress(job.job_id, clips_done=done)
+                return local
+
+            # As many clips in flight as there are ComfyUI servers (the pool queues the rest).
+            job.clips = await gather_all([one(i) for i in range(len(shots))])
+            if reused == len(shots):
+                step.reuse(f"{len(shots)} clips")
+            else:
+                step.set(summary=f"{len(shots)} clips" + (f" · {reused} reused" if reused else ""))
         await ctx.send_message(job)
 
 
@@ -200,24 +260,42 @@ class NarrateExecutor(Executor):
     async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
         assert job.storyboard is not None
         d = self.deps
+        ops = d.ops(job.job_id)
         scenes = job.storyboard.scenes
-        if not job.request.narration or d.narrator is None:
-            job.narrations = [None] * len(scenes)
-            await ctx.send_message(job)
-            return
-        await d.progress(job.job_id, JobStatus.narrating)
-        language = job.storyboard.brief.narration_language or "en-US"
+        async with ops.op(OpKind.step, "Narrate", step=self.id) as step:
+            if not job.request.narration or d.narrator is None:
+                job.narrations = [None] * len(scenes)
+                step.skip("Narration disabled" if not job.request.narration
+                          else "No Azure AI Speech endpoint configured")
+            else:
+                await d.progress(job.job_id, JobStatus.narrating)
+                language = job.storyboard.brief.narration_language or "en-US"
+                step.update(voice=job.request.voice or d.settings.tts_voice, language=language)
+                reused = 0
 
-        async def one(i: int, scene: Scene) -> Path | None:
-            if not scene.narration.strip():
-                return None
-            local = job.work_dir / narration_name(i)
-            if not local.exists() and not await d.store.download(job.job_id, narration_name(i), local):
-                await d.narrator.synthesize(scene.narration, local, voice=job.request.voice, language=language)
-                await d.store.upload(job.job_id, narration_name(i), local)
-            return local
+                async def one(i: int, scene: Scene) -> Path | None:
+                    nonlocal reused
+                    async with ops.op(OpKind.narration, f"Scene {i + 1}/{len(scenes)}", summary=scene.title,
+                                      detail=scene.narration, characters=len(scene.narration)) as op:
+                        if not scene.narration.strip():
+                            op.skip("No narration")
+                            return None
+                        local = job.work_dir / narration_name(i)
+                        if local.exists() or await d.store.download(job.job_id, narration_name(i), local):
+                            op.reuse()
+                            reused += 1
+                        else:
+                            await d.narrator.synthesize(scene.narration, local, voice=job.request.voice,
+                                                        language=language)
+                            await d.store.upload(job.job_id, narration_name(i), local)
+                        return local
 
-        job.narrations = await gather_all([one(i, s) for i, s in enumerate(scenes)])
+                job.narrations = await gather_all([one(i, s) for i, s in enumerate(scenes)])
+                voiced = sum(1 for n in job.narrations if n is not None)
+                if voiced and reused == voiced:
+                    step.reuse(f"{voiced} scenes")
+                else:
+                    step.set(summary=f"{voiced} scenes" + (f" · {reused} reused" if reused else ""))
         await ctx.send_message(job)
 
 
@@ -231,29 +309,52 @@ class AssembleExecutor(Executor):
         assert job.storyboard is not None
         d = self.deps
         s = d.settings
-        await d.progress(job.job_id, JobStatus.assembling)
-        work = job.work_dir / "assembly"
-        encoders = asyncio.Semaphore(s.ffmpeg_concurrency)  # a 10 min video has ~120 clips
+        ops = d.ops(job.job_id)
+        scenes = job.storyboard.scenes
+        async with ops.op(OpKind.step, "Assemble video", step=self.id,
+                          resolution=f"{s.output_width}x{s.output_height}", fps=s.output_fps) as step:
+            await d.progress(job.job_id, JobStatus.assembling)
+            work = job.work_dir / "assembly"
+            encoders = asyncio.Semaphore(s.ffmpeg_concurrency)  # a 10 min video has ~120 clips
 
-        async def normalize(i: int, clip: Path) -> Path:
-            async with encoders:
-                return await media.normalize_clip(
-                    clip, work / f"norm_{i:03d}.mp4", s.output_width, s.output_height, s.output_fps,
-                    keep_audio=job.model.has_audio, audio_volume=s.ambient_audio_volume,
-                )
+            async with ops.op(OpKind.ffmpeg, f"Normalize {len(job.clips)} clips",
+                              summary=f"{s.output_width}x{s.output_height} @ {s.output_fps} fps",
+                              concurrency=s.ffmpeg_concurrency) as norm:
+                norm.progress(0, len(job.clips))
+                normalized_count = 0
 
-        normalized = await gather_all([normalize(i, clip) for i, clip in enumerate(job.clips)])
-        scene_files: list[Path] = []
-        index = 0
-        for i, scene in enumerate(job.storyboard.scenes):
-            parts = normalized[index : index + len(scene.shots)]
-            index += len(scene.shots)
-            raw = await media.concat(list(parts), work / f"scene_{i:03d}_raw.mp4")
-            narration = job.narrations[i] if i < len(job.narrations) else None
-            scene_files.append(await media.mix_narration(raw, narration, work / f"scene_{i:03d}.mp4"))
-        final = await media.concat(scene_files, job.work_dir / FINAL_VIDEO)
-        duration, _ = await media.probe(final)
-        await d.store.upload(job.job_id, FINAL_VIDEO, final)
+                async def normalize(i: int, clip: Path) -> Path:
+                    nonlocal normalized_count
+                    async with encoders:
+                        out = await media.normalize_clip(
+                            clip, work / f"norm_{i:03d}.mp4", s.output_width, s.output_height, s.output_fps,
+                            keep_audio=job.model.has_audio, audio_volume=s.ambient_audio_volume,
+                        )
+                    normalized_count += 1
+                    norm.progress(normalized_count, len(job.clips))
+                    return out
+
+                normalized = await gather_all([normalize(i, clip) for i, clip in enumerate(job.clips)])
+
+            scene_files: list[Path] = []
+            index = 0
+            for i, scene in enumerate(scenes):
+                parts = normalized[index : index + len(scene.shots)]
+                index += len(scene.shots)
+                narration = job.narrations[i] if i < len(job.narrations) else None
+                title = f"Scene {i + 1}/{len(scenes)}: concat {len(parts)} clips" + (" + mix narration" if narration else "")
+                async with ops.op(OpKind.ffmpeg, title, summary=scene.title):
+                    raw = await media.concat(list(parts), work / f"scene_{i:03d}_raw.mp4")
+                    scene_files.append(await media.mix_narration(raw, narration, work / f"scene_{i:03d}.mp4"))
+
+            async with ops.op(OpKind.ffmpeg, f"Concatenate {len(scene_files)} scenes") as op:
+                final = await media.concat(scene_files, job.work_dir / FINAL_VIDEO)
+                duration, _ = await media.probe(final)
+                op.set(summary=format_seconds(duration))
+            async with ops.op(OpKind.upload, f"Upload {FINAL_VIDEO}",
+                              summary=f"{final.stat().st_size / 1e6:.1f} MB"):
+                await d.store.upload(job.job_id, FINAL_VIDEO, final)
+            step.set(summary=f"{format_seconds(duration)} video")
         await ctx.yield_output(
             VideoResult(job_id=job.job_id, title=job.storyboard.brief.title, blob_name=FINAL_VIDEO,
                         duration_seconds=duration)

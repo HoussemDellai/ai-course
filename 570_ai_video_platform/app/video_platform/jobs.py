@@ -11,6 +11,7 @@ from collections.abc import Callable
 from agent_framework import Workflow
 
 from .config import Settings
+from .operations import Operation, OperationRecorder, install_log_capture, load_operations
 from .schemas import JobState, JobStatus, VideoRequest, utcnow
 from .storage import LEASE_SECONDS, ArtifactStore, JobLock, read_json, write_json
 from .workflow import VideoResult, new_video_job
@@ -33,6 +34,9 @@ class JobManager:
         self._tasks: dict[str, asyncio.Task] = {}
         self._states: dict[str, JobState] = {}
         self._state_lock = asyncio.Lock()
+        self._recorders: dict[str, OperationRecorder] = {}
+        self._subscribers: dict[str, set[asyncio.Queue]] = {}
+        install_log_capture()
 
     async def create(self, request: VideoRequest) -> JobState:
         if request.seed is None:
@@ -48,6 +52,39 @@ class JobManager:
             return self._states[job_id]
         data = await read_json(self.store, job_id, "state.json")
         return JobState.model_validate(data) if data else None
+
+    def is_active(self, job_id: str) -> bool:
+        """True while this process runs (or queues) the job; otherwise its state comes from the store."""
+        return job_id in self._tasks
+
+    def is_running_here(self, job_id: str) -> bool:
+        """True while this process executes the job (holds its lease): live operations are in memory."""
+        return job_id in self._recorders
+
+    def recorder(self, job_id: str) -> OperationRecorder:
+        return self._recorders[job_id]
+
+    async def operations(self, job_id: str) -> list[Operation]:
+        if recorder := self._recorders.get(job_id):
+            return recorder.snapshot()
+        return await load_operations(self.store, job_id)
+
+    def subscribe(self, job_id: str) -> asyncio.Queue:
+        """Live (event, data) notifications of a job running in this process: 'state', 'op' and 'end'."""
+        queue: asyncio.Queue = asyncio.Queue()
+        self._subscribers.setdefault(job_id, set()).add(queue)
+        return queue
+
+    def unsubscribe(self, job_id: str, queue: asyncio.Queue) -> None:
+        subscribers = self._subscribers.get(job_id)
+        if subscribers is not None:
+            subscribers.discard(queue)
+            if not subscribers:
+                del self._subscribers[job_id]
+
+    def _publish(self, job_id: str, event: str, data: object) -> None:
+        for queue in self._subscribers.get(job_id, ()):
+            queue.put_nowait((event, data))
 
     async def list(self) -> list[JobState]:
         states = [s for s in [await self.get(j) for j in await self.store.list_jobs()] if s]
@@ -83,7 +120,9 @@ class JobManager:
             update = dict(fields, updated_at=utcnow())
             if status is not None:
                 update["status"] = status
-            await self._save(state.model_copy(update=update))
+            state = state.model_copy(update=update)
+            await self._save(state)
+        self._publish(job_id, "state", state.model_dump(mode="json"))
 
     async def wait(self, job_id: str) -> None:
         if task := self._tasks.get(job_id):
@@ -141,6 +180,21 @@ class JobManager:
         self._states[job_id] = state
         if state.status == JobStatus.completed or (state.status == JobStatus.failed and not from_failed):
             return
+        recorder = await OperationRecorder.load(self.store, job_id,
+                                                publish=lambda event, data: self._publish(job_id, event, data))
+        recorder.start_run()
+        self._recorders[job_id] = recorder
+        try:
+            await self._execute_run(job_id, state, from_failed)
+        finally:
+            try:
+                await recorder.close()
+            finally:
+                del self._recorders[job_id]
+                if self._states[job_id].is_finished:
+                    self._publish(job_id, "end", None)
+
+    async def _execute_run(self, job_id: str, state: JobState, from_failed: bool) -> None:
         if from_failed:
             await self.progress(job_id, JobStatus.queued, error=None)
         job = new_video_job(job_id, state.request, self.settings)
@@ -150,6 +204,8 @@ class JobManager:
             outputs = [o for o in result.get_outputs() if isinstance(o, VideoResult)]
             if not outputs:
                 raise RuntimeError(f"Workflow ended without a video (state: {result.get_final_state()})")
+            # Operations are persisted before the final status, so readers on other replicas see them complete.
+            await self._recorders[job_id].safe_flush()
             await self.progress(job_id, JobStatus.completed, duration_seconds=outputs[0].duration_seconds,
                                 error=None)
             shutil.rmtree(job.work_dir, ignore_errors=True)
@@ -157,4 +213,5 @@ class JobManager:
             raise  # shutdown or lost lease: the job stays unfinished and is resumed later
         except Exception as e:
             log.exception("Job %s failed", job_id)
+            await self._recorders[job_id].safe_flush()
             await self.progress(job_id, JobStatus.failed, error=f"{type(e).__name__}: {e}"[:2000])
