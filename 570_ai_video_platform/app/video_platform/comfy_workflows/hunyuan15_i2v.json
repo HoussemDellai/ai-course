@@ -1,0 +1,89 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": { "unet_name": "hunyuanvideo1.5_720p_i2v_fp16.safetensors", "weight_dtype": "default" }
+  },
+  "2": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "clip_name2": "byt5_small_glyphxl_fp16.safetensors",
+      "type": "hunyuan_video_15",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "hunyuanvideo15_vae_fp16.safetensors" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "{{prompt}}", "clip": ["2", 0] }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "{{negative_prompt}}", "clip": ["2", 0] }
+  },
+  "6": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "{{image}}" }
+  },
+  "7": {
+    "class_type": "CLIPVisionLoader",
+    "inputs": { "clip_name": "sigclip_vision_patch14_384.safetensors" }
+  },
+  "8": {
+    "class_type": "CLIPVisionEncode",
+    "inputs": { "clip_vision": ["7", 0], "image": ["6", 0], "crop": "center" }
+  },
+  "9": {
+    "class_type": "HunyuanVideo15ImageToVideo",
+    "inputs": {
+      "positive": ["4", 0],
+      "negative": ["5", 0],
+      "vae": ["3", 0],
+      "width": "{{width}}",
+      "height": "{{height}}",
+      "length": "{{length}}",
+      "batch_size": 1,
+      "start_image": ["6", 0],
+      "clip_vision_output": ["8", 0]
+    }
+  },
+  "10": {
+    "class_type": "ModelSamplingSD3",
+    "inputs": { "model": ["1", 0], "shift": 7.0 }
+  },
+  "11": {
+    "class_type": "CFGGuider",
+    "inputs": { "model": ["10", 0], "positive": ["9", 0], "negative": ["9", 1], "cfg": 6.0 }
+  },
+  "12": {
+    "class_type": "BasicScheduler",
+    "inputs": { "model": ["1", 0], "scheduler": "simple", "steps": 20, "denoise": 1.0 }
+  },
+  "13": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": "{{seed}}" }
+  },
+  "14": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "euler" }
+  },
+  "15": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": { "noise": ["13", 0], "guider": ["11", 0], "sampler": ["14", 0], "sigmas": ["12", 0], "latent_image": ["9", 2] }
+  },
+  "16": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["15", 0], "vae": ["3", 0] }
+  },
+  "17": {
+    "class_type": "CreateVideo",
+    "inputs": { "images": ["16", 0], "fps": "{{fps}}" }
+  },
+  "18": {
+    "class_type": "SaveVideo",
+    "inputs": { "video": ["17", 0], "filename_prefix": "{{filename_prefix}}", "format": "mp4", "format.codec": "h264", "codec": "h264" }
+  }
+}

@@ -58,7 +58,7 @@ resource "azurerm_network_security_rule" "allow_comfyui_from_internet" {
   destination_port_range      = "8188"
 }
 
-# The web page shows live GPU utilisation read from the exporter on port 8189 (read-only GPU stats, no auth).
+# The web page shows live GPU, CPU and RAM utilisation read from the exporter on port 8189 (read-only stats, no auth).
 resource "azurerm_network_security_rule" "allow_gpu_stats_from_internet" {
   network_security_group_name = azurerm_network_security_group.nsg_vm.name
   resource_group_name         = azurerm_resource_group.rg.name

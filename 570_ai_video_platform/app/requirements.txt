@@ -11,3 +11,5 @@ uvicorn==0.54.0
 httpx==0.28.1
 pydantic==2.13.5
 python-dotenv==1.2.3
+python-multipart==0.0.32
+pillow==12.3.0

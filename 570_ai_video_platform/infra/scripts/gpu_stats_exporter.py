@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Tiny HTTP exporter of the GPU stats reported by nvidia-smi (standard library only).
+"""Tiny HTTP exporter of the GPU stats reported by nvidia-smi, plus host CPU and RAM (standard library only).
 
-GET /gpu_stats -> {"hostname": ..., "timestamp": ..., "gpus": [{index, name, utilization_gpu, ...}]}
+GET /gpu_stats -> {"hostname": ..., "timestamp": ..., "gpus": [{index, name, utilization_gpu, ...}],
+                   "host": {cpu_percent, cpu_count, load_1m, memory_used_mib, memory_total_mib} | null}
 GET /healthz   -> {"status": "ok"}
 """
 from __future__ import annotations
@@ -27,9 +28,11 @@ FIELDS = [
 ]
 QUERY = ",".join(f for f, _, _ in FIELDS)
 CACHE_SECONDS = 1.0
+CPU_SAMPLE_SECONDS = 0.2
 
 _lock = threading.Lock()
 _cache: tuple[float, dict] | None = None
+_cpu_prev: tuple[int, int] | None = None  # (total, idle) jiffies of the previous /proc/stat read
 
 
 def _value(raw: str, cast):
@@ -66,13 +69,77 @@ def read_gpus() -> list[dict]:
     return parse_nvidia_smi(out)
 
 
+def parse_proc_stat(text: str) -> tuple[int, int]:
+    """(total, idle) jiffies of the aggregate `cpu` line of /proc/stat; iowait counts as idle."""
+    for line in text.splitlines():
+        parts = line.split()
+        if parts and parts[0] == "cpu":
+            values = [int(v) for v in parts[1:]]
+            # guest and guest_nice (9th/10th) are already included in user and nice.
+            total = sum(values[:8])
+            idle = values[3] + (values[4] if len(values) > 4 else 0)
+            return total, idle
+    raise ValueError("no cpu line in /proc/stat")
+
+
+def cpu_percent(prev: tuple[int, int], cur: tuple[int, int]) -> float | None:
+    total, idle = cur[0] - prev[0], cur[1] - prev[1]
+    if total <= 0:
+        return None
+    return round(max(0.0, min(100.0, 100.0 * (total - idle) / total)), 1)
+
+
+def parse_meminfo(text: str) -> tuple[float, float]:
+    """(used, total) MiB from /proc/meminfo; used = MemTotal - MemAvailable."""
+    kib = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(":")
+        fields = rest.split()
+        if fields:
+            try:
+                kib[key.strip()] = int(fields[0])
+            except ValueError:
+                pass
+    total = kib["MemTotal"]
+    available = kib.get("MemAvailable", kib.get("MemFree", 0) + kib.get("Buffers", 0) + kib.get("Cached", 0))
+    return round((total - available) / 1024, 1), round(total / 1024, 1)
+
+
+def _read(path: str) -> str:
+    with open(path, encoding="ascii") as f:
+        return f.read()
+
+
+def read_host() -> dict | None:
+    """CPU and RAM of the VM. None if /proc can't be read: the GPU stats are still served."""
+    global _cpu_prev
+    try:
+        cur = parse_proc_stat(_read("/proc/stat"))
+        if _cpu_prev is None:  # first call: no previous sample to diff against
+            _cpu_prev = cur
+            time.sleep(CPU_SAMPLE_SECONDS)
+            cur = parse_proc_stat(_read("/proc/stat"))
+        cpu = cpu_percent(_cpu_prev, cur)
+        _cpu_prev = cur
+        used, total = parse_meminfo(_read("/proc/meminfo"))
+        try:
+            load_1m = float(_read("/proc/loadavg").split()[0])
+        except (OSError, ValueError, IndexError):
+            load_1m = None
+        return {"cpu_percent": cpu, "cpu_count": os.cpu_count(), "load_1m": load_1m,
+                "memory_used_mib": used, "memory_total_mib": total}
+    except (OSError, ValueError, KeyError, IndexError):
+        return None
+
+
 def snapshot() -> dict:
     """Current stats, cached briefly so concurrent callers share one nvidia-smi run."""
     global _cache
     with _lock:
         now = time.time()
         if _cache is None or now - _cache[0] >= CACHE_SECONDS:
-            _cache = (now, {"hostname": socket.gethostname(), "timestamp": now, "gpus": read_gpus()})
+            gpus = read_gpus()
+            _cache = (now, {"hostname": socket.gethostname(), "timestamp": now, "gpus": gpus, "host": read_host()})
         return _cache[1]
 
 

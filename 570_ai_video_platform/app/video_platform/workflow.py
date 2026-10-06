@@ -1,10 +1,13 @@
 """Video production pipeline as a Microsoft Agent Framework workflow.
 
-    EnhancePrompt -> PlanStoryboard -> GenerateClips -> Narrate -> Assemble
+    EnhancePrompt -> PlanStoryboard -> GenerateKeyframes -> GenerateClips -> Narrate -> Assemble
 
 The creative steps are LLM agents (gpt-6-astra in Foundry); the heavy steps are deterministic executors
-calling ComfyUI, Azure AI Speech and ffmpeg. Every step persists its artifacts so a job can resume
-after a restart without redoing finished work (LLM calls, clips or narration).
+calling ComfyUI, Azure AI Speech and ffmpeg. When the user uploads a reference photo, the agents see it,
+every shot gets a keyframe redrawn from the photo (Qwen-Image-Edit) and the clips are rendered image-to-video
+from those keyframes; otherwise GenerateKeyframes is skipped and the clips are text-to-video.
+Every step persists its artifacts so a job can resume after a restart without redoing finished work
+(LLM calls, keyframes, clips or narration).
 """
 
 from __future__ import annotations
@@ -28,11 +31,12 @@ from .operations import OperationRecorder, OpKind
 from .schemas import CreativeBrief, JobStatus, Scene, Storyboard, VideoRequest
 from .speech import Narrator
 from .storage import ArtifactStore, read_json, write_json
-from .video_models import VideoModel, get_video_model
+from .video_models import KEYFRAME_MODEL_NAME, VideoModel, get_video_model
 
 log = logging.getLogger(__name__)
 
 FINAL_VIDEO = "final.mp4"
+REFERENCE_IMAGE = "input/reference.png"
 
 T = TypeVar("T")
 
@@ -61,8 +65,15 @@ class VideoJob:
     seed: int
     brief: CreativeBrief | None = None
     storyboard: Storyboard | None = None
+    reference: Path | None = None  # local copy of the uploaded photo
+    keyframes: list[Path] = field(default_factory=list)
     clips: list[Path] = field(default_factory=list)
     narrations: list[Path | None] = field(default_factory=list)
+
+    @property
+    def upload_subfolder(self) -> str:
+        """ComfyUI input subfolder for this job's images."""
+        return f"aivideo/{self.job_id}"
 
 
 @dataclass
@@ -80,6 +91,14 @@ def clip_name(i: int) -> str:
 def pending_name(i: int) -> str:
     """ComfyUI prompt submitted for a clip that isn't downloaded yet (lets a restarted job reattach to it)."""
     return f"clips/shot_{i:03d}.pending.json"
+
+
+def keyframe_name(i: int) -> str:
+    return f"keyframes/shot_{i:03d}.png"
+
+
+def keyframe_pending_name(i: int) -> str:
+    return f"keyframes/shot_{i:03d}.pending.json"
 
 
 def narration_name(i: int) -> str:
@@ -100,6 +119,43 @@ async def gather_all(coros: list[Awaitable[T]]) -> list[T]:
     return [t.result() for t in tasks]
 
 
+async def load_reference(d: PipelineDeps, job: VideoJob) -> Path | None:
+    """Local copy of the job's reference photo (None when the video is text-only)."""
+    if not job.request.reference_image:
+        return None
+    if job.reference is None:
+        local = job.work_dir / REFERENCE_IMAGE
+        if not (local.exists() or await d.store.download(job.job_id, REFERENCE_IMAGE, local)):
+            raise FileNotFoundError(f"The reference photo of job {job.job_id} is missing from the store")
+        job.reference = local
+    return job.reference
+
+
+def make_submit_recorder(d: PipelineDeps, job: VideoJob, op, pending: str) -> Callable[[str, str], Awaitable[None]]:
+    """on_submitted callback: shows the ComfyUI prompt in the timeline and saves it so a restart can reattach."""
+    submissions = 0
+
+    async def remember(server: str, prompt_id: str) -> None:
+        nonlocal submissions
+        submissions += 1
+        op.start()
+        op.update(server=server, prompt_id=prompt_id, attempt=submissions)
+        op.log(f"Submitted to {server} as prompt {prompt_id}")
+        await write_json(d.store, job.job_id, pending, {"server": server, "prompt_id": prompt_id})
+
+    return remember
+
+
+async def pending_resume(d: PipelineDeps, job: VideoJob, op, pending: str) -> dict | None:
+    saved = await read_json(d.store, job.job_id, pending)
+    resume = saved if isinstance(saved, dict) else None
+    if resume:
+        op.start()
+        op.update(server=resume.get("server"), prompt_id=resume.get("prompt_id"))
+        op.log(f"Reattaching to ComfyUI prompt {resume.get('prompt_id')}")
+    return resume
+
+
 class EnhancePromptExecutor(Executor):
     def __init__(self, deps: PipelineDeps):
         super().__init__(id="enhance_prompt")
@@ -116,12 +172,18 @@ class EnhancePromptExecutor(Executor):
                 job.brief = CreativeBrief.model_validate(saved)
                 step.reuse()
             else:
-                async with ops.op(OpKind.agent, "prompt-enhancer", summary="Writing the creative brief",
-                                  model=d.settings.foundry_model) as agent:
-                    job.brief = await d.team.enhance(job.request.prompt, job.request.duration_minutes * 60)
+                reference = await load_reference(d, job)
+                summary = "Writing the creative brief" + (" from the reference photo" if reference else "")
+                async with ops.op(OpKind.agent, "prompt-enhancer", summary=summary,
+                                  model=d.settings.foundry_model, reference_image=reference is not None) as agent:
+                    image = reference.read_bytes() if reference else None
+                    job.brief = await d.team.enhance(job.request.prompt, job.request.duration_minutes * 60, image)
                     count = len(job.brief.characters)
+                    detail = f"{job.brief.logline}\n\nStyle: {job.brief.visual_style}\nTone: {job.brief.tone}"
+                    if job.brief.reference_notes:
+                        detail += f"\nReference photo: {job.brief.reference_notes}"
                     agent.set(summary=f"{count} character{'' if count == 1 else 's'} · {job.brief.narration_language}",
-                              detail=f"{job.brief.logline}\n\nStyle: {job.brief.visual_style}\nTone: {job.brief.tone}")
+                              detail=detail)
                 await write_json(d.store, job.job_id, "brief.json", job.brief.model_dump())
             step.set(summary=job.brief.title)
             await d.progress(job.job_id, title=job.brief.title)
@@ -157,7 +219,8 @@ class PlanStoryboardExecutor(Executor):
                 async def write_shots(i: int, scene) -> list:
                     async with ops.op(OpKind.agent, f"shot-writer · scene {i + 1}/{len(outline.scenes)}",
                                       summary=scene.title, model=model) as agent:
-                        shots = await d.team.write_shots(job.brief, scene, i, len(outline.scenes), job.model)
+                        shots = await d.team.write_shots(job.brief, scene, i, len(outline.scenes), job.model,
+                                                         keyframes=job.request.reference_image)
                         agent.set(summary=f"{scene.title} · {len(shots)} prompts")
                         return shots
 
@@ -178,6 +241,77 @@ class PlanStoryboardExecutor(Executor):
         await ctx.send_message(job)
 
 
+class GenerateKeyframesExecutor(Executor):
+    """Redraws the reference photo into the first frame of every shot (skipped for text-only videos)."""
+
+    def __init__(self, deps: PipelineDeps):
+        super().__init__(id="generate_keyframes")
+        self.deps = deps
+
+    @handler
+    async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
+        assert job.storyboard is not None
+        d = self.deps
+        ops = d.ops(job.job_id)
+        async with ops.op(OpKind.step, "Generate keyframes", step=self.id, model=KEYFRAME_MODEL_NAME,
+                          servers=d.comfy.size) as step:
+            reference = await load_reference(d, job)
+            if reference is None:
+                job.keyframes = []
+                step.skip("No reference photo")
+            else:
+                job.keyframes = await self._render_all(job, reference, step)
+        await ctx.send_message(job)
+
+    async def _render_all(self, job: VideoJob, reference: Path, step) -> list[Path]:
+        d = self.deps
+        ops = d.ops(job.job_id)
+        shots = job.storyboard.shots
+        scene_titles = [scene.title for scene in job.storyboard.scenes for _ in scene.shots]
+        step.progress(0, len(shots))
+        await d.progress(job.job_id, JobStatus.keyframing)
+        done = reused = 0
+        lock = asyncio.Lock()
+
+        async def one(i: int) -> Path:
+            nonlocal done, reused
+            local = job.work_dir / keyframe_name(i)
+            # Storyboards written without keyframe prompts (should not happen) fall back to the clip prompt.
+            prompt = shots[i].keyframe_prompt or shots[i].prompt
+            async with ops.op(OpKind.keyframe, f"Keyframe {i + 1}/{len(shots)}", summary=scene_titles[i],
+                              detail=prompt, queued=True, seed=job.seed + i, shot=i) as op:
+                if local.exists() or await d.store.download(job.job_id, keyframe_name(i), local):
+                    op.reuse()
+                    reused += 1
+                else:
+                    await d.comfy.generate_keyframe(
+                        reference=reference,
+                        prompt=prompt,
+                        seed=job.seed + i,
+                        width=job.model.width,
+                        height=job.model.height,
+                        dest=local,
+                        filename_prefix=f"aivideo/{job.job_id}/keyframe_{i:03d}",
+                        timeout=d.settings.clip_timeout_seconds,
+                        retries=d.settings.clip_retries,
+                        resume=await pending_resume(d, job, op, keyframe_pending_name(i)),
+                        on_submitted=make_submit_recorder(d, job, op, keyframe_pending_name(i)),
+                        upload_subfolder=job.upload_subfolder,
+                    )
+                    await d.store.upload(job.job_id, keyframe_name(i), local)
+            async with lock:
+                done += 1
+                step.progress(done, len(shots))
+            return local
+
+        keyframes = await gather_all([one(i) for i in range(len(shots))])
+        if reused == len(shots):
+            step.reuse(f"{len(shots)} keyframes")
+        else:
+            step.set(summary=f"{len(shots)} keyframes" + (f" · {reused} reused" if reused else ""))
+        return keyframes
+
+
 class GenerateClipsExecutor(Executor):
     def __init__(self, deps: PipelineDeps):
         super().__init__(id="generate_clips")
@@ -194,36 +328,21 @@ class GenerateClipsExecutor(Executor):
         lock = asyncio.Lock()
 
         async with ops.op(OpKind.step, "Generate clips", step=self.id, model=job.model.display_name,
-                          servers=d.comfy.size) as step:
+                          servers=d.comfy.size, mode="image-to-video" if job.keyframes else "text-to-video") as step:
             step.progress(0, len(shots))
             await d.progress(job.job_id, JobStatus.generating)
 
             async def one(i: int) -> Path:
                 nonlocal done, reused
                 local = job.work_dir / clip_name(i)
+                start_image = job.keyframes[i] if job.keyframes else None
+                extra = {"shot": i, "keyframe": True} if start_image else {"shot": i}
                 async with ops.op(OpKind.clip, f"Shot {i + 1}/{len(shots)}", summary=scene_titles[i],
-                                  detail=shots[i].prompt, queued=True, seed=job.seed + i) as op:
+                                  detail=shots[i].prompt, queued=True, seed=job.seed + i, **extra) as op:
                     if local.exists() or await d.store.download(job.job_id, clip_name(i), local):
                         op.reuse()
                         reused += 1
                     else:
-                        pending = await read_json(d.store, job.job_id, pending_name(i))
-                        resume = pending if isinstance(pending, dict) else None
-                        if resume:
-                            op.start()
-                            op.update(server=resume.get("server"), prompt_id=resume.get("prompt_id"))
-                            op.log(f"Reattaching to ComfyUI prompt {resume.get('prompt_id')}")
-                        submissions = 0
-
-                        async def remember(server: str, prompt_id: str) -> None:
-                            nonlocal submissions
-                            submissions += 1
-                            op.start()
-                            op.update(server=server, prompt_id=prompt_id, attempt=submissions)
-                            op.log(f"Submitted to {server} as prompt {prompt_id}")
-                            await write_json(d.store, job.job_id, pending_name(i),
-                                             {"server": server, "prompt_id": prompt_id})
-
                         await d.comfy.generate_clip(
                             model=job.model,
                             prompt=shots[i].prompt,
@@ -232,8 +351,10 @@ class GenerateClipsExecutor(Executor):
                             filename_prefix=f"aivideo/{job.job_id}/shot_{i:03d}",
                             timeout=d.settings.clip_timeout_seconds,
                             retries=d.settings.clip_retries,
-                            resume=resume,
-                            on_submitted=remember,
+                            resume=await pending_resume(d, job, op, pending_name(i)),
+                            on_submitted=make_submit_recorder(d, job, op, pending_name(i)),
+                            start_image=start_image,
+                            upload_subfolder=job.upload_subfolder,
                         )
                         await d.store.upload(job.job_id, clip_name(i), local)
                 async with lock:
@@ -364,13 +485,15 @@ class AssembleExecutor(Executor):
 def build_video_workflow(deps: PipelineDeps) -> Workflow:
     enhance = EnhancePromptExecutor(deps)
     plan = PlanStoryboardExecutor(deps)
+    keyframes = GenerateKeyframesExecutor(deps)
     clips = GenerateClipsExecutor(deps)
     narrate = NarrateExecutor(deps)
     assemble = AssembleExecutor(deps)
     return (
         WorkflowBuilder(name="video-production", start_executor=enhance)
         .add_edge(enhance, plan)
-        .add_edge(plan, clips)
+        .add_edge(plan, keyframes)
+        .add_edge(keyframes, clips)
         .add_edge(clips, narrate)
         .add_edge(narrate, assemble)
         .build()

@@ -11,7 +11,7 @@ CACHE_SECONDS = 1.5
 
 
 class GpuMonitor:
-    """Reads live GPU stats from the exporters on the GPU VMs (infra/scripts/gpu_stats_exporter.py)."""
+    """Reads live GPU, CPU and RAM stats from the exporters on the GPU VMs (infra/scripts/gpu_stats_exporter.py)."""
 
     def __init__(self, urls: list[str], http: httpx.AsyncClient | None = None, cache_seconds: float = CACHE_SECONDS):
         self.urls = [u.rstrip("/") for u in urls]
@@ -34,9 +34,9 @@ class GpuMonitor:
             r.raise_for_status()
             body = r.json()
             return {"name": body.get("hostname") or name, "online": True, "error": None,
-                    "gpus": body.get("gpus", [])}
+                    "gpus": body.get("gpus", []), "host": body.get("host")}
         except (httpx.HTTPError, ValueError) as e:
-            return {"name": name, "online": False, "error": str(e) or type(e).__name__, "gpus": []}
+            return {"name": name, "online": False, "error": str(e) or type(e).__name__, "gpus": [], "host": None}
 
     async def snapshot(self) -> dict[str, Any]:
         """Stats of every server, cached briefly so many open pages share one request per VM."""

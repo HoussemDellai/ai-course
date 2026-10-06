@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs the GPU stats exporter (gpu_stats_exporter.py) as a systemd service on port 8189.
+# Installs the GPU stats exporter (gpu_stats_exporter.py: GPU stats plus the VM's CPU and RAM) as a systemd service on port 8189.
 # Terraform substitutes the base64 of the exporter below (see vm_comfyui.tf). Idempotent, doesn't touch ComfyUI.
 set -euo pipefail
 
@@ -26,7 +26,7 @@ chmod 755 $INSTALL_DIR/gpu_stats_exporter.py
 
 cat > /etc/systemd/system/gpu-stats.service <<EOF
 [Unit]
-Description=GPU stats exporter (nvidia-smi over HTTP)
+Description=GPU stats exporter (nvidia-smi plus CPU and RAM over HTTP)
 After=network-online.target
 Wants=network-online.target
 
