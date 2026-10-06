@@ -106,6 +106,35 @@ VIDEO_MODELS: dict[str, VideoModel] = {
         ),
         license_note="LTX-2 Community License: free for organizations under $10M annual revenue.",
     ),
+    "ltx25": VideoModel(
+        key="ltx25",
+        display_name="LTX-2.5 22B distilled (Lightricks), video + audio",
+        workflow_file="ltx25_t2v.json",
+        i2v_workflow_file="ltx25_i2v.json",
+        width=1280,
+        height=704,  # LTX-2.5 wants sizes divisible by 32 (720 isn't)
+        fps=24,
+        frames=121,  # 5 s at 24 fps (frame count must be 8n+1)
+        has_audio=True,
+        negative_prompt="pc game, console game, video game, cartoon, childish, ugly",
+        prompt_guide=(
+            "LTX-2.5 generates video AND synchronized ambient audio, and its Gemma 4 text encoder keeps every detail "
+            "of a long, dense prompt. Write one flowing paragraph (100-180 words) in present tense: shot type and "
+            "the main action, then specific movements and gestures, character appearance (fixed description), "
+            "background and environment, camera angle and movement, lighting and colors, and finally the "
+            "soundscape (ambient sounds, foley, music mood). One continuous shot, no cuts. Do not ask for speech "
+            "or dialogue: the narration is added separately."
+        ),
+        i2v_prompt_guide=(
+            "LTX-2.5 image-to-video starts from the given keyframe and also generates ambient audio. Write one "
+            "flowing paragraph (60-120 words) in present tense that continues the keyframe: the main action, "
+            "specific movements and gestures, facial expression changes, secondary motion (hair, cloth, water, "
+            "smoke), how the camera moves, how light and atmosphere evolve, and finally the soundscape (ambient "
+            "sounds, foley, music mood). Briefly restate the subject and setting so they stay consistent. One "
+            "continuous shot, no cuts, no speech or dialogue: the narration is added separately."
+        ),
+        license_note="LTX-2.x Community License: free for organizations under $10M annual revenue.",
+    ),
     "hunyuan15": VideoModel(
         key="hunyuan15",
         display_name="HunyuanVideo 1.5 720p (Tencent)",

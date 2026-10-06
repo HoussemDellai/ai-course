@@ -20,7 +20,7 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     p = argparse.ArgumentParser()
     p.add_argument("prompt")
     p.add_argument("--minutes", type=float, default=5.0)
-    p.add_argument("--model", default=None, help="wan22, ltx2 or hunyuan15")
+    p.add_argument("--model", default=None, help="wan22, ltx2, ltx25 or hunyuan15")
     p.add_argument("--no-narration", action="store_true")
     p.add_argument("--naturalistic", action="store_true", help="opt in to continuity, measured narration and audio mixing")
     p.add_argument("--voice", help="Speech voice short name (default: configured TTS_VOICE)")

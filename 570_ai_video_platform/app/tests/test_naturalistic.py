@@ -184,7 +184,9 @@ def test_api_accepts_controls_in_json_and_multipart(settings, monkeypatch):
 
 
 @requires_ffmpeg
-@pytest.mark.parametrize("model_key,narration", [("wan22", True), ("ltx2", True), ("hunyuan15", False)])
+@pytest.mark.parametrize("model_key,narration", [
+    ("wan22", True), ("ltx2", True), ("ltx25", True), ("hunyuan15", False),
+])
 async def test_naturalistic_pipeline(settings, tmp_path, monkeypatch, model_key, narration):
     store, factory, close, comfy, team, narrator = make_services(
         settings, tmp_path, monkeypatch, model_key, narration_seconds=3,
@@ -351,6 +353,29 @@ async def test_fractional_clip_timing_does_not_accumulate_drift(tmp_path):
         "-show_entries", "stream=nb_read_frames", "-of", "json", str(final),
     ))
     assert int(frames["streams"][0]["nb_read_frames"]) == 121 * 9
+
+
+@requires_ffmpeg
+async def test_narration_loudness_is_consistent(tmp_path):
+    source = make_clip(tmp_path / "source.mp4", 5, 24, 160, 96, audio=False)
+    video = await media.normalize_clip(source, tmp_path / "video.mp4", 160, 96, 24, False, 0.25,
+                                       naturalistic=True, target_duration=5)
+    voice = make_wav(tmp_path / "voice.wav", 3)
+    quiet = tmp_path / "quiet.wav"
+    await media.run("ffmpeg", "-y", "-i", str(voice), "-af", "volume=0.1", str(quiet))
+    loudness = []
+    for i, narration in enumerate([voice, quiet]):
+        output = await media.mix_narration(video, narration, tmp_path / f"mix{i}.mp4", naturalistic=True)
+        measurement = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-i", str(output), "-af",
+             "loudnorm=I=-18:TP=-3:LRA=7:print_format=json", "-vn", "-f", "null", "-"],
+            capture_output=True, text=True, check=True,
+        ).stderr
+        stats = json.loads(measurement[measurement.rfind("{"):measurement.rfind("}") + 1])
+        loudness.append(float(stats["input_i"]))
+        assert float(stats["input_tp"]) < 0
+    assert all(-19 <= level <= -17 for level in loudness), loudness
+    assert abs(loudness[0] - loudness[1]) < 0.5, loudness
 
 
 @requires_ffmpeg

@@ -17,7 +17,7 @@ Open-weight video models generate **~5 second clips**. A 5-10 minute video is th
 | 3 | `GenerateKeyframesExecutor` | Only with a photo (otherwise *skipped*). **Qwen-Image-Edit-2511** (4-step Lightning LoRA) redraws the photo into the first frame of every shot, at the video model's resolution. All keyframes are rendered before any clip, so ComfyUI loads each model once instead of swapping models for every shot. |
 | 4 | `GenerateClipsExecutor` | Sends each shot to ComfyUI through its HTTP API (`/upload/image`, `/prompt`, `/history`, `/view`) and spreads the work over every server in `COMFYUI_URLS`: **text-to-video**, or **image-to-video** from the shot's keyframe. Failed clips are retried with a new seed. |
 | 5 | `NarrateExecutor` | Azure AI Speech synthesizes each scene's voice-over, in the brief's language, using a multilingual neural voice. The narration is plain spoken text: screenplay-style speaker labels the LLM might add ("Narrator:", "Maya (V.O.):") are stripped so they are never read aloud. |
-| 6 | `AssembleExecutor` | ffmpeg normalizes the clips to 1280x720 at 24 fps, concatenates each scene, and mixes in the narration (LTX-2's own audio stays underneath as ambience at 25% volume). If the narration is longer than the scene, the last frame is held. The scenes are then joined into `final.mp4`. |
+| 6 | `AssembleExecutor` | ffmpeg normalizes the clips to 1280x720 at 24 fps, concatenates each scene, and mixes in the narration (the LTX-2 / LTX-2.5 audio stays underneath as ambience at 25% volume). If the narration is longer than the scene, the last frame is held. The scenes are then joined into `final.mp4`. |
 
 This is the default pipeline. The opt-in **naturalistic mode** prepares and measures narration
 immediately after the storyboard, before keyframes or clips, and never extends scenes with frozen frames.
@@ -116,14 +116,32 @@ photorealism or whether narration edits preserve every nuance.
 |---|---|---|---|---|
 | `wan22` (default) | Wan 2.2 14B fp8 + LightX2V 4-step LoRA (T2V and I2V) | 1280x720, 81 frames at 16 fps (5 s) | No | **Apache 2.0**: commercial use allowed |
 | `ltx2` | LTX-2 19B distilled, two-stage with x2 latent upscaler (same checkpoint for T2V and I2V) | 1280x704, 121 frames at 24 fps (5 s) | **Yes** (synchronized ambient) | Free under **$10M revenue**, paid license above |
+| `ltx25` | LTX-2.5 22B distilled (int8) + Gemma 4 12B text encoder, two-stage with x2 latent upscaler (same transformer for T2V and I2V). Sharper faces and textures, better prompt adherence than LTX-2. **Weights downloaded manually**, see [Enable LTX-2.5](#enable-ltx-25). | 1280x704, 121 frames at 24 fps (5 s) | **Yes** (synchronized ambient) | LTX-2.x Community License: free under **$10M revenue**, paid license above |
 | `hunyuan15` | HunyuanVideo 1.5 720p T2V / I2V (+ SigLIP vision encoder), 20 steps | 1280x720, 121 frames at 24 fps (5 s) | No | Tencent Hunyuan Community License: territory **reportedly excludes the EU, UK and South Korea**. Check before using it in France. |
 
 Keyframes for videos made from a photo use **Qwen-Image-Edit-2511** (fp8) with the **4-step Lightning LoRA** (Apache 2.0), whatever the video model.
 
-The workflows in [app/video_platform/comfy_workflows](app/video_platform/comfy_workflows) are API-format translations of the official ComfyUI templates (`video_wan2_2_14B_t2v`, `video_wan2_2_14B_i2v`, `video_ltx2_t2v_distilled`, `video_ltx2_i2v_distilled`, `video_hunyuan_video_1.5_720p_t2v`, `video_hunyuan_video_1.5_720p_i2v`, `image_qwen_image_edit_2511`). Values like `"{{prompt}}"`, `"{{seed}}"`, `"{{width}}"` and `"{{image}}"` are filled at run time with the right JSON type. Input images are uploaded with `/upload/image` to a per-job subfolder (`aivideo/<job id>`) of the ComfyUI server that renders them. To change a workflow, build it in the ComfyUI UI, use **Export (API)**, and put the placeholders back.
+The workflows in [app/video_platform/comfy_workflows](app/video_platform/comfy_workflows) are API-format translations of the official ComfyUI templates (`video_wan2_2_14B_t2v`, `video_wan2_2_14B_i2v`, `video_ltx2_t2v_distilled`, `video_ltx2_i2v_distilled`, `video_ltx2_5_t2v`, `video_ltx2_5_i2v`, `video_hunyuan_video_1.5_720p_t2v`, `video_hunyuan_video_1.5_720p_i2v`, `image_qwen_image_edit_2511`). Values like `"{{prompt}}"`, `"{{seed}}"`, `"{{width}}"` and `"{{image}}"` are filled at run time with the right JSON type. Input images are uploaded with `/upload/image` to a per-job subfolder (`aivideo/<job id>`) of the ComfyUI server that renders them. To change a workflow, build it in the ComfyUI UI, use **Export (API)**, and put the placeholders back.
 
 > [!NOTE]
-> **Rendering time is dominated by the GPU.** Rough single-H100 estimates: Wan 2.2 (4 steps) takes about 1.5-3 min per clip, so 3-6 h for a 10-minute video. LTX-2 distilled is faster. HunyuanVideo 1.5 (20 steps) is the slowest. Measure on your own VM. To render clips in parallel, add more ComfyUI VMs to `COMFYUI_URLS` (comma-separated).
+> **Rendering time is dominated by the GPU.** Rough single-H100 estimates: Wan 2.2 (4 steps) takes about 1.5-3 min per clip, so 3-6 h for a 10-minute video. LTX-2 and LTX-2.5 distilled are faster. HunyuanVideo 1.5 (20 steps) is the slowest. Measure on your own VM. To render clips in parallel, add more ComfyUI VMs to `COMFYUI_URLS` (comma-separated).
+
+### Enable LTX-2.5
+
+`terraform apply` doesn't download the LTX-2.5 weights: the [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5) repository on Hugging Face is gated, so the download needs your token. Until the weights are on the VM, ComfyUI rejects `ltx25` clips (*value not in list* for the model files) and the job fails.
+
+1. Sign in to Hugging Face, open [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5) and accept the license (access is granted right away).
+2. Create a **read** token in [Settings > Access Tokens](https://huggingface.co/settings/tokens).
+3. Run [infra/scripts/05-download-ltx25.sh](infra/scripts/05-download-ltx25.sh) on the VM. It downloads about 37 GB (transformer, text encoder, video and audio VAEs, upscaler) into the ComfyUI `models/` folders, and updates ComfyUI only if it doesn't have the LTX-2.5 nodes yet:
+
+```sh
+terraform -chdir=infra output -raw vm_admin_password   # SSH password for azureuser
+read -rs HF_TOKEN                                      # paste the token (not echoed, not saved in the history)
+ssh azureuser@$(terraform -chdir=infra output -raw vm_public_ip) \
+  "tr -d '\r' | sudo HF_TOKEN=$HF_TOKEN bash -s" < infra/scripts/05-download-ltx25.sh
+```
+
+`tr -d '\r'` strips the Windows line endings that git adds on a Windows checkout. The script is idempotent: if the SSH session drops, run it again and the downloads resume. Run it between jobs: if ComfyUI needs an update, the restart drops the clip being rendered.
 
 ## Deploy
 
@@ -204,8 +222,8 @@ curl -s "$URL/api/gpu" -H "X-API-Key: $KEY"                      # live GPU, CPU
 |---|---|---|
 | `prompt` | (required) | Any language. The narration uses the prompt's language. Also required with a photo. |
 | `duration_minutes` | `5` | 0.25 to 10. Use 0.25-0.5 for quick tests. |
-| `video_model` | `wan22` | `wan22`, `ltx2` or `hunyuan15` |
-| `narration` | `true` | `false` gives a silent video (or LTX-2 audio only) |
+| `video_model` | `wan22` | `wan22`, `ltx2`, `ltx25` or `hunyuan15` |
+| `narration` | `true` | `false` gives a silent video (or LTX-2 / LTX-2.5 audio only) |
 | `voice` | `en-US-AndrewMultilingualNeural` | Any Azure neural voice, e.g. `fr-FR-VivienneMultilingualNeural` |
 | `seed` | random | Makes clip generation reproducible |
 | `naturalistic` | `false` | Opt-in continuity, measured narration before rendering, and improved audio mixing |
@@ -233,7 +251,7 @@ cd app
 pytest
 ```
 
-The tests check every ComfyUI workflow graph (text-to-video, image-to-video and keyframe: placeholders, links, node types) and the ComfyUI client (image upload, submit, poll, download, retry with a new seed). They also run the **real Agent Framework workflow with real ffmpeg** against a fake ComfyUI, fake LLM agents and fake TTS. That covers the whole pipeline (from a prompt, and from a photo for all three models: the agents get the photo, keyframes come before clips, clips start from their keyframe), the photo checks (formats, size, EXIF orientation and metadata removal), narration longer than a scene, resume without re-rendering keyframes or clips, reattaching to an in-flight ComfyUI prompt, concurrent retries, jobs locked by another replica, audio/video sync, the operation timeline (live, persisted, across retries and replicas), the REST API (JSON and multipart uploads) with its event stream, and the live GPU stats (exporter parsing of `nvidia-smi` and `/proc` CPU/RAM, offline VMs, `/api/gpu`).
+The tests check every ComfyUI workflow graph (text-to-video, image-to-video and keyframe: placeholders, links, node types) and the ComfyUI client (image upload, submit, poll, download, retry with a new seed). They also run the **real Agent Framework workflow with real ffmpeg** against a fake ComfyUI, fake LLM agents and fake TTS. That covers the whole pipeline (from a prompt, and from a photo for all four models: the agents get the photo, keyframes come before clips, clips start from their keyframe), the photo checks (formats, size, EXIF orientation and metadata removal), narration longer than a scene, resume without re-rendering keyframes or clips, reattaching to an in-flight ComfyUI prompt, concurrent retries, jobs locked by another replica, audio/video sync, the operation timeline (live, persisted, across retries and replicas), the REST API (JSON and multipart uploads) with its event stream, and the live GPU stats (exporter parsing of `nvidia-smi` and `/proc` CPU/RAM, offline VMs, `/api/gpu`).
 
 Naturalistic regression tests cover controls and SSML escaping, language/style validation,
 strict continuity output schemas, JSON/multipart/CLI options, early narration, bounded corrections,
@@ -262,7 +280,7 @@ from synthetic fixture tests.
 │   │   ├── agents.py               # prompt-enhancer (sees the photo), story-outliner, shot-writer agents
 │   │   ├── comfyui.py              # ComfyUI API client (image upload, T2V/I2V clips, keyframes) + multi-server pool
 │   │   ├── gpu.py                  # live GPU, CPU and RAM stats from the VM exporters (/api/gpu)
-│   │   ├── comfy_workflows/        # API-format workflows: T2V and I2V for the 3 models, Qwen-Image-Edit keyframes
+│   │   ├── comfy_workflows/        # API-format workflows: T2V and I2V for the 4 models, Qwen-Image-Edit keyframes
 │   │   ├── video_models.py         # model registry: resolution, fps, frames, T2V/I2V prompt guides, license
 │   │   ├── images.py               # reference photo checks and cleanup (format, size, EXIF/GPS removal)
 │   │   ├── speech.py               # Azure AI Speech TTS (Entra ID)
@@ -281,6 +299,7 @@ from synthetic fixture tests.
 
 - **Character consistency without a photo**: the keyframe + image-to-video path already exists for uploaded photos. Text-only videos could use it too: generate a reference image per character (e.g. Qwen-Image or Z-Image-Turbo, already used in [550_comfyui_on_vm](../550_comfyui_on_vm)) and feed it to `GenerateKeyframesExecutor`.
 - **Several photos**: `TextEncodeQwenImageEditPlus` accepts up to three images, e.g. two people and a place.
+- **LTX-2.5 multishot**: LTX-2.5 can render several connected shots in one pass, keeping the character, lighting and voice across the cuts. A scene could become one multishot clip instead of independent 5 s shots.
 - **Scale out**: run several GPU VMs (or a VM Scale Set) and list them all in `COMFYUI_URLS` (and their exporters in `GPU_STATS_URLS`).
 - **Music**: add a music-generation step and mix it under the narration in `media.mix_narration`.
 - **Hosted agent**: the same workflow can be exposed as a Foundry hosted agent with `agent-framework-foundry-hosting`.
