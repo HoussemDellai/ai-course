@@ -1,0 +1,12 @@
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/tfplan
+
+# Python
+app/.venv/
+app/output/
+app/.env
+__pycache__/
+.pytest_cache/

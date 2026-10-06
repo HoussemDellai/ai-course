@@ -1,0 +1,122 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": { "ckpt_name": "ltx-2-19b-distilled.safetensors" }
+  },
+  "2": {
+    "class_type": "LTXVAudioVAELoader",
+    "inputs": { "ckpt_name": "ltx-2-19b-distilled.safetensors" }
+  },
+  "3": {
+    "class_type": "LTXAVTextEncoderLoader",
+    "inputs": { "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors", "ckpt_name": "ltx-2-19b-distilled.safetensors", "device": "default" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "{{prompt}}", "clip": ["3", 0] }
+  },
+  "5": {
+    "class_type": "LTXVConditioning",
+    "inputs": { "positive": ["4", 0], "negative": ["4", 0], "frame_rate": "{{fps}}" }
+  },
+  "6": {
+    "class_type": "EmptyImage",
+    "inputs": { "width": "{{width}}", "height": "{{height}}", "batch_size": 1, "color": 0 }
+  },
+  "7": {
+    "class_type": "ImageScaleBy",
+    "inputs": { "image": ["6", 0], "upscale_method": "nearest-exact", "scale_by": 0.5 }
+  },
+  "8": {
+    "class_type": "GetImageSize",
+    "inputs": { "image": ["7", 0] }
+  },
+  "9": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": { "width": ["8", 0], "height": ["8", 1], "length": "{{length}}", "batch_size": 1 }
+  },
+  "10": {
+    "class_type": "LTXVEmptyLatentAudio",
+    "inputs": { "audio_vae": ["2", 0], "frames_number": "{{length}}", "frame_rate": "{{fps}}", "batch_size": 1 }
+  },
+  "11": {
+    "class_type": "LTXVConcatAVLatent",
+    "inputs": { "video_latent": ["9", 0], "audio_latent": ["10", 0] }
+  },
+  "12": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": "{{seed}}" }
+  },
+  "13": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "euler_ancestral" }
+  },
+  "14": {
+    "class_type": "ManualSigmas",
+    "inputs": { "sigmas": "1., 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0" }
+  },
+  "15": {
+    "class_type": "CFGGuider",
+    "inputs": { "model": ["1", 0], "positive": ["5", 0], "negative": ["5", 1], "cfg": 1.0 }
+  },
+  "16": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": { "noise": ["12", 0], "guider": ["15", 0], "sampler": ["13", 0], "sigmas": ["14", 0], "latent_image": ["11", 0] }
+  },
+  "17": {
+    "class_type": "LTXVSeparateAVLatent",
+    "inputs": { "av_latent": ["16", 1] }
+  },
+  "18": {
+    "class_type": "LatentUpscaleModelLoader",
+    "inputs": { "model_name": "ltx-2-spatial-upscaler-x2-1.0.safetensors" }
+  },
+  "19": {
+    "class_type": "LTXVLatentUpsampler",
+    "inputs": { "samples": ["17", 0], "upscale_model": ["18", 0], "vae": ["1", 2] }
+  },
+  "20": {
+    "class_type": "LTXVConcatAVLatent",
+    "inputs": { "video_latent": ["19", 0], "audio_latent": ["17", 1] }
+  },
+  "21": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": "{{seed}}" }
+  },
+  "22": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "euler_ancestral" }
+  },
+  "23": {
+    "class_type": "ManualSigmas",
+    "inputs": { "sigmas": "0.909375, 0.725, 0.421875, 0.0" }
+  },
+  "24": {
+    "class_type": "CFGGuider",
+    "inputs": { "model": ["1", 0], "positive": ["5", 0], "negative": ["5", 1], "cfg": 1.0 }
+  },
+  "25": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": { "noise": ["21", 0], "guider": ["24", 0], "sampler": ["22", 0], "sigmas": ["23", 0], "latent_image": ["20", 0] }
+  },
+  "26": {
+    "class_type": "LTXVSeparateAVLatent",
+    "inputs": { "av_latent": ["25", 1] }
+  },
+  "27": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": { "samples": ["26", 0], "vae": ["1", 2], "tile_size": 512, "overlap": 64, "temporal_size": 4096, "temporal_overlap": 8 }
+  },
+  "28": {
+    "class_type": "LTXVAudioVAEDecode",
+    "inputs": { "samples": ["26", 1], "audio_vae": ["2", 0] }
+  },
+  "29": {
+    "class_type": "CreateVideo",
+    "inputs": { "images": ["27", 0], "audio": ["28", 0], "fps": "{{fps}}" }
+  },
+  "30": {
+    "class_type": "SaveVideo",
+    "inputs": { "video": ["29", 0], "filename_prefix": "{{filename_prefix}}", "format": "mp4", "format.codec": "h264", "codec": "h264" }
+  }
+}

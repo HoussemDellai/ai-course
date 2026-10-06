@@ -1,0 +1,11 @@
+agent-framework-core>=1.19.0
+agent-framework-foundry>=1.13.0
+azure-identity>=1.26.0
+azure-storage-blob>=12.31.0
+azure-cognitiveservices-speech>=1.52.0
+aiohttp>=3.10
+fastapi>=0.120.0
+uvicorn>=0.34.0
+httpx>=0.28.0
+pydantic>=2.11.0
+python-dotenv>=1.0.0

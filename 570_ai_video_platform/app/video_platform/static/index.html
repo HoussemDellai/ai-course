@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Video Platform</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1b1b1f; }
+    h1 { margin-bottom: .2rem; }
+    .muted { color: #666; font-size: .9rem; }
+    form, .job { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    textarea { width: 100%; min-height: 90px; font: inherit; }
+    label { display: inline-block; margin: .5rem 1rem .5rem 0; }
+    button { padding: .5rem 1rem; border-radius: 6px; border: 0; background: #0f6cbd; color: #fff; cursor: pointer; }
+    progress { width: 100%; }
+    .status { font-weight: 600; text-transform: uppercase; font-size: .8rem; }
+    .failed { color: #b00020; } .completed { color: #107c10; }
+    video { width: 100%; margin-top: .5rem; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>AI Video Platform</h1>
+  <p class="muted">Prompt &rarr; gpt-6-astra (creative brief, storyboard, shot prompts) &rarr; ComfyUI (Wan 2.2 / LTX-2 / HunyuanVideo 1.5) &rarr; Azure AI Speech narration &rarr; ffmpeg.</p>
+
+  <form id="form">
+    <label>API key <input id="key" type="password" size="36"></label>
+    <textarea id="prompt" placeholder="Describe your video, e.g. A documentary about a lighthouse keeper's last winter on a remote Breton island" required></textarea>
+    <label>Duration (minutes) <input id="duration" type="number" min="0.25" max="10" step="0.25" value="5"></label>
+    <label>Video model <select id="model"></select></label>
+    <label><input id="narration" type="checkbox" checked> Narration</label>
+    <button type="submit">Generate video</button>
+    <div id="license" class="muted"></div>
+  </form>
+
+  <h2>Videos</h2>
+  <div id="jobs"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    $("key").value = localStorage.getItem("apiKey") || "";
+    $("key").onchange = () => { localStorage.setItem("apiKey", $("key").value); loadModels(); load(); };
+    const api = (path, opts = {}) => fetch(path, { ...opts, headers: { "Content-Type": "application/json", "X-API-Key": $("key").value, ...(opts.headers || {}) } });
+    let models = [];
+
+    async function loadModels() {
+      const r = await api("/api/models");
+      if (!r.ok) return;
+      models = await r.json();
+      $("model").innerHTML = models.map(m => `<option value="${m.key}" ${m.default ? "selected" : ""}>${m.name}</option>`).join("");
+      showLicense();
+    }
+    function showLicense() {
+      const m = models.find(m => m.key === $("model").value);
+      $("license").textContent = m ? `${m.resolution}, ${m.clip_seconds}s clips${m.native_audio ? ", native audio" : ""}. License: ${m.license}` : "";
+    }
+    $("model").onchange = showLicense;
+
+    $("form").onsubmit = async (e) => {
+      e.preventDefault();
+      const body = { prompt: $("prompt").value, duration_minutes: parseFloat($("duration").value), video_model: $("model").value, narration: $("narration").checked };
+      const r = await api("/api/videos", { method: "POST", body: JSON.stringify(body) });
+      if (!r.ok) { alert(await r.text()); return; }
+      $("prompt").value = "";
+      load();
+    };
+
+    function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+    async function retry(id) { await api(`/api/videos/${encodeURIComponent(id)}/retry`, { method: "POST" }); load(); }
+
+    async function load() {
+      const r = await api("/api/videos");
+      if (!r.ok) { $("jobs").innerHTML = `<p class="muted">Enter a valid API key.</p>`; return; }
+      const jobs = await r.json();
+      const key = encodeURIComponent($("key").value);
+      $("jobs").innerHTML = jobs.map(j => `
+        <div class="job">
+          <div><span class="status ${esc(j.status)}">${esc(j.status)}</span> &middot; <b>${esc(j.title || j.request.prompt.slice(0, 80))}</b></div>
+          <div class="muted">${esc(j.request.video_model)} &middot; ${j.request.duration_minutes} min &middot; ${new Date(j.created_at).toLocaleString()} &middot; ${esc(j.id)}</div>
+          ${j.clips_total ? `<progress value="${j.clips_done}" max="${j.clips_total}"></progress><div class="muted">${j.clips_done}/${j.clips_total} clips</div>` : ""}
+          ${j.error ? `<div class="failed">${esc(j.error)}</div>` : ""}
+          ${j.status === "failed" ? `<button onclick="retry('${esc(j.id)}')">Retry</button>` : ""}
+          ${j.status === "completed" ? `<video controls preload="metadata" src="/api/videos/${esc(j.id)}/download?key=${key}"></video>` : ""}
+        </div>`).join("") || `<p class="muted">No videos yet.</p>`;
+    }
+
+    loadModels(); load(); setInterval(load, 10000);
+  </script>
+</body>
+</html>
