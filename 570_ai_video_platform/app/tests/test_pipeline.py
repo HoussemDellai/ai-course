@@ -47,7 +47,7 @@ def make_services(settings, tmp_path, monkeypatch, model_key: str, clip_seconds=
     return store, factory, close, fake_comfy, team, narrator
 
 
-@pytest.mark.parametrize("model_key", ["wan22", "ltx2"])
+@pytest.mark.parametrize("model_key", ["wan22", "ltx2", "ltx25"])
 async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
     store, factory, close, fake_comfy, team, narrator = make_services(settings, tmp_path, monkeypatch, model_key)
     manager = JobManager(settings, store, factory)
@@ -92,7 +92,7 @@ async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
     await close()
 
 
-@pytest.mark.parametrize("model_key", ["wan22", "ltx2", "hunyuan15"])
+@pytest.mark.parametrize("model_key", ["wan22", "ltx2", "ltx25", "hunyuan15"])
 async def test_pipeline_from_reference_photo(settings, tmp_path, monkeypatch, model_key):
     store, factory, close, fake_comfy, team, _ = make_services(settings, tmp_path, monkeypatch, model_key)
     manager = JobManager(settings, store, factory)
@@ -122,7 +122,7 @@ async def test_pipeline_from_reference_photo(settings, tmp_path, monkeypatch, mo
     load_images = lambda w: [n["inputs"]["image"] for n in w.values() if n["class_type"] == "LoadImage"]
     assert all(load_images(w) == [f"aivideo/{state.id}/reference.png"] for w in keyframe_wfs)
     assert sorted(load_images(w)[0] for w in clip_wfs) == [f"aivideo/{state.id}/shot_{i:03d}.png" for i in range(6)]
-    i2v_node = {"wan22": "WanImageToVideo", "ltx2": "LTXVImgToVideoInplace",
+    i2v_node = {"wan22": "WanImageToVideo", "ltx2": "LTXVImgToVideoInplace", "ltx25": "LTXVImgToVideoInplace",
                 "hunyuan15": "HunyuanVideo15ImageToVideo"}[model_key]
     assert all(any(n["class_type"] == i2v_node for n in w.values()) for w in clip_wfs)
     keyframe_size = {(n["inputs"]["width"], n["inputs"]["height"]) for w in keyframe_wfs for n in w.values()
@@ -271,7 +271,8 @@ def test_api(settings, tmp_path, monkeypatch):
         assert client.get("/healthz").status_code == 200
         assert client.get("/api/videos").status_code == 401
         h = {"X-API-Key": "secret"}
-        assert len(client.get("/api/models", headers=h).json()) == 3
+        models = client.get("/api/models", headers=h).json()
+        assert [m["key"] for m in models] == list(VIDEO_MODELS) and "ltx25" in VIDEO_MODELS
         assert client.post("/api/videos", headers=h, json={"prompt": "a lighthouse", "video_model": "nope"}).status_code == 422
         assert client.post("/api/videos", headers=h, json={"prompt": "a lighthouse", "duration_minutes": 11}).status_code == 422
         r = client.post("/api/videos", headers=h, json={"prompt": "a lighthouse", "duration_minutes": 0.25})

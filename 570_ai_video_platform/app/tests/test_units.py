@@ -21,7 +21,7 @@ KNOWN_NODES = {
     "LTXAVTextEncoderLoader", "LTXVConditioning", "EmptyImage", "ImageScaleBy", "GetImageSize",
     "EmptyLTXVLatentVideo", "LTXVEmptyLatentAudio", "LTXVConcatAVLatent", "RandomNoise", "KSamplerSelect",
     "ManualSigmas", "CFGGuider", "SamplerCustomAdvanced", "LTXVSeparateAVLatent", "LatentUpscaleModelLoader",
-    "LTXVLatentUpsampler", "LTXVAudioVAEDecode", "BasicScheduler",
+    "LTXVLatentUpsampler", "LTXVAudioVAEDecode", "BasicScheduler", "LTXVDualCFGGuider",
     # image-to-video and keyframes (Qwen-Image-Edit)
     "LoadImage", "ImageScale", "WanImageToVideo", "LTXVPreprocess", "LTXVImgToVideoInplace", "LTXVCropGuides",
     "ConditioningZeroOut", "CLIPVisionLoader", "CLIPVisionEncode", "HunyuanVideo15ImageToVideo",
@@ -91,6 +91,10 @@ def test_model_clip_settings():
     assert KEYFRAME_WORKFLOW.exists()
     assert (VIDEO_MODELS["ltx2"].frames - 1) % 8 == 0 and VIDEO_MODELS["ltx2"].width % 64 == 0
     assert VIDEO_MODELS["ltx2"].height % 64 == 0
+    ltx25 = VIDEO_MODELS["ltx25"]
+    assert (ltx25.frames - 1) % 8 == 0 and ltx25.width % 32 == 0 and ltx25.height % 32 == 0
+    # stage 1 renders at half size before the x2 latent upscaler: the half size must stay a multiple of 32
+    assert (ltx25.width // 2) % 32 == 0 and (ltx25.height // 2) % 32 == 0 and ltx25.has_audio
     assert (VIDEO_MODELS["wan22"].frames - 1) % 4 == 0
 
 

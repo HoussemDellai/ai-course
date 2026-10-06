@@ -46,7 +46,7 @@ variable "llm_capacity" {
 }
 
 variable "default_video_model" {
-  description = "Video model used when the request doesn't specify one: wan22, ltx2 or hunyuan15."
+  description = "Video model used when the request doesn't specify one: wan22, ltx2, ltx25 or hunyuan15."
   type        = string
   default     = "wan22"
 }
