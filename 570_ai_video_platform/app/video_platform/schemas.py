@@ -45,7 +45,10 @@ class CreativeBrief(BaseModel):
 class SceneOutline(BaseModel):
     title: str
     summary: str
-    narration: str = Field(description="Voice-over text read during this scene.")
+    narration: str = Field(
+        description="Voice-over text read aloud as-is during this scene: only the spoken words, "
+        "no speaker name or label (e.g. no 'Narrator:'), no stage directions."
+    )
     shot_count: int
 
 

@@ -24,7 +24,7 @@ from agent_framework import Executor, Workflow, WorkflowBuilder, WorkflowContext
 from typing_extensions import Never
 
 from . import media
-from .agents import CreativeTeam, shots_for_duration
+from .agents import CreativeTeam, shots_for_duration, strip_speaker_labels
 from .comfyui import ComfyUIPool
 from .config import Settings
 from .operations import OperationRecorder, OpKind
@@ -226,12 +226,14 @@ class PlanStoryboardExecutor(Executor):
 
                 # Shot prompts for all scenes are written in parallel.
                 shot_lists = await gather_all([write_shots(i, scene) for i, scene in enumerate(outline.scenes)])
+                names = [c.name for c in job.brief.characters]
                 job.storyboard = Storyboard(
                     brief=job.brief,
                     video_model=job.model.key,
                     clip_seconds=job.model.clip_seconds,
                     scenes=[
-                        Scene(title=s.title, summary=s.summary, narration=s.narration, shots=shots)
+                        Scene(title=s.title, summary=s.summary, narration=strip_speaker_labels(s.narration, names),
+                              shots=shots)
                         for s, shots in zip(outline.scenes, shot_lists)
                     ],
                 )
@@ -392,13 +394,16 @@ class NarrateExecutor(Executor):
                 await d.progress(job.job_id, JobStatus.narrating)
                 language = job.storyboard.brief.narration_language or "en-US"
                 step.update(voice=job.request.voice or d.settings.tts_voice, language=language)
+                names = [c.name for c in job.storyboard.brief.characters]
                 reused = 0
 
                 async def one(i: int, scene: Scene) -> Path | None:
                     nonlocal reused
+                    # Storyboards saved before labels were stripped are cleaned here too (job retries).
+                    text = strip_speaker_labels(scene.narration, names)
                     async with ops.op(OpKind.narration, f"Scene {i + 1}/{len(scenes)}", summary=scene.title,
-                                      detail=scene.narration, characters=len(scene.narration)) as op:
-                        if not scene.narration.strip():
+                                      detail=text, characters=len(text)) as op:
+                        if not text:
                             op.skip("No narration")
                             return None
                         local = job.work_dir / narration_name(i)
@@ -406,7 +411,7 @@ class NarrateExecutor(Executor):
                             op.reuse()
                             reused += 1
                         else:
-                            await d.narrator.synthesize(scene.narration, local, voice=job.request.voice,
+                            await d.narrator.synthesize(text, local, voice=job.request.voice,
                                                         language=language)
                             await d.store.upload(job.job_id, narration_name(i), local)
                         return local
