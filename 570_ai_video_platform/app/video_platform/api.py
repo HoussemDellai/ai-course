@@ -283,7 +283,9 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
 
     @app.get("/api/videos/{job_id}/storyboard", dependencies=[Depends(require_api_key)])
     async def get_storyboard(job_id: str, request: Request):
-        storyboard = await read_json(request.app.state.store, job_id, "storyboard.json")
+        storyboard = await read_json(request.app.state.store, job_id, "storyboard.narrated.json")
+        if storyboard is None:
+            storyboard = await read_json(request.app.state.store, job_id, "storyboard.json")
         if storyboard is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Storyboard not ready yet")
         return storyboard

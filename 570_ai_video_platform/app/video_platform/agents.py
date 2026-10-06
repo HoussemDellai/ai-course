@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from .schemas import (
     CreativeBrief,
     KeyframeSceneShots,
+    NarrationRewrite,
+    NaturalStoryOutline,
     SceneOutline,
     SceneShots,
     Shot,
@@ -23,6 +25,24 @@ from .video_models import KEYFRAME_MODEL_NAME, VideoModel
 log = logging.getLogger(__name__)
 
 WORDS_PER_SECOND = 2.3  # comfortable narration pace (~140 words per minute)
+
+NATURAL_DIRECTION = """\
+Naturalistic mode (respect an explicitly stylized brief rather than changing its genre):
+- Prefer restrained expressions, motivated gestures, believable weight and physical contact.
+- Use one simple action, subtle secondary motion only when appropriate, and a static camera or one
+  motivated camera move. This overrides any instruction requiring camera movement in every shot.
+- Motivate cuts with establishing/action/reaction/detail beats; avoid repeating the same composition.
+- Preserve the continuity record: wardrobe, props, lighting, geography, screen direction and action state.
+- Keep keyframes anchored to the original reference photo, not to an imagined copy of a previous frame.
+"""
+
+NATURAL_OUTLINE = """\
+Write conversational spoken narration with short sentences and purposeful silent beats.
+Leave room for sentence pauses and a 0.4 second lead-in plus 0.6 second tail per scene.
+For every scene include a continuity record: wardrobe_and_props, lighting_and_location,
+screen_direction, start_state, end_state. Maintain these across neighboring scenes unless
+the story explicitly motivates a change. Silent scenes may have empty narration.
+"""
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -89,11 +109,16 @@ consecutive shots flow naturally so the edit feels continuous. Write everything 
 
 class CreativeTeam(Protocol):
     async def enhance(self, prompt: str, duration_seconds: float, image: bytes | None = None) -> CreativeBrief: ...
-    async def outline(self, brief: CreativeBrief, total_shots: int, clip_seconds: float) -> StoryOutline: ...
+    async def outline(
+        self, brief: CreativeBrief, total_shots: int, clip_seconds: float, naturalistic: bool = False,
+    ) -> StoryOutline: ...
     async def write_shots(
         self, brief: CreativeBrief, scene: SceneOutline, scene_index: int, total_scenes: int, model: VideoModel,
-        keyframes: bool = False,
+        keyframes: bool = False, naturalistic: bool = False, neighbors: str = "",
     ) -> list[Shot]: ...
+    async def shorten_narration(
+        self, brief: CreativeBrief, text: str, measured_seconds: float, target_seconds: float,
+    ) -> str: ...
 
 
 async def _run_structured(agent: Agent, message: str | Message, output_type: type[T], attempts: int = 3) -> T:
@@ -132,20 +157,28 @@ class FoundryCreativeTeam:
         ])
         return await _run_structured(agent, message, CreativeBrief)
 
-    async def outline(self, brief: CreativeBrief, total_shots: int, clip_seconds: float) -> StoryOutline:
+    async def outline(
+        self, brief: CreativeBrief, total_shots: int, clip_seconds: float, naturalistic: bool = False,
+    ) -> StoryOutline:
         instructions = STORY_OUTLINER_INSTRUCTIONS.format(words_per_shot=clip_seconds * WORDS_PER_SECOND * 0.85)
+        if naturalistic:
+            instructions += "\n" + NATURAL_OUTLINE
         agent = self._agent("story-outliner", instructions)
         suggested_scenes = max(1, round(total_shots / 6))
         message = (
             f"Total number of shots: {total_shots} (about {suggested_scenes} scenes).\n"
             f"Creative brief:\n{brief.model_dump_json(indent=2)}"
         )
-        outline = await _run_structured(agent, message, StoryOutline)
+        if naturalistic:
+            natural = await _run_structured(agent, message, NaturalStoryOutline)
+            outline = StoryOutline(scenes=natural.scenes)
+        else:
+            outline = await _run_structured(agent, message, StoryOutline)
         return rebalance_outline(outline, total_shots)
 
     async def write_shots(
         self, brief: CreativeBrief, scene: SceneOutline, scene_index: int, total_scenes: int, model: VideoModel,
-        keyframes: bool = False,
+        keyframes: bool = False, naturalistic: bool = False, neighbors: str = "",
     ) -> list[Shot]:
         if keyframes:
             instructions = KEYFRAME_SHOT_WRITER_INSTRUCTIONS.format(
@@ -156,18 +189,41 @@ class FoundryCreativeTeam:
             instructions = SHOT_WRITER_INSTRUCTIONS.format(
                 model_name=model.display_name, clip_seconds=model.clip_seconds, prompt_guide=model.prompt_guide
             )
+        if naturalistic:
+            instructions += "\n" + NATURAL_DIRECTION + "\n" + model.naturalistic_guide
         agent = self._agent("shot-writer", instructions)
         message = (
             f"Write exactly {scene.shot_count} shot prompts for scene {scene_index + 1} of {total_scenes}.\n"
             f"Scene:\n{json.dumps(scene.model_dump(), ensure_ascii=False, indent=2)}\n"
             f"Creative brief:\n{brief.model_dump_json(indent=2)}"
         )
+        if naturalistic:
+            message += f"\nNeighboring scene continuity (context only; write this scene):\n{neighbors}"
         if keyframes:
             result = await _run_structured(agent, message, KeyframeSceneShots)
             shots = [Shot(prompt=s.prompt, keyframe_prompt=s.keyframe_prompt) for s in result.shots]
         else:
             shots = [Shot(prompt=s.prompt) for s in (await _run_structured(agent, message, SceneShots)).shots]
         return fit_shot_count(shots, scene.shot_count)
+
+    async def shorten_narration(
+        self, brief: CreativeBrief, text: str, measured_seconds: float, target_seconds: float,
+    ) -> str:
+        agent = self._agent("narration-editor", (
+            "Shorten spoken narration to fit a measured time budget. Preserve the meaning, facts, "
+            "tone and original language. Use short conversational sentences and only spoken words, "
+            "without speaker labels, stage directions or SSML. Do not invent new events."
+        ))
+        result = await _run_structured(agent, (
+            f"Language: {brief.narration_language}. Style: {brief.narration_style}.\n"
+            f"Current audio: {measured_seconds:.3f}s. Target: at most {target_seconds:.3f}s, "
+            f"including pauses. Aim below the target, approximately "
+            f"{min(0.9, target_seconds / measured_seconds * 0.9):.2f} of the current length.\n{text}"
+        ), NarrationRewrite)
+        cleaned = strip_speaker_labels(result.text, [c.name for c in brief.characters])
+        if not cleaned.strip():
+            raise ValueError("Narration correction returned no spoken words")
+        return cleaned
 
 
 def shots_for_duration(duration_seconds: float, clip_seconds: float) -> int:

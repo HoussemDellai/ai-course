@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # Structured outputs produced by the LLM agents (all fields required for strict JSON schema).
@@ -56,6 +56,26 @@ class StoryOutline(BaseModel):
     scenes: list[SceneOutline]
 
 
+class Continuity(BaseModel):
+    wardrobe_and_props: str
+    lighting_and_location: str
+    screen_direction: str
+    start_state: str
+    end_state: str
+
+
+class NaturalSceneOutline(SceneOutline):
+    continuity: Continuity
+
+
+class NaturalStoryOutline(BaseModel):
+    scenes: list[NaturalSceneOutline]
+
+
+class NarrationRewrite(BaseModel):
+    text: str = Field(min_length=1)
+
+
 class ShotPrompt(BaseModel):
     prompt: str = Field(description="Self-contained text-to-video prompt for one ~5 second clip.")
 
@@ -90,6 +110,28 @@ class Scene(BaseModel):
     summary: str
     narration: str
     shots: list[Shot]
+    continuity: Continuity | None = None
+
+
+class Pronunciation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=100)
+    alias: str = Field(min_length=1, max_length=100)
+
+
+class NarrationDelivery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rate_percent: int = Field(default=0, ge=-10, le=10, strict=True)
+    sentence_pause_ms: int = Field(default=180, ge=0, le=1000, strict=True)
+    style: str | None = Field(default=None, min_length=1, max_length=60)
+    pronunciations: list[Pronunciation] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_pronunciations(self) -> NarrationDelivery:
+        words = [p.text for p in self.pronunciations]
+        if len(words) != len(set(words)):
+            raise ValueError("Pronunciation text entries must be unique")
+        return self
 
 
 class Storyboard(BaseModel):
@@ -110,10 +152,18 @@ class VideoRequest(BaseModel):
     narration: bool = True
     voice: str | None = None
     seed: int | None = None
+    naturalistic: bool = False
+    delivery: NarrationDelivery | None = None
     reference_image: bool = Field(
         default=False,
         description="Set by the server when a reference photo is uploaded (multipart 'image' field).",
     )
+
+    @model_validator(mode="after")
+    def delivery_requires_narration(self) -> VideoRequest:
+        if self.delivery is not None and not (self.naturalistic and self.narration):
+            raise ValueError("Delivery controls require naturalistic mode and narration")
+        return self
 
 
 class JobStatus(str, Enum):
