@@ -124,9 +124,11 @@ class FakeTeam:
     async def outline(self, brief: CreativeBrief, total_shots: int, clip_seconds: float) -> StoryOutline:
         self.calls.append("outline")
         first = total_shots // 2
+        # Labelled like a screenplay on purpose, as real LLMs sometimes do: the pipeline must strip the labels.
         return StoryOutline(scenes=[
-            SceneOutline(title="Dawn", summary="s1", narration="The island wakes up.", shot_count=first),
-            SceneOutline(title="Storm", summary="s2", narration="The storm comes.", shot_count=total_shots - first),
+            SceneOutline(title="Dawn", summary="s1", narration="Narrator: The island wakes up.", shot_count=first),
+            SceneOutline(title="Storm", summary="s2", narration="**Yann (V.O.):** \"The storm comes.\"",
+                         shot_count=total_shots - first),
         ])
 
     async def write_shots(self, brief, scene, scene_index, total_scenes, model, keyframes=False) -> list[Shot]:
