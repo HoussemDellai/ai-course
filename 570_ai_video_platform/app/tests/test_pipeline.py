@@ -67,6 +67,7 @@ async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
     assert 19.5 < duration < 20.8, duration
     storyboard = json.loads(store.path(state.id, "storyboard.json").read_text())
     assert len(storyboard["scenes"]) == 2 and storyboard["video_model"] == model_key
+    assert [s["narration"] for s in storyboard["scenes"]] == narrator.texts, "speaker labels stripped"
 
     ops = await manager.operations(state.id)
     steps = [o for o in ops if o.kind == OpKind.step]

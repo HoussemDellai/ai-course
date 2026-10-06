@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 from typing import Protocol, TypeVar
 
 from agent_framework import Agent, Content, Message
@@ -51,6 +52,9 @@ Given a creative brief, write the story as a sequence of scenes with a clear beg
 - The sum of shot_count over all scenes MUST equal the requested total number of shots.
 - Narration length must fit the scene: about {words_per_shot:.0f} words per shot. Never exceed it.
 - Write the narration in the brief's narration language, in the brief's narration style.
+- The narration is read aloud word for word by a text-to-speech voice, as an unseen narrator. Write only the
+  spoken words: never start with a speaker name or label ("Narrator:", "Voice-over:", "<character name>:"),
+  no "(V.O.)", stage directions, brackets, quotation marks around the whole text or markdown.
 """
 
 SHOT_WRITER_INSTRUCTIONS = """\
@@ -203,3 +207,65 @@ def fit_shot_count(shots: list[Shot], count: int) -> list[Shot]:
     while len(padded) < count:
         padded.append(shots[len(padded) % len(shots)])
     return padded
+
+
+NARRATOR_LABELS = {
+    "narrator", "narration", "narrative voice", "voice-over", "voiceover", "voice over", "v.o.", "vo", "speaker",
+    "narrateur", "narratrice", "voix off", "voix-off", "narrador", "narradora", "narración", "voz en off",
+    "erzähler", "erzählerin", "sprecher", "sprecherin", "narratore", "voce narrante", "locutor", "locutora",
+}
+_ARTICLES = {"the", "a", "an", "le", "la", "les", "l'", "el", "los", "las", "der", "die", "das", "il", "lo", "o", "os"}
+_LABEL = re.compile(
+    r"^(?P<lead>[ \t]*)[*_\[]*[ \t]*(?P<label>[^\n:：*_\[\]]{1,60}?)[ \t]*[*_\]]*[ \t]*[:：][ \t]*[*_]*[ \t]*",
+    re.MULTILINE,
+)
+_PAREN = re.compile(r"\s*\(([^)]*)\)\s*$")
+_SCREENPLAY_MARK = re.compile(r"^(v\.?\s*o\.?|o\.?\s*s\.?|o\.?\s*c\.?|voice[\s-]?over|off|voix[\s-]?off|en off)$")
+_QUOTES = {'"': '"', "“": "”", "«": "»", "„": "“", "'": "'"}
+
+
+def _speaker_names(names: list[str]) -> set[str]:
+    result: set[str] = set()
+    for name in names:
+        words = name.lower().split()
+        if not words:
+            continue
+        result.add(" ".join(words))
+        if words[0] in _ARTICLES and len(words) > 1:
+            result.add(" ".join(words[1:]))
+        elif len(words) > 1:
+            result.add(words[0])  # "Maya Chen" is often labelled just "Maya:"
+    return result
+
+
+def _is_speaker_label(label: str, names: set[str]) -> bool:
+    label = " ".join(label.lower().split())
+    marker = _PAREN.search(label)
+    base = label[: marker.start()].strip() if marker else label
+    if base in NARRATOR_LABELS or base in names:
+        return True
+    # "Anyone (V.O.):" is a screenplay voice-over label even when the name is unknown.
+    return bool(marker and _SCREENPLAY_MARK.match(marker.group(1).strip()) and 0 < len(base.split()) <= 4)
+
+
+def _unquote(text: str) -> str:
+    stripped = text.strip()
+    if len(stripped) >= 2 and _QUOTES.get(stripped[0]) == stripped[-1] and stripped[0] not in stripped[1:-1]:
+        return stripped[1:-1].strip()
+    return text
+
+
+def strip_speaker_labels(text: str, names: list[str] | None = None) -> str:
+    """Removes screenplay-style speaker labels ("Narrator:", "Maya (V.O.):") so TTS never reads them aloud.
+
+    A label is only removed when it is a narrator word, a character name from the brief or carries a
+    voice-over marker, so ordinary sentences such as "Day one: the island wakes up." are kept.
+    """
+    known = _speaker_names(names or [])
+    lines = []
+    for line in text.splitlines():
+        m = _LABEL.match(line)
+        if m and _is_speaker_label(m.group("label"), known):
+            line = m.group("lead") + _unquote(line[m.end():])
+        lines.append(line)
+    return "\n".join(lines).strip()

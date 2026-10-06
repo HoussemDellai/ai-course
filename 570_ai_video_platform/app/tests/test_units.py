@@ -1,7 +1,7 @@
 import pytest
 
 from fakes import FakeComfy
-from video_platform.agents import fit_shot_count, rebalance_outline, shots_for_duration
+from video_platform.agents import fit_shot_count, rebalance_outline, shots_for_duration, strip_speaker_labels
 from video_platform.comfyui import (
     ComfyUIError,
     fill_workflow,
@@ -201,3 +201,28 @@ def test_fit_shot_count():
     shots = [Shot(prompt="a"), Shot(prompt="b")]
     assert [s.prompt for s in fit_shot_count(shots, 5)] == ["a", "b", "a", "b", "a"]
     assert len(fit_shot_count(shots, 1)) == 1
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("Narrator: The island wakes up.", "The island wakes up."),
+    ("NARRATOR : The island wakes up.", "The island wakes up."),
+    ("**Narrator:** The island wakes up.", "The island wakes up."),
+    ("[Voice-over]: The island wakes up.", "The island wakes up."),
+    ("Narrator (softly): The island wakes up.", "The island wakes up."),
+    ("Narrateur : L'île se réveille.", "L'île se réveille."),
+    ("Erzähler: Die Insel erwacht.", "Die Insel erwacht."),
+    ("Yann: I have kept this light for forty years.", "I have kept this light for forty years."),
+    ("Maya: She looks at the sea.", "She looks at the sea."),
+    ("The Traveler: Dust everywhere.", "Dust everywhere."),
+    ("Old Sailor (V.O.): The sea gives, the sea takes.", "The sea gives, the sea takes."),
+    ('Narrator: "The storm comes."', "The storm comes."),
+    ("Narrator: Dawn.\nYann: Night falls.", "Dawn.\nNight falls."),
+    # ordinary sentences with a colon are kept
+    ("Day one: the island wakes up.", "Day one: the island wakes up."),
+    ("One rule: never leave the light.", "One rule: never leave the light."),
+    ("At 6:30 the boat leaves.", "At 6:30 the boat leaves."),
+    ("The island wakes up.", "The island wakes up."),
+    ("  ", ""),
+])
+def test_strip_speaker_labels(text, expected):
+    assert strip_speaker_labels(text, ["Yann", "Maya Chen", "the traveler"]) == expected
