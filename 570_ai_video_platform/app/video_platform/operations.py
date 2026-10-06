@@ -32,6 +32,7 @@ MAX_LOG_CHARS = 2000
 class OpKind(str, Enum):
     step = "step"
     agent = "agent"
+    keyframe = "keyframe"
     clip = "clip"
     narration = "narration"
     ffmpeg = "ffmpeg"

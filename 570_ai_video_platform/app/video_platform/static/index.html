@@ -69,6 +69,8 @@
     .gpu-bar i { display: block; height: 100%; transition: width .4s; }
     .gpu-bar.util i { background: var(--accent); }
     .gpu-bar.mem i { background: var(--done); }
+    .gpu-bar.cpu i { background: var(--success); }
+    .gpu-bar.ram i { background: var(--attention); }
     .gpu-facts { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .gpu-spark { display: block; width: 100%; height: 44px; margin-top: 8px; background: var(--bg); border-radius: 6px; }
     .gpu-legend { display: flex; gap: 12px; margin-top: 4px; font-size: 11px; color: var(--muted); }
@@ -120,6 +122,18 @@
     .send { width: 32px; height: 32px; border-radius: 6px; border: 0; display: grid; place-items: center; background: var(--fg); color: var(--bg); cursor: pointer; }
     .send:disabled { opacity: .4; cursor: default; }
     .hint { margin: 10px 4px 0; }
+    .composer.dragging { border-color: var(--accent-emph); box-shadow: 0 0 0 1px var(--accent-emph); background: var(--panel-2); }
+    #attachBtn { width: 28px; padding: 0; justify-content: center; }
+    #attachBtn.on { color: var(--accent-emph); border-color: var(--accent-emph); }
+    .attachments { display: flex; gap: 8px; margin: 4px 0 8px; }
+    .attachments:empty { display: none; }
+    .attachment { position: relative; display: flex; align-items: center; gap: 8px; padding: 4px 28px 4px 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); max-width: 100%; }
+    .attachment img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; display: block; }
+    .attachment .att-name { font-size: 12px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .attachment .att-remove { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+    .attachment .att-remove:hover { color: var(--fg); background: var(--hover); }
+    .ref-photo { display: block; max-width: 280px; max-height: 220px; margin-top: 10px; border-radius: 8px; border: 1px solid var(--border); }
+    .thumb { display: block; width: 100%; max-width: 360px; border-radius: 6px; border: 1px solid var(--border-muted); background: var(--bg-inset); aspect-ratio: 16 / 9; object-fit: cover; }
 
     /* Session view */
     .session { max-width: 900px; margin: 0 auto; padding: 24px 24px 64px; }
@@ -206,7 +220,7 @@
     <span class="crumb" id="crumb"></span>
     <span class="grow"></span>
     <div class="gpu-wrap" id="gpuWrap" hidden>
-      <button class="btn btn-sm gpu-btn" id="gpuBtn" type="button" title="Live GPU utilisation of the ComfyUI VM(s)">
+      <button class="btn btn-sm gpu-btn" id="gpuBtn" type="button" title="Live GPU, CPU and RAM utilisation of the ComfyUI VM(s)">
         <span class="dot"></span>
         <span id="gpuText">GPU</span>
         <span class="meter"><i id="gpuMeter" style="width: 0%"></i></span>
@@ -241,11 +255,16 @@
         <div class="hero">
           <div class="logo"><svg width="24" height="24" viewBox="0 0 16 16" fill="#fff"><path d="M8 0l1.6 4.8L14.4 6.4 9.6 8 8 12.8 6.4 8 1.6 6.4l4.8-1.6zM13 10l.8 2.2L16 13l-2.2.8L13 16l-.8-2.2L10 13l2.2-.8z"/></svg></div>
           <h1>What should we film today?</h1>
-          <div class="muted">Prompt &rarr; creative brief, storyboard &amp; shot prompts &rarr; ComfyUI clips &rarr; Azure AI Speech narration &rarr; ffmpeg</div>
+          <div class="muted">Prompt (and optionally a photo of a person or a scene) &rarr; creative brief, storyboard &amp; shot prompts &rarr; keyframes &rarr; ComfyUI clips &rarr; Azure AI Speech narration &rarr; ffmpeg</div>
         </div>
         <form class="composer" id="form">
-          <textarea id="prompt" required minlength="3" maxlength="4000" placeholder="Describe your video, e.g. A documentary about a lighthouse keeper's last winter on a remote Breton island"></textarea>
+          <div class="attachments" id="attachments"></div>
+          <textarea id="prompt" required minlength="3" maxlength="4000" placeholder="Describe your video, e.g. A documentary about a lighthouse keeper's last winter on a remote Breton island. Attach a photo to build the video around a person or a scene."></textarea>
           <div class="composer-bar">
+            <label class="pill" id="attachBtn" title="Attach a photo of a person or a scene (PNG, JPEG or WebP, up to 10 MB). You can also drop or paste it." aria-label="Attach a photo">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6" r="1.25"/><path d="m2 12 4-4 3 3 2-2 3.5 3.5"/></svg>
+              <input id="image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            </label>
             <label class="pill" title="Video model">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="3.5" width="9" height="9" rx="1.5"/><path d="M10.5 7 14.5 4.5v7L10.5 9"/></svg>
               <select id="model" aria-label="Video model"></select>
@@ -290,23 +309,29 @@
     const $ = (id) => document.getElementById(id);
     const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     const key = () => $("key").value;
-    const api = (path, opts = {}) => fetch(path, { ...opts, headers: { "Content-Type": "application/json", "X-API-Key": key(), ...(opts.headers || {}) } });
+    const api = (path, opts = {}) => fetch(path, { ...opts, headers: {
+      ...(typeof opts.body === "string" ? { "Content-Type": "application/json" } : {}),  // FormData sets its own boundary
+      "X-API-Key": key(), ...(opts.headers || {}) } });
 
     const STEPS = [
-      ["enhance_prompt", "Enhance prompt"], ["plan_storyboard", "Plan storyboard"], ["generate_clips", "Generate clips"],
-      ["narrate", "Narrate"], ["assemble", "Assemble video"],
+      ["enhance_prompt", "Enhance prompt"], ["plan_storyboard", "Plan storyboard"], ["generate_keyframes", "Generate keyframes"],
+      ["generate_clips", "Generate clips"], ["narrate", "Narrate"], ["assemble", "Assemble video"],
     ];
     const STATUS_TEXT = {
-      queued: "Queued", enhancing: "Enhancing prompt", planning: "Planning storyboard", generating: "Generating clips",
-      narrating: "Narrating", assembling: "Assembling", completed: "Completed", failed: "Failed",
+      queued: "Queued", enhancing: "Enhancing prompt", planning: "Planning storyboard", keyframing: "Generating keyframes",
+      generating: "Generating clips", narrating: "Narrating", assembling: "Assembling", completed: "Completed", failed: "Failed",
     };
     const AGENT_TEXT = {
       queued: "is waiting for a free worker", enhancing: "is writing the creative brief", planning: "is planning the storyboard",
+      keyframing: "is drawing the keyframes from your photo",
       generating: "is generating the clips", narrating: "is recording the narration", assembling: "is assembling the video",
       completed: "finished the video", failed: "stopped because of an error",
     };
-    const TOOL = { agent: "Agent", clip: "ComfyUI", narration: "Speech", ffmpeg: "ffmpeg", upload: "Storage" };
-    const DETAIL_LABEL = { agent: "Result", clip: "Prompt", narration: "Narration" };
+    const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", narration: "Speech", ffmpeg: "ffmpeg", upload: "Storage" };
+    const DETAIL_LABEL = { agent: "Result", keyframe: "Edit prompt", clip: "Prompt", narration: "Narration" };
+    const HIDDEN_ATTRS = new Set(["step", "shot", "keyframe"]);
+    const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+    const MAX_IMAGE_MB = 10;
 
     const ICONS = {
       succeeded: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m4.8 8.2 2.1 2.1 4.3-4.6" fill="none" stroke="#0d1117" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
@@ -346,7 +371,8 @@
     // ---------------------------------------------------------------- state
     let jobs = [], models = [];
     let cur = null;                 // { id, job, ops: Map }
-    let source = null, pollTimer = null, renderQueued = false, outcomeKey = "";
+    let source = null, pollTimer = null, renderQueued = false, outcomeKey = "", userMsgKey = "";
+    let photo = null, photoUrl = null;  // reference photo attached in the composer
     const toggled = new Map();      // op id / run id -> open, when the user expanded or collapsed it
 
     // ---------------------------------------------------------------- API key popover
@@ -360,13 +386,20 @@
       if (cur) { const id = cur.id; cur = null; showJob(id); }
     };
 
-    // ---------------------------------------------------------------- live GPU utilisation
+    // ---------------------------------------------------------------- live GPU, CPU and RAM utilisation
     const GPU_POLL_MS = 2000, GPU_HISTORY = 60;   // 60 samples x 2 s = last 2 minutes
-    const gpuHistory = new Map();                 // "server#index" -> [{ u, m }]
+    const gpuHistory = new Map();                 // "server#index" or "server#host" -> [{ u, m }]
     let gpuTimer = null, gpuBusy = false, gpuLast = null;
     const pct = (v) => Math.max(0, Math.min(100, Number(v) || 0));
     const gb = (mib) => mib == null ? "–" : (mib / 1024).toFixed(1);
     const memPct = (g) => g.memory_total_mib ? 100 * (g.memory_used_mib || 0) / g.memory_total_mib : 0;
+    const avg = (xs) => xs.reduce((a, x) => a + x, 0) / xs.length;
+    function pushHistory(k, sample) {
+      const h = gpuHistory.get(k) || [];
+      h.push(sample);
+      if (h.length > GPU_HISTORY) h.shift();
+      gpuHistory.set(k, h);
+    }
 
     function startGpu() {
       clearInterval(gpuTimer);
@@ -383,12 +416,9 @@
         const data = await r.json();
         if (!data.enabled) { stopGpu(); return; }
         gpuLast = data;
-        for (const s of data.servers) for (const g of s.gpus) {
-          const k = `${s.name}#${g.index}`;
-          const h = gpuHistory.get(k) || [];
-          h.push({ u: pct(g.utilization_gpu), m: pct(memPct(g)) });
-          if (h.length > GPU_HISTORY) h.shift();
-          gpuHistory.set(k, h);
+        for (const s of data.servers) {
+          for (const g of s.gpus) pushHistory(`${s.name}#${g.index}`, { u: pct(g.utilization_gpu), m: pct(memPct(g)) });
+          if (s.host) pushHistory(`${s.name}#host`, { u: pct(s.host.cpu_percent), m: pct(memPct(s.host)) });
         }
         renderGpu();
       } catch { /* network blip: keep the last values */ } finally { gpuBusy = false; }
@@ -400,10 +430,12 @@
       $("gpuWrap").hidden = false;
       $("gpuBtn").classList.toggle("online", online);
       if (online && gpus.length) {
-        const util = gpus.reduce((a, g) => a + pct(g.utilization_gpu), 0) / gpus.length;
+        const util = avg(gpus.map(g => pct(g.utilization_gpu)));
         const used = gpus.reduce((a, g) => a + (g.memory_used_mib || 0), 0);
         const total = gpus.reduce((a, g) => a + (g.memory_total_mib || 0), 0);
-        $("gpuText").textContent = `GPU ${Math.round(util)}% · ${gb(used)}/${gb(total)} GB`;
+        const hosts = servers.filter(s => s.online && s.host).map(s => s.host);
+        const host = hosts.length ? ` · CPU ${Math.round(avg(hosts.map(h => pct(h.cpu_percent))))}% · RAM ${Math.round(avg(hosts.map(h => pct(memPct(h)))))}%` : "";
+        $("gpuText").textContent = `GPU ${Math.round(util)}% · ${gb(used)}/${gb(total)} GB${host}`;
         $("gpuMeter").style.width = `${util}%`;
       } else {
         $("gpuText").textContent = "GPU offline";
@@ -411,13 +443,25 @@
       }
       if (!$("gpuPop").hidden) renderGpuPop();
     }
-    function spark(points) {
+    function spark(points, colors = { u: "var(--accent)", m: "var(--done)" }) {
       const W = 340, H = 44, n = GPU_HISTORY - 1;
       const line = (f) => points.map((p, i) => `${((GPU_HISTORY - points.length + i) * W / n).toFixed(1)},${(H - 2 - f(p) * (H - 4) / 100).toFixed(1)}`).join(" ");
       return `<svg class="gpu-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-        <polyline points="${line(p => p.m)}" fill="none" stroke="var(--done)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
-        <polyline points="${line(p => p.u)}" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+        <polyline points="${line(p => p.m)}" fill="none" stroke="${colors.m}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+        <polyline points="${line(p => p.u)}" fill="none" stroke="${colors.u}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
       </svg>`;
+    }
+    function hostCard(s) {
+      const h = s.host, c = pct(h.cpu_percent), m = memPct(h);
+      const facts = [h.cpu_count ? `${h.cpu_count} vCPU` : null, h.load_1m == null ? null : `load ${h.load_1m.toFixed(2)}`].filter(Boolean);
+      return `<div class="gpu-card">
+        <div class="gpu-name">Host · CPU and RAM</div>
+        <div class="gpu-row"><span class="muted">CPU</span><div class="gpu-bar cpu"><i style="width:${c}%"></i></div><span>${h.cpu_percent == null ? "–" : `${Math.round(c)}%`}</span></div>
+        <div class="gpu-row"><span class="muted">RAM</span><div class="gpu-bar ram"><i style="width:${m}%"></i></div><span>${gb(h.memory_used_mib)} / ${gb(h.memory_total_mib)} GB</span></div>
+        ${facts.length ? `<div class="gpu-facts">${facts.map(f => `<span>${esc(f)}</span>`).join("")}</div>` : ""}
+        ${spark(gpuHistory.get(`${s.name}#host`) || [], { u: "var(--success)", m: "var(--attention)" })}
+        <div class="gpu-legend"><span style="--c: var(--success)">CPU</span><span style="--c: var(--attention)">RAM</span><i class="grow"></i><small>last 2 min</small></div>
+      </div>`;
     }
     function renderGpuPop() {
       const servers = gpuLast?.servers || [];
@@ -425,6 +469,7 @@
         <div class="gpu-server">
           <div class="gpu-server-head">${s.online ? icon("succeeded") : icon("cancelled")}<span>${esc(s.name)}</span></div>
           ${s.online ? "" : `<div class="muted small">Unreachable. The VM may be deallocated.</div>`}
+          ${s.online && s.host ? hostCard(s) : ""}
           ${s.gpus.map(g => {
             const u = pct(g.utilization_gpu), m = memPct(g);
             const power = g.power_draw_w == null ? "–" : `${Math.round(g.power_draw_w)}${g.power_limit_w ? ` / ${Math.round(g.power_limit_w)}` : ""} W`;
@@ -463,16 +508,59 @@
       $("send").disabled = true;
       try {
         const body = { prompt: $("prompt").value, duration_minutes: parseFloat($("duration").value), video_model: $("model").value || null, narration: $("narration").checked };
-        const r = await api("/api/videos", { method: "POST", body: JSON.stringify(body) });
+        let opts = { method: "POST", body: JSON.stringify(body) };
+        if (photo) {
+          const form = new FormData();
+          form.append("request", JSON.stringify(body));
+          form.append("image", photo, photo.name || "photo.png");
+          opts = { method: "POST", body: form };
+        }
+        const r = await api("/api/videos", opts);
         if (r.status === 401) { $("keyPop").hidden = false; return; }
-        if (!r.ok) { alert(await r.text()); return; }
+        if (!r.ok) { alert(await errorText(r)); return; }
         const job = await r.json();
         $("prompt").value = ""; $("prompt").style.height = "";
+        setPhoto(null);
         jobs = [job, ...jobs.filter(j => j.id !== job.id)];
         location.hash = job.id;
         loadJobs();
       } finally { $("send").disabled = false; }
     };
+    async function errorText(r) {
+      const text = await r.text();
+      try {
+        const d = JSON.parse(text).detail;
+        return typeof d === "string" ? d : d.map(x => `${(x.loc || []).join(".")}: ${x.msg}`).join("\n");
+      } catch { return text; }
+    }
+
+    // Reference photo: picker, drag & drop and paste.
+    function setPhoto(file) {
+      if (file && !IMAGE_TYPES.includes(file.type)) { alert("Use a PNG, JPEG or WebP photo."); file = null; }
+      else if (file && file.size > MAX_IMAGE_MB * 1024 * 1024) { alert(`The photo must be ${MAX_IMAGE_MB} MB or less.`); file = null; }
+      if (photoUrl) URL.revokeObjectURL(photoUrl);
+      photo = file; photoUrl = file ? URL.createObjectURL(file) : null;
+      $("image").value = "";
+      $("attachBtn").classList.toggle("on", !!file);
+      const size = file ? (file.size >= 1048576 ? `${(file.size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`) : "";
+      $("attachments").innerHTML = file ? `<div class="attachment">
+          <img src="${photoUrl}" alt="">
+          <span class="att-name" title="${esc(file.name)}">${esc(file.name || "Pasted photo")}<br><span class="muted">${size} · the agent builds the video around it</span></span>
+          <button class="att-remove" type="button" id="removePhoto" title="Remove photo" aria-label="Remove photo">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8m0-8-8 8"/></svg>
+          </button></div>` : "";
+      if (file) $("removePhoto").onclick = () => setPhoto(null);
+    }
+    $("image").onchange = () => { if ($("image").files[0]) setPhoto($("image").files[0]); };
+    const firstImage = (items) => [...(items || [])].map(i => i.kind === "file" ? i.getAsFile() : i).find(f => f && f.type && f.type.startsWith("image/"));
+    $("form").addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); $("form").classList.add("dragging"); } });
+    $("form").addEventListener("dragleave", (e) => { if (!$("form").contains(e.relatedTarget)) $("form").classList.remove("dragging"); });
+    $("form").addEventListener("drop", (e) => {
+      $("form").classList.remove("dragging");
+      const file = firstImage(e.dataTransfer.files);
+      if (file) { e.preventDefault(); setPhoto(file); }
+    });
+    $("prompt").addEventListener("paste", (e) => { const file = firstImage(e.clipboardData && e.clipboardData.items); if (file) { e.preventDefault(); setPhoto(file); } });
 
     // ---------------------------------------------------------------- sidebar
     async function loadJobs() {
@@ -519,7 +607,7 @@
       if (cur && cur.id === id) return;
       stopWatching();
       cur = { id, job: jobs.find(j => j.id === id) || null, ops: new Map() };
-      toggled.clear(); outcomeKey = "";
+      toggled.clear(); outcomeKey = ""; userMsgKey = "";
       $("composeView").hidden = true; $("jobView").hidden = false;
       $("main").scrollTop = 0;
       renderSidebar(); renderJob();
@@ -597,8 +685,11 @@
     }
     function renderOp(op, children) {
       const kids = (children.get(op.id) || []);
-      const attrs = Object.entries(op.attrs).filter(([k, v]) => k !== "step" && v !== null && v !== "");
-      const hasBody = kids.length || op.detail || op.logs.length || op.error || attrs.length;
+      const attrs = Object.entries(op.attrs).filter(([k, v]) => !HIDDEN_ATTRS.has(k) && v !== null && v !== "");
+      // Keyframes (and the clips animated from them) show the keyframe image once it exists.
+      const done = op.status === "succeeded" || op.status === "reused";
+      const thumbShot = op.attrs.shot != null && ((op.kind === "keyframe" && done) || (op.kind === "clip" && op.attrs.keyframe)) ? op.attrs.shot : null;
+      const hasBody = kids.length || op.detail || op.logs.length || op.error || attrs.length || thumbShot != null;
       const open = hasBody && isOpen(op);
       const progress = op.progress_total ? `
         <span class="bar"><span style="width:${Math.round(100 * op.progress_done / op.progress_total)}%"></span></span>
@@ -608,6 +699,7 @@
       if (open) {
         body = `<div class="op-body">
           ${attrs.length ? `<div class="chips">${attrs.map(([k, v]) => `<span class="chip" title="${esc(attrValue(k, v))}"><span class="k">${esc(k.replace(/_/g, " "))}</span>${esc(attrValue(k, v))}</span>`).join("")}</div>` : ""}
+          ${thumbShot != null ? `<div><div class="field-label">Keyframe</div><img class="thumb" loading="lazy" alt="Keyframe of shot ${esc(thumbShot + 1)}" src="/api/videos/${encodeURIComponent(cur.id)}/keyframes/${esc(thumbShot)}?key=${encodeURIComponent(key())}"></div>` : ""}
           ${op.detail ? `<div><div class="field-label">${DETAIL_LABEL[op.kind] || "Details"}</div><div class="detail">${esc(op.detail)}</div></div>` : ""}
           ${op.error ? `<div class="op-error">${esc(op.error)}</div>` : ""}
           ${op.logs.length ? `<pre class="log">${op.logs.map(l => `<span class="ts">${esc(time(l.at))}</span> <span class="lvl-${esc(l.level)}">${esc(l.level.padEnd(7))}</span> ${esc(l.message)}`).join("\n")}</pre>` : ""}
@@ -650,7 +742,7 @@
 
       if (!job) {
         $("jobHead").innerHTML = `<h2>Loading…</h2>`;
-        $("userMsg").innerHTML = ""; $("agentTitle").innerHTML = ""; $("timeline").innerHTML = ""; $("outcome").innerHTML = "";
+        $("userMsg").innerHTML = ""; userMsgKey = ""; $("agentTitle").innerHTML = ""; $("timeline").innerHTML = ""; $("outcome").innerHTML = "";
         return;
       }
       const statusClass = job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "queued" ? "queued" : "active";
@@ -665,16 +757,23 @@
           <span>·</span><span title="${esc(new Date(job.created_at).toLocaleString())}">${esc(ago(job.created_at))}</span>
           <span>·</span><code>${esc(job.id)}</code>
         </div>`;
-      $("userMsg").innerHTML = `
+      // Re-rendered only when it changes, so the reference photo isn't fetched again on every live update.
+      const userKey = `${job.id}|${key()}|${JSON.stringify(job.request)}`;
+      if (userKey !== userMsgKey) {
+        userMsgKey = userKey;
+        $("userMsg").innerHTML = `
         <div class="msg-title"><b>You</b><span class="muted small">${esc(new Date(job.created_at).toLocaleString())}</span></div>
         <div class="bubble">${esc(job.request.prompt)}</div>
+        ${job.request.reference_image ? `<img class="ref-photo" alt="Reference photo" src="/api/videos/${encodeURIComponent(job.id)}/image?key=${encodeURIComponent(key())}">` : ""}
         <div class="chips">
+          ${job.request.reference_image ? `<span class="chip"><span class="k">mode</span>photo to video</span>` : ""}
           <span class="chip"><span class="k">model</span>${esc(job.request.video_model)}</span>
           <span class="chip"><span class="k">duration</span>${esc(job.request.duration_minutes)} min</span>
           <span class="chip"><span class="k">narration</span>${job.request.narration ? "on" : "off"}</span>
           ${job.request.voice ? `<span class="chip"><span class="k">voice</span>${esc(job.request.voice)}</span>` : ""}
           ${job.request.seed != null ? `<span class="chip"><span class="k">seed</span>${esc(job.request.seed)}</span>` : ""}
         </div>`;
+      }
       const elapsed = isFinished(job) ? ` in ${fmtDur((new Date(job.updated_at) - new Date(job.created_at)) / 1000)}` : "";
       $("agentTitle").innerHTML = `<b>Video agent</b><span class="muted">${esc(AGENT_TEXT[job.status] || job.status)}${esc(elapsed)}</span>`;
 

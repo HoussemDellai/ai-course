@@ -139,7 +139,7 @@ class BlobArtifactStore:
     async def upload(self, job_id: str, name: str, path: Path) -> None:
         from azure.storage.blob import ContentSettings
 
-        content_type = "video/mp4" if path.suffix == ".mp4" else "audio/wav" if path.suffix == ".wav" else None
+        content_type = {".mp4": "video/mp4", ".wav": "audio/wav", ".png": "image/png"}.get(path.suffix)
         with path.open("rb") as f:
             await self._container.upload_blob(
                 self._blob(job_id, name), f, overwrite=True, max_concurrency=4,

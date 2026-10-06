@@ -14,7 +14,7 @@ from .config import Settings
 from .operations import Operation, OperationRecorder, install_log_capture, load_operations
 from .schemas import JobState, JobStatus, VideoRequest, utcnow
 from .storage import LEASE_SECONDS, ArtifactStore, JobLock, read_json, write_json
-from .workflow import VideoResult, new_video_job
+from .workflow import REFERENCE_IMAGE, VideoResult, new_video_job
 
 log = logging.getLogger(__name__)
 
@@ -38,10 +38,18 @@ class JobManager:
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
         install_log_capture()
 
-    async def create(self, request: VideoRequest) -> JobState:
+    async def create(self, request: VideoRequest, image: bytes | None = None) -> JobState:
+        """Starts a job. image is an already sanitized PNG (see images.sanitize_image), saved before the job state
+        so a job never exists without its reference photo."""
         if request.seed is None:
             request = request.model_copy(update={"seed": random.randint(0, 2**40)})
+        request = request.model_copy(update={"reference_image": image is not None})
         state = JobState(id=uuid.uuid4().hex[:12], request=request)
+        if image is not None:
+            local = self.settings.work_dir / state.id / REFERENCE_IMAGE
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_bytes(image)
+            await self.store.upload(state.id, REFERENCE_IMAGE, local)
         await self._save(state)
         self._start(state.id)
         return state

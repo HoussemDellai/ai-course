@@ -36,6 +36,7 @@ class Settings:
     output_width: int = 1280
     output_height: int = 720
     output_fps: int = 24
+    max_image_mb: int = 10
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -58,4 +59,9 @@ class Settings:
             max_concurrent_jobs=int(e("MAX_CONCURRENT_JOBS", "1")),
             ffmpeg_concurrency=int(e("FFMPEG_CONCURRENCY", "2")),
             ambient_audio_volume=float(e("AMBIENT_AUDIO_VOLUME", "0.25")),
+            max_image_mb=int(e("MAX_IMAGE_MB", "10")),
         )
+
+    @property
+    def max_image_bytes(self) -> int:
+        return self.max_image_mb * 1024 * 1024

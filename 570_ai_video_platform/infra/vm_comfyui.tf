@@ -47,7 +47,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   eviction_policy                 = var.vm_spot ? "Deallocate" : null
   secure_boot_enabled             = false # the NVIDIA driver install doesn't support Secure Boot
 
-  # Managed OS disk so the ~121 GB of models survive reboots and Spot deallocations.
+  # Managed OS disk so the ~190 GB of models survive reboots and Spot deallocations.
   os_disk {
     name                 = "osdisk-vm-comfyui"
     caching              = "ReadWrite"

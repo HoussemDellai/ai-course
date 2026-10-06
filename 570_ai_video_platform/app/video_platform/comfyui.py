@@ -14,12 +14,13 @@ from typing import Any
 
 import httpx
 
-from .video_models import VideoModel
+from .video_models import KEYFRAME_WORKFLOW, VideoModel
 
 log = logging.getLogger(__name__)
 
 _PLACEHOLDER = re.compile(r"^\{\{(\w+)\}\}$")
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mkv", ".mov")
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
 
 SubmittedCallback = Callable[[str, str], Awaitable[None]]  # (server base URL, prompt_id)
 
@@ -50,17 +51,21 @@ def fill_workflow(template: dict[str, Any], params: dict[str, Any]) -> dict[str,
     return workflow
 
 
-def find_video_outputs(history_entry: dict[str, Any]) -> list[dict[str, str]]:
-    """Returns the saved video files ({filename, subfolder, type}) listed in a /history entry."""
+def find_outputs(history_entry: dict[str, Any], extensions: tuple[str, ...]) -> list[dict[str, str]]:
+    """Returns the saved files ({filename, subfolder, type}) with one of the extensions listed in a /history entry."""
     files: list[dict[str, str]] = []
     for node_output in history_entry.get("outputs", {}).values():
         for items in node_output.values():
             if not isinstance(items, list):
                 continue
             for item in items:
-                if isinstance(item, dict) and str(item.get("filename", "")).lower().endswith(VIDEO_EXTENSIONS):
+                if isinstance(item, dict) and str(item.get("filename", "")).lower().endswith(extensions):
                     files.append(item)
     return files
+
+
+def find_video_outputs(history_entry: dict[str, Any]) -> list[dict[str, str]]:
+    return find_outputs(history_entry, VIDEO_EXTENSIONS)
 
 
 class ComfyUIClient:
@@ -118,6 +123,16 @@ class ComfyUIClient:
         tmp.replace(dest)
         return dest
 
+    async def upload_image(self, path: Path, subfolder: str) -> str:
+        """Uploads an input image (POST /upload/image) and returns the value for a LoadImage node."""
+        files = {"image": (path.name, path.read_bytes(), "image/png")}
+        data = {"type": "input", "subfolder": subfolder, "overwrite": "true"}
+        r = await self._http.post(f"{self.base_url}/upload/image", files=files, data=data)
+        if r.status_code != 200:
+            raise ComfyUIError(f"ComfyUI rejected the image upload ({r.status_code}): {r.text[:500]}")
+        body = r.json()
+        return f"{body['subfolder']}/{body['name']}" if body.get("subfolder") else body["name"]
+
     async def prompt_state(self, prompt_id: str) -> str:
         """'done' (in history), 'queued' (pending or running) or 'unknown' (e.g. ComfyUI restarted)."""
         r = await self._http.get(f"{self.base_url}/history/{prompt_id}")
@@ -132,20 +147,23 @@ class ComfyUIClient:
                 return "queued"
         return "unknown"
 
-    async def collect(self, prompt_id: str, dest: Path, timeout: float) -> Path:
+    async def collect(self, prompt_id: str, dest: Path, timeout: float,
+                      extensions: tuple[str, ...] = VIDEO_EXTENSIONS) -> Path:
         entry = await self.wait(prompt_id, timeout)
-        videos = find_video_outputs(entry)
-        if not videos:
-            raise ComfyUIError(f"Prompt {prompt_id} finished without a video output")
-        return await self.download(videos[0], dest)
+        outputs = find_outputs(entry, extensions)
+        if not outputs:
+            kind = "a video" if extensions == VIDEO_EXTENSIONS else "an image"
+            raise ComfyUIError(f"Prompt {prompt_id} finished without {kind} output")
+        return await self.download(outputs[0], dest)
 
     async def generate(
-        self, workflow: dict[str, Any], dest: Path, timeout: float, on_submitted: SubmittedCallback | None = None
+        self, workflow: dict[str, Any], dest: Path, timeout: float, on_submitted: SubmittedCallback | None = None,
+        extensions: tuple[str, ...] = VIDEO_EXTENSIONS,
     ) -> Path:
         prompt_id = await self.submit(workflow)
         if on_submitted:
             await on_submitted(self.base_url, prompt_id)
-        return await self.collect(prompt_id, dest, timeout)
+        return await self.collect(prompt_id, dest, timeout, extensions)
 
 
 class ComfyUIPool:
@@ -199,36 +217,82 @@ class ComfyUIPool:
         retries: int,
         resume: dict[str, str] | None = None,
         on_submitted: SubmittedCallback | None = None,
+        start_image: Path | None = None,
+        upload_subfolder: str = "aivideo",
     ) -> Path:
-        # A previous run of the orchestrator may have submitted this clip already: reattach to it
-        # instead of paying for the same GPU render twice.
+        """Text-to-video, or image-to-video from start_image (a keyframe) when given."""
+        params = {
+            "prompt": prompt,
+            "negative_prompt": model.negative_prompt,
+            "width": model.width,
+            "height": model.height,
+            "length": model.frames,
+            "fps": float(model.fps),
+            "filename_prefix": filename_prefix,
+        }
+        template = model.i2v_workflow_path if start_image else model.workflow_path
+        return await self._render(template, params, seed, dest, timeout, retries, resume, on_submitted,
+                                  VIDEO_EXTENSIONS, start_image, upload_subfolder, "Clip")
+
+    async def generate_keyframe(
+        self,
+        reference: Path,
+        prompt: str,
+        seed: int,
+        width: int,
+        height: int,
+        dest: Path,
+        filename_prefix: str,
+        timeout: float,
+        retries: int,
+        resume: dict[str, str] | None = None,
+        on_submitted: SubmittedCallback | None = None,
+        upload_subfolder: str = "aivideo",
+    ) -> Path:
+        """Redraws the reference photo into a shot's first frame with Qwen-Image-Edit."""
+        params = {"prompt": prompt, "width": width, "height": height, "filename_prefix": filename_prefix}
+        return await self._render(KEYFRAME_WORKFLOW, params, seed, dest, timeout, retries, resume, on_submitted,
+                                  IMAGE_EXTENSIONS, reference, upload_subfolder, "Keyframe")
+
+    async def _render(
+        self,
+        template_path: Path,
+        params: dict[str, Any],
+        seed: int,
+        dest: Path,
+        timeout: float,
+        retries: int,
+        resume: dict[str, str] | None,
+        on_submitted: SubmittedCallback | None,
+        extensions: tuple[str, ...],
+        input_image: Path | None,
+        upload_subfolder: str,
+        label: str,
+    ) -> Path:
+        # A previous run of the orchestrator may have submitted this render already: reattach to it
+        # instead of paying for the same GPU work twice.
         if resume and resume.get("server") and resume.get("prompt_id"):
             async with self.acquire(preferred=resume["server"]) as client:
                 if client.base_url == resume["server"]:
                     try:
                         if await client.prompt_state(resume["prompt_id"]) != "unknown":
-                            return await client.collect(resume["prompt_id"], dest, timeout)
+                            return await client.collect(resume["prompt_id"], dest, timeout, extensions)
                     except (ComfyUIError, httpx.HTTPError) as e:
                         log.warning("Could not reattach to prompt %s: %s", resume["prompt_id"], e)
 
-        template = load_workflow(model.workflow_path)
+        template = load_workflow(template_path)
         last_error: Exception | None = None
         for attempt in range(retries + 1):
-            params = {
-                "prompt": prompt,
-                "negative_prompt": model.negative_prompt,
-                "seed": seed if attempt == 0 else random.randint(0, 2**48),
-                "width": model.width,
-                "height": model.height,
-                "length": model.frames,
-                "fps": float(model.fps),
-                "filename_prefix": filename_prefix,
-            }
-            workflow = fill_workflow(template, params)
+            attempt_params = dict(params, seed=seed if attempt == 0 else random.randint(0, 2**48))
             async with self.acquire() as client:
                 try:
-                    return await client.generate(workflow, dest, timeout, on_submitted)
+                    if input_image is not None:
+                        # Every server has its own input folder: upload to the one that renders this attempt.
+                        attempt_params["image"] = await client.upload_image(input_image, upload_subfolder)
+                    workflow = fill_workflow(template, attempt_params)
+                    return await client.generate(workflow, dest, timeout, on_submitted, extensions)
                 except (ComfyUIError, httpx.HTTPError) as e:
                     last_error = e
-                    log.warning("Clip %s failed on %s (attempt %d): %s", dest.name, client.base_url, attempt + 1, e)
-        raise ComfyUIError(f"Clip {dest.name} failed after {retries + 1} attempts: {last_error}")
+                    log.warning("%s %s failed on %s (attempt %d): %s", label, dest.name, client.base_url,
+                                attempt + 1, e)
+        raise ComfyUIError(f"{label} {dest.name} failed after {retries + 1} attempts: {last_error}")

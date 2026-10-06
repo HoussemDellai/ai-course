@@ -6,11 +6,18 @@ import logging
 import math
 from typing import Protocol, TypeVar
 
-from agent_framework import Agent
+from agent_framework import Agent, Content, Message
 from pydantic import BaseModel
 
-from .schemas import CreativeBrief, SceneOutline, SceneShots, Shot, StoryOutline
-from .video_models import VideoModel
+from .schemas import (
+    CreativeBrief,
+    KeyframeSceneShots,
+    SceneOutline,
+    SceneShots,
+    Shot,
+    StoryOutline,
+)
+from .video_models import KEYFRAME_MODEL_NAME, VideoModel
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +33,15 @@ You turn a short user idea into a precise creative brief for a short film made o
 - Define every recurring character with a fixed, very concrete visual description (age, ethnicity, face,
   hair, clothing with colors, accessories) that can be repeated word for word in every clip.
 - The narration language must be the language of the user's idea unless the user asks otherwise.
-- Never include real people, brands, logos or copyrighted characters.
+- Never include real people, brands, logos or copyrighted characters, except the person(s) shown in the user's
+  reference photo when one is attached.
+- When a reference photo is attached, the film is built around it:
+  * if it shows people, they are the main characters: describe each one faithfully from the photo (apparent age,
+    face, skin tone, hair, build, clothing with exact colors, accessories). Never guess their name or identity:
+    use a neutral role name (e.g. "the traveler") unless the user names them.
+  * if it shows a place or a scene, it defines the setting and the visual style; stay faithful to it.
+  * fill reference_notes with what the photo shows (subjects, place, light, colors, framing) and how the film uses it.
+- Without a reference photo, reference_notes is an empty string.
 """
 
 STORY_OUTLINER_INSTRUCTIONS = """\
@@ -51,16 +66,33 @@ Write the prompts in English. No on-screen text, subtitles, logos or dialogue.
 Model-specific guidance: {prompt_guide}
 """
 
+KEYFRAME_SHOT_WRITER_INSTRUCTIONS = """\
+You are a prompt engineer for a film built from the user's reference photo. Every clip lasts about
+{clip_seconds:.0f} seconds and is made in two independent steps, so EVERY prompt must be fully self-contained:
+1. keyframe_prompt: an instruction for the {keyframe_model} image-edit model. It receives the reference photo as
+   "image 1" and must redraw it as this shot's FIRST FRAME (16:9). Write it as an edit instruction, e.g.
+   "Keep the woman from image 1 exactly the same (same face, hair, skin tone and build), now wearing ..., standing
+   on ..., medium shot from a low angle, golden-hour backlight, 35mm film look." Always say what to keep identical
+   from image 1 (the people's faces and bodies, or the place), then the new framing (shot size, angle), pose,
+   clothing, setting, lighting, color palette and style from the brief. If the photo shows a place, keep the place
+   recognizable and describe the new viewpoint and what happens in it. No text, logos or watermarks.
+2. prompt: the {model_name} image-to-video prompt that animates that keyframe.
+   Model-specific guidance: {prompt_guide}
+Across the scene, vary shot sizes and angles (establishing, medium, close-up, detail, reaction) and make
+consecutive shots flow naturally so the edit feels continuous. Write everything in English.
+"""
+
 
 class CreativeTeam(Protocol):
-    async def enhance(self, prompt: str, duration_seconds: float) -> CreativeBrief: ...
+    async def enhance(self, prompt: str, duration_seconds: float, image: bytes | None = None) -> CreativeBrief: ...
     async def outline(self, brief: CreativeBrief, total_shots: int, clip_seconds: float) -> StoryOutline: ...
     async def write_shots(
-        self, brief: CreativeBrief, scene: SceneOutline, scene_index: int, total_scenes: int, model: VideoModel
+        self, brief: CreativeBrief, scene: SceneOutline, scene_index: int, total_scenes: int, model: VideoModel,
+        keyframes: bool = False,
     ) -> list[Shot]: ...
 
 
-async def _run_structured(agent: Agent, message: str, output_type: type[T], attempts: int = 3) -> T:
+async def _run_structured(agent: Agent, message: str | Message, output_type: type[T], attempts: int = 3) -> T:
     last_error: Exception | None = None
     for attempt in range(attempts):
         try:
@@ -85,9 +117,15 @@ class FoundryCreativeTeam:
     def _agent(self, name: str, instructions: str) -> Agent:
         return Agent(client=self._client, name=name, instructions=instructions)
 
-    async def enhance(self, prompt: str, duration_seconds: float) -> CreativeBrief:
+    async def enhance(self, prompt: str, duration_seconds: float, image: bytes | None = None) -> CreativeBrief:
         agent = self._agent("prompt-enhancer", PROMPT_ENHANCER_INSTRUCTIONS)
-        message = f"Film length: {duration_seconds / 60:.1f} minutes.\nUser idea:\n{prompt}"
+        text = f"Film length: {duration_seconds / 60:.1f} minutes.\nUser idea:\n{prompt}"
+        if image is None:
+            return await _run_structured(agent, text, CreativeBrief)
+        message = Message(role="user", contents=[
+            Content.from_text(text + "\n\nThe user's reference photo is attached: build the film around it."),
+            Content.from_data(data=image, media_type="image/png"),
+        ])
         return await _run_structured(agent, message, CreativeBrief)
 
     async def outline(self, brief: CreativeBrief, total_shots: int, clip_seconds: float) -> StoryOutline:
@@ -102,18 +140,29 @@ class FoundryCreativeTeam:
         return rebalance_outline(outline, total_shots)
 
     async def write_shots(
-        self, brief: CreativeBrief, scene: SceneOutline, scene_index: int, total_scenes: int, model: VideoModel
+        self, brief: CreativeBrief, scene: SceneOutline, scene_index: int, total_scenes: int, model: VideoModel,
+        keyframes: bool = False,
     ) -> list[Shot]:
-        instructions = SHOT_WRITER_INSTRUCTIONS.format(
-            model_name=model.display_name, clip_seconds=model.clip_seconds, prompt_guide=model.prompt_guide
-        )
+        if keyframes:
+            instructions = KEYFRAME_SHOT_WRITER_INSTRUCTIONS.format(
+                model_name=model.display_name, clip_seconds=model.clip_seconds, prompt_guide=model.i2v_prompt_guide,
+                keyframe_model=KEYFRAME_MODEL_NAME,
+            )
+        else:
+            instructions = SHOT_WRITER_INSTRUCTIONS.format(
+                model_name=model.display_name, clip_seconds=model.clip_seconds, prompt_guide=model.prompt_guide
+            )
         agent = self._agent("shot-writer", instructions)
         message = (
             f"Write exactly {scene.shot_count} shot prompts for scene {scene_index + 1} of {total_scenes}.\n"
             f"Scene:\n{json.dumps(scene.model_dump(), ensure_ascii=False, indent=2)}\n"
             f"Creative brief:\n{brief.model_dump_json(indent=2)}"
         )
-        shots = (await _run_structured(agent, message, SceneShots)).shots
+        if keyframes:
+            result = await _run_structured(agent, message, KeyframeSceneShots)
+            shots = [Shot(prompt=s.prompt, keyframe_prompt=s.keyframe_prompt) for s in result.shots]
+        else:
+            shots = [Shot(prompt=s.prompt) for s in (await _run_structured(agent, message, SceneShots)).shots]
         return fit_shot_count(shots, scene.shot_count)
 
 

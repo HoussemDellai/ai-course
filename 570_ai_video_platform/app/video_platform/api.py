@@ -10,22 +10,48 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.security import APIKeyHeader, APIKeyQuery
+from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
 
 from .config import Settings
 from .gpu import GpuMonitor
+from .images import ImageError, sanitize_image
 from .jobs import JobManager
 from .operations import Operation
 from .schemas import JobState, VideoRequest
 from .storage import LocalArtifactStore, read_json
 from .video_models import VIDEO_MODELS
-from .workflow import FINAL_VIDEO, PipelineDeps, build_video_workflow
+from .workflow import FINAL_VIDEO, REFERENCE_IMAGE, PipelineDeps, build_video_workflow, keyframe_name
 
 log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 SSE_POLL_SECONDS = 2.0
 SSE_KEEPALIVE_SECONDS = 15.0
+MULTIPART_OVERHEAD_BYTES = 1024 * 1024  # room for the 'request' JSON field and multipart boundaries
+
+CREATE_VIDEO_OPENAPI = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/VideoRequest"}},
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "required": ["request"],
+                    "properties": {
+                        "request": {"type": "string", "description": "VideoRequest as a JSON string"},
+                        "image": {"type": "string", "format": "binary",
+                                  "description": "Optional reference photo (PNG, JPEG or WebP) of a person or a scene"},
+                    },
+                }
+            },
+        },
+    }
+}
 
 
 def sse(event: str, data: object) -> str:
@@ -195,13 +221,54 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         return await request.app.state.gpu.snapshot()
 
     @app.post("/api/videos", status_code=status.HTTP_202_ACCEPTED, response_model=JobState,
-              dependencies=[Depends(require_api_key)])
-    async def create_video(body: VideoRequest, request: Request):
+              dependencies=[Depends(require_api_key)], openapi_extra=CREATE_VIDEO_OPENAPI)
+    async def create_video(request: Request):
+        """JSON body (text-to-video), or multipart with a 'request' JSON field and an optional 'image' photo."""
+        image: bytes | None = None
+        content_type = request.headers.get("content-type", "")
+        try:
+            if content_type.startswith("multipart/form-data"):
+                body, image = await read_multipart(request)
+            else:
+                body = VideoRequest.model_validate_json(await request.body())
+        except ValidationError as e:
+            raise RequestValidationError(e.errors(include_url=False)) from None
         key = body.video_model or settings.default_video_model
         if key not in VIDEO_MODELS:
             raise HTTPException(422,
                                 f"Unknown video_model '{key}'. Choose one of: {', '.join(VIDEO_MODELS)}")
-        return await jobs(request).create(body.model_copy(update={"video_model": key}))
+        return await jobs(request).create(body.model_copy(update={"video_model": key}), image=image)
+
+    async def read_multipart(request: Request) -> tuple[VideoRequest, bytes | None]:
+        limit = settings.max_image_bytes + MULTIPART_OVERHEAD_BYTES
+        too_large = HTTPException(status.HTTP_413_CONTENT_TOO_LARGE,
+                                  f"The image is larger than {settings.max_image_mb} MB")
+        if int(request.headers.get("content-length") or 0) > limit:
+            raise too_large
+        # Count the bytes ourselves: chunked uploads have no Content-Length, and Starlette's form parser
+        # doesn't cap file sizes. The capped body is cached on the request, so form() parses it from memory.
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise too_large
+            chunks.append(chunk)
+        request._body = b"".join(chunks)
+        async with request.form(max_files=1, max_fields=4) as form:
+            raw = form.get("request")
+            if not isinstance(raw, str):
+                raise HTTPException(422, "Missing 'request' form field (the VideoRequest as JSON)")
+            body = VideoRequest.model_validate_json(raw)
+            upload = form.get("image")
+            if upload is None or (isinstance(upload, UploadFile) and not upload.filename and upload.size == 0):
+                return body, None
+            if not isinstance(upload, UploadFile):
+                raise HTTPException(422, "'image' must be a file")
+            data = await upload.read(settings.max_image_bytes + 1)
+        try:
+            return body, await run_in_threadpool(sanitize_image, data, settings.max_image_bytes)
+        except ImageError as e:
+            raise HTTPException(e.status_code, str(e)) from None
 
     @app.get("/api/videos", response_model=list[JobState], dependencies=[Depends(require_api_key)])
     async def list_videos(request: Request):
@@ -249,11 +316,36 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         state = await jobs(request).get(job_id)
         if state is None or state.status != "completed":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Video not ready")
+        return await serve_artifact(request, job_id, FINAL_VIDEO, "video/mp4", filename=f"{job_id}.mp4")
+
+    @app.get("/api/videos/{job_id}/image", dependencies=[Depends(require_api_key)])
+    async def get_reference_image(job_id: str, request: Request):
+        state = await jobs(request).get(job_id)
+        if state is None or not state.request.reference_image:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "This video has no reference photo")
+        return await serve_artifact(request, job_id, REFERENCE_IMAGE, "image/png", cache=True)
+
+    @app.get("/api/videos/{job_id}/keyframes/{shot}", dependencies=[Depends(require_api_key)])
+    async def get_keyframe(job_id: str, shot: int, request: Request):
+        state = await jobs(request).get(job_id)
+        if state is None or not state.request.reference_image or shot < 0:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown keyframe")
+        return await serve_artifact(request, job_id, keyframe_name(shot), "image/png", cache=True)
+
+    async def serve_artifact(request: Request, job_id: str, name: str, media_type: str,
+                             filename: str | None = None, cache: bool = False):
+        # Photos and keyframes never change once written: let the browser keep them (and the redirect to the
+        # short-lived SAS URL, valid 2 h) instead of fetching them again on every live update of the timeline.
+        headers = {"Cache-Control": "private, max-age=3600"} if cache else None
         store = request.app.state.store
         if isinstance(store, LocalArtifactStore):
-            return FileResponse(store.path(job_id, FINAL_VIDEO), media_type="video/mp4",
-                                filename=f"{job_id}.mp4")
-        url = await store.download_url(job_id, FINAL_VIDEO)
-        return RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+            path = store.path(job_id, name)
+            if not path.exists():
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+            return FileResponse(path, media_type=media_type, filename=filename, headers=headers)
+        if not await store.exists(job_id, name):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+        url = await store.download_url(job_id, name)
+        return RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT, headers=headers)
 
     return app
