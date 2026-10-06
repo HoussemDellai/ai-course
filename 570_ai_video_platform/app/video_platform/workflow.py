@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -28,8 +29,9 @@ from .agents import CreativeTeam, shots_for_duration, strip_speaker_labels
 from .comfyui import ComfyUIPool
 from .config import Settings
 from .operations import OperationRecorder, OpKind
-from .schemas import CreativeBrief, JobStatus, Scene, Storyboard, VideoRequest
-from .speech import Narrator
+from .narration import fingerprint, fit_narration
+from .schemas import CreativeBrief, JobStatus, NarrationDelivery, NaturalSceneOutline, Scene, Storyboard, VideoRequest
+from .speech import Narrator, SpeechError
 from .storage import ArtifactStore, read_json, write_json
 from .video_models import KEYFRAME_MODEL_NAME, VideoModel, get_video_model
 
@@ -74,6 +76,19 @@ class VideoJob:
     def upload_subfolder(self) -> str:
         """ComfyUI input subfolder for this job's images."""
         return f"aivideo/{self.job_id}"
+
+    def clip_budget(self, fps: int) -> float:
+        return math.floor(self.model.clip_seconds * fps) / fps
+
+
+async def require_manifest(d: PipelineDeps, job: VideoJob, name: str, inputs: object) -> None:
+    digest = {"fingerprint": fingerprint(inputs)}
+    saved = await read_json(d.store, job.job_id, name)
+    if saved is not None and saved != digest:
+        raise ValueError(f"Naturalistic artifact dependencies changed ({name}); create a new job, "
+                         "rather than reusing incompatible artifacts")
+    if saved is None:
+        await write_json(d.store, job.job_id, name, digest)
 
 
 @dataclass
@@ -167,6 +182,16 @@ class EnhancePromptExecutor(Executor):
         ops = d.ops(job.job_id)
         async with ops.op(OpKind.step, "Enhance prompt", step=self.id) as step:
             await d.progress(job.job_id, JobStatus.enhancing)
+            if job.request.naturalistic:
+                if (await read_json(d.store, job.job_id, "naturalistic.json") is None
+                        and await d.store.exists(job.job_id, "brief.json")):
+                    raise ValueError("Legacy artifacts cannot be reused in naturalistic mode; create a new job")
+                await require_manifest(d, job, "naturalistic.json", {
+                    "version": 1, "request": job.request.model_dump(),
+                    "model": vars(job.model), "voice": d.settings.tts_voice,
+                    "output": [d.settings.output_width, d.settings.output_height, d.settings.output_fps],
+                    "ambient_volume": d.settings.ambient_audio_volume,
+                })
             saved = await read_json(d.store, job.job_id, "brief.json")
             if saved:
                 job.brief = CreativeBrief.model_validate(saved)
@@ -211,7 +236,8 @@ class PlanStoryboardExecutor(Executor):
                 total_shots = shots_for_duration(job.request.duration_minutes * 60, job.model.clip_seconds)
                 async with ops.op(OpKind.agent, "story-outliner", summary=f"Outlining {total_shots} shots",
                                   model=model) as agent:
-                    outline = await d.team.outline(job.brief, total_shots, job.model.clip_seconds)
+                    outline = await d.team.outline(job.brief, total_shots, job.model.clip_seconds,
+                                                   naturalistic=job.request.naturalistic)
                     agent.set(summary=f"{len(outline.scenes)} scenes · {total_shots} shots",
                               detail="\n".join(f"{i + 1}. {s.title} ({s.shot_count} shots)"
                                                for i, s in enumerate(outline.scenes)))
@@ -220,7 +246,12 @@ class PlanStoryboardExecutor(Executor):
                     async with ops.op(OpKind.agent, f"shot-writer · scene {i + 1}/{len(outline.scenes)}",
                                       summary=scene.title, model=model) as agent:
                         shots = await d.team.write_shots(job.brief, scene, i, len(outline.scenes), job.model,
-                                                         keyframes=job.request.reference_image)
+                                                         keyframes=job.request.reference_image,
+                                                         naturalistic=job.request.naturalistic,
+                                                         neighbors="\n".join(
+                                                             s.model_dump_json() for n, s in enumerate(outline.scenes)
+                                                             if abs(n - i) == 1
+                                                         ) if job.request.naturalistic else "")
                         agent.set(summary=f"{scene.title} · {len(shots)} prompts")
                         return shots
 
@@ -233,11 +264,19 @@ class PlanStoryboardExecutor(Executor):
                     clip_seconds=job.model.clip_seconds,
                     scenes=[
                         Scene(title=s.title, summary=s.summary, narration=strip_speaker_labels(s.narration, names),
-                              shots=shots)
+                              shots=shots, continuity=s.continuity if isinstance(s, NaturalSceneOutline) else None)
                         for s, shots in zip(outline.scenes, shot_lists)
                     ],
                 )
                 await write_json(d.store, job.job_id, "storyboard.json", job.storyboard.model_dump())
+            if job.request.naturalistic:
+                if any(scene.continuity is None for scene in job.storyboard.scenes):
+                    raise ValueError("Naturalistic storyboard is missing scene continuity; create a new job")
+                await require_manifest(d, job, "visual-dependencies.json", {
+                    "brief": job.brief.model_dump(),
+                    "scenes": [{"shots": [s.model_dump() for s in scene.shots],
+                                "continuity": scene.continuity.model_dump()} for scene in job.storyboard.scenes],
+                })
             step.set(summary=f"{len(job.storyboard.scenes)} scenes · {len(job.storyboard.shots)} shots")
             await d.progress(job.job_id, clips_total=len(job.storyboard.shots))
         await ctx.send_message(job)
@@ -375,17 +414,24 @@ class GenerateClipsExecutor(Executor):
 
 
 class NarrateExecutor(Executor):
-    def __init__(self, deps: PipelineDeps):
-        super().__init__(id="narrate")
+    def __init__(self, deps: PipelineDeps, early: bool = False):
+        super().__init__(id="prepare_narration" if early else "narrate")
         self.deps = deps
+        self.early = early
 
     @handler
     async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
         assert job.storyboard is not None
         d = self.deps
+        if self.early != job.request.naturalistic:
+            await ctx.send_message(job)
+            return
         ops = d.ops(job.job_id)
         scenes = job.storyboard.scenes
         async with ops.op(OpKind.step, "Narrate", step=self.id) as step:
+            if job.request.naturalistic and job.request.narration and d.narrator is None:
+                raise SpeechError("Naturalistic narration requires a configured Speech endpoint, "
+                                  "or disable narration")
             if not job.request.narration or d.narrator is None:
                 job.narrations = [None] * len(scenes)
                 step.skip("Narration disabled" if not job.request.narration
@@ -396,6 +442,9 @@ class NarrateExecutor(Executor):
                 step.update(voice=job.request.voice or d.settings.tts_voice, language=language)
                 names = [c.name for c in job.storyboard.brief.characters]
                 reused = 0
+                delivery = job.request.delivery or NarrationDelivery()
+                if job.request.naturalistic and any(s.narration.strip() for s in scenes):
+                    await d.narrator.validate(job.request.voice, language, delivery)
 
                 async def one(i: int, scene: Scene) -> Path | None:
                     nonlocal reused
@@ -406,6 +455,20 @@ class NarrateExecutor(Executor):
                         if not text:
                             op.skip("No narration")
                             return None
+                        if job.request.naturalistic:
+                            local, accepted, seconds, was_reused = await fit_narration(
+                                team=d.team, narrator=d.narrator, store=d.store, job_id=job.job_id,
+                                work_dir=job.work_dir, scene_index=i, text=text,
+                                brief=job.storyboard.brief, voice=job.request.voice or d.settings.tts_voice,
+                                delivery=delivery, budget=len(scene.shots) * job.clip_budget(d.settings.output_fps),
+                            )
+                            scene.narration = accepted
+                            op.set(detail=accepted)
+                            op.update(seconds=seconds, audio_artifact=local.relative_to(job.work_dir).as_posix())
+                            if was_reused:
+                                op.reuse()
+                                reused += 1
+                            return local
                         local = job.work_dir / narration_name(i)
                         if local.exists() or await d.store.download(job.job_id, narration_name(i), local):
                             op.reuse()
@@ -417,6 +480,9 @@ class NarrateExecutor(Executor):
                         return local
 
                 job.narrations = await gather_all([one(i, s) for i, s in enumerate(scenes)])
+                if job.request.naturalistic:
+                    await write_json(d.store, job.job_id, "storyboard.narrated.json",
+                                     job.storyboard.model_dump())
                 voiced = sum(1 for n in job.narrations if n is not None)
                 if voiced and reused == voiced:
                     step.reuse(f"{voiced} scenes")
@@ -455,6 +521,8 @@ class AssembleExecutor(Executor):
                         out = await media.normalize_clip(
                             clip, work / f"norm_{i:03d}.mp4", s.output_width, s.output_height, s.output_fps,
                             keep_audio=job.model.has_audio, audio_volume=s.ambient_audio_volume,
+                            naturalistic=job.request.naturalistic,
+                            target_duration=job.clip_budget(s.output_fps) if job.request.naturalistic else None,
                         )
                     normalized_count += 1
                     norm.progress(normalized_count, len(job.clips))
@@ -470,11 +538,14 @@ class AssembleExecutor(Executor):
                 narration = job.narrations[i] if i < len(job.narrations) else None
                 title = f"Scene {i + 1}/{len(scenes)}: concat {len(parts)} clips" + (" + mix narration" if narration else "")
                 async with ops.op(OpKind.ffmpeg, title, summary=scene.title):
-                    raw = await media.concat(list(parts), work / f"scene_{i:03d}_raw.mp4")
-                    scene_files.append(await media.mix_narration(raw, narration, work / f"scene_{i:03d}.mp4"))
+                    raw = await media.concat(list(parts), work / f"scene_{i:03d}_raw.mp4",
+                                             exact=job.request.naturalistic)
+                    scene_files.append(await media.mix_narration(
+                        raw, narration, work / f"scene_{i:03d}.mp4", naturalistic=job.request.naturalistic,
+                    ))
 
             async with ops.op(OpKind.ffmpeg, f"Concatenate {len(scene_files)} scenes") as op:
-                final = await media.concat(scene_files, job.work_dir / FINAL_VIDEO)
+                final = await media.concat(scene_files, job.work_dir / FINAL_VIDEO, exact=job.request.naturalistic)
                 duration, _ = await media.probe(final)
                 op.set(summary=format_seconds(duration))
             async with ops.op(OpKind.upload, f"Upload {FINAL_VIDEO}",
@@ -490,6 +561,7 @@ class AssembleExecutor(Executor):
 def build_video_workflow(deps: PipelineDeps) -> Workflow:
     enhance = EnhancePromptExecutor(deps)
     plan = PlanStoryboardExecutor(deps)
+    prepare_narration = NarrateExecutor(deps, early=True)
     keyframes = GenerateKeyframesExecutor(deps)
     clips = GenerateClipsExecutor(deps)
     narrate = NarrateExecutor(deps)
@@ -497,7 +569,8 @@ def build_video_workflow(deps: PipelineDeps) -> Workflow:
     return (
         WorkflowBuilder(name="video-production", start_executor=enhance)
         .add_edge(enhance, plan)
-        .add_edge(plan, keyframes)
+        .add_edge(plan, prepare_narration)
+        .add_edge(prepare_narration, keyframes)
         .add_edge(keyframes, clips)
         .add_edge(clips, narrate)
         .add_edge(narrate, assemble)

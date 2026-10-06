@@ -19,6 +19,9 @@ Open-weight video models generate **~5 second clips**. A 5-10 minute video is th
 | 5 | `NarrateExecutor` | Azure AI Speech synthesizes each scene's voice-over, in the brief's language, using a multilingual neural voice. The narration is plain spoken text: screenplay-style speaker labels the LLM might add ("Narrator:", "Maya (V.O.):") are stripped so they are never read aloud. |
 | 6 | `AssembleExecutor` | ffmpeg normalizes the clips to 1280x720 at 24 fps, concatenates each scene, and mixes in the narration (LTX-2's own audio stays underneath as ambience at 25% volume). If the narration is longer than the scene, the last frame is held. The scenes are then joined into `final.mp4`. |
 
+This is the default pipeline. The opt-in **naturalistic mode** prepares and measures narration
+immediately after the storyboard, before keyframes or clips, and never extends scenes with frozen frames.
+
 The creative steps use LLM agents. The heavy steps are deterministic executors: an LLM tool-calling loop that runs for hours and 120 times would be slow, expensive and fragile. **Each step saves its output** (`input/reference.png`, `brief.json`, `storyboard.json`, `keyframes/shot_NNN.png`, `clips/shot_NNN.mp4`, `narration/scene_NNN.wav`) to Blob Storage. A job interrupted by a restart, deployment or failure resumes where it stopped, without re-rendering finished keyframes or clips. The `prompt_id` of every keyframe and clip sent to ComfyUI is saved too, so after a restart the orchestrator reattaches to a render that is still running instead of starting it again. Each running job holds a renewable **Blob lease**, so even when Container Apps briefly runs two replicas during a rollout, a job never runs twice.
 
 ### Videos from a photo
@@ -31,6 +34,81 @@ Open-weight video models only keep a person's likeness *within* one clip. To kee
 
 > [!IMPORTANT]
 > Only upload photos you have the rights to, and of people who agreed to appear in an AI-generated video. The platform doesn't check consent: that responsibility is yours. The agents never try to name or identify the people in a photo.
+
+### Naturalistic mode
+
+Enable **Naturalistic** in the composer, use `--naturalistic` in the CLI, or send
+`"naturalistic": true` in the JSON request (also supported inside a multipart request).
+It is off by default; existing jobs keep their original behavior.
+
+- **Continuity and direction:** each scene records wardrobe/props, lighting/location, screen
+  direction, and starting/ending action state. Shot writers receive neighboring scene context
+  while still running in parallel. Prompts favor restrained expressions, plausible contact and
+  weight, motivated gestures, static cameras where appropriate, and establishing/action/reaction/detail
+  shot variety. Explicitly stylized stories keep their intended genre.
+- **Spoken delivery:** short conversational narration, deliberate pauses, optional voice style,
+  and literal pronunciation aliases. These are structured controls, not arbitrary SSML.
+  Open **Voice and delivery** in the UI to customize them.
+- **Measured timing:** synthesize narration before GPU work, reserving 0.4 seconds of lead-in and
+  0.6 seconds of tail per scene. If it does not fit, the narrator editor can shorten it twice:
+  **at most three syntheses per scene**, including interrupted attempts across job retries.
+  Speech is not automatically accelerated, truncated, or placed over a frozen ending.
+  Exhaustion fails the job visibly; create a new job with a shorter script or longer scenes.
+- **Audio:** consistent narration loudness (ffmpeg loudnorm target -18 LUFS), speech-driven
+  ambience ducking, peak limiting with headroom, and short ambience fades at clip boundaries.
+  Silent models still receive silence under narration; no new audio-generation model is used.
+  Visual cuts remain hard cuts. Extra encoding is needed to avoid accumulated AAC timestamp gaps.
+- **Duration:** each clip is trimmed down to a whole number of output frames before timing
+  narration. A clip shorter than its planned duration fails rather than being padded.
+  The requested duration remains an approximate shot budget, not an exact final runtime.
+
+Delivery controls require both naturalistic mode and narration:
+
+| `delivery` field | Default | Allowed values |
+|---|---|---|
+| `rate_percent` | `0` | Integer from -10 to 10; an explicit artistic choice, never adjusted to fit speech |
+| `sentence_pause_ms` | `180` | Integer from 0 to 1000; added between detected sentences/newlines |
+| `style` | `null` | A style advertised by the selected voice, or neutral delivery |
+| `pronunciations` | `[]` | Up to 20 unique `{"text": "SQL", "alias": "sequel"}` entries; case-sensitive literal substitutions |
+
+The configured Speech endpoint's voice catalog is checked before synthesis for the selected
+voice, language (including advertised secondary locales), and style. Standard neural voices
+are supported; HD voices are not supported in this mode. Unsupported selections and catalog
+lookup failures are explicit job errors, not silent neutral-voice fallbacks. A Speech endpoint
+is required when naturalistic narration is enabled; disabling narration still enables visual
+direction and ambience finishing.
+
+```json
+{
+  "prompt": "A quiet documentary about a lighthouse keeper",
+  "duration_minutes": 0.5,
+  "naturalistic": true,
+  "delivery": {
+    "rate_percent": -5,
+    "sentence_pause_ms": 250,
+    "style": null,
+    "pronunciations": [{"text": "SQL", "alias": "sequel"}]
+  }
+}
+```
+
+```sh
+python generate.py "A quiet documentary about a lighthouse keeper" --minutes 0.5 --naturalistic \
+  --voice en-US-AndrewMultilingualNeural --speech-rate -5 --sentence-pause-ms 250 --pronounce SQL=sequel
+```
+
+**Recovery:** accepted narration text, measured duration, and audio checksum are journaled
+together under content-addressed `narration/natural-v1/` paths. A changed narration source uses
+new audio, not a stale WAV. The original plan remains in `storyboard.json`; the accepted version
+is saved as `storyboard.narrated.json` and returned by the storyboard endpoint when available.
+Naturalistic jobs also record request/render dependency fingerprints. Editing an existing job's
+request, visual plan, model settings, or output settings is not supported: incompatible resumes
+fail explicitly and require a new job. Legacy jobs cannot be converted in place.
+
+**Limits:** prompting improves direction, not model guarantees. There is no lip sync, new
+video model, automatic visual scoring, selective retake UI, or keyframe approval gate in this
+release. These remain later features. Automated fixture tests check timing and mixing, not
+photorealism or whether narration edits preserve every nuance.
 
 ## Video models
 
@@ -130,6 +208,8 @@ curl -s "$URL/api/gpu" -H "X-API-Key: $KEY"                      # live GPU, CPU
 | `narration` | `true` | `false` gives a silent video (or LTX-2 audio only) |
 | `voice` | `en-US-AndrewMultilingualNeural` | Any Azure neural voice, e.g. `fr-FR-VivienneMultilingualNeural` |
 | `seed` | random | Makes clip generation reproducible |
+| `naturalistic` | `false` | Opt-in continuity, measured narration before rendering, and improved audio mixing |
+| `delivery` | `null` | Optional structured controls above; requires naturalistic mode and narration |
 
 ## Run the orchestrator locally
 
@@ -154,6 +234,20 @@ pytest
 ```
 
 The tests check every ComfyUI workflow graph (text-to-video, image-to-video and keyframe: placeholders, links, node types) and the ComfyUI client (image upload, submit, poll, download, retry with a new seed). They also run the **real Agent Framework workflow with real ffmpeg** against a fake ComfyUI, fake LLM agents and fake TTS. That covers the whole pipeline (from a prompt, and from a photo for all three models: the agents get the photo, keyframes come before clips, clips start from their keyframe), the photo checks (formats, size, EXIF orientation and metadata removal), narration longer than a scene, resume without re-rendering keyframes or clips, reattaching to an in-flight ComfyUI prompt, concurrent retries, jobs locked by another replica, audio/video sync, the operation timeline (live, persisted, across retries and replicas), the REST API (JSON and multipart uploads) with its event stream, and the live GPU stats (exporter parsing of `nvidia-smi` and `/proc` CPU/RAM, offline VMs, `/api/gpu`).
+
+Naturalistic regression tests cover controls and SSML escaping, language/style validation,
+strict continuity output schemas, JSON/multipart/CLI options, early narration, bounded corrections,
+checkpoint recovery, checksums, incompatible artifact rejection, output frame counts, decoded
+audio peaks, and measured ambience attenuation/recovery. They require both ffmpeg and ffprobe
+on `PATH`; skipped media tests are not evidence that the rendering path passed.
+
+For a perceptual A/B evaluation, generate separate legacy and naturalistic jobs with the same
+prompt, reference photo (if any), model, voice and seed. Include a person handling a prop, a
+walking scene with changes of angle, a quiet interior, and narration in a second supported
+language. Have viewers compare continuity, physical motion, voice delivery and editing rhythm,
+and record GPU operation durations, synthesis/correction counts and job failures from the
+timeline. Repeat across multiple seeds. No live-model quality improvement is claimed solely
+from synthetic fixture tests.
 
 ## Project layout
 

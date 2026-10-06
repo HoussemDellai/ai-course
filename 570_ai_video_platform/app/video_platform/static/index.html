@@ -276,11 +276,32 @@
             <label class="pill" title="Voice-over narration">
               <input id="narration" type="checkbox" checked> Narration
             </label>
+            <label class="pill" title="Continuity, restrained direction, measured narration and audio ducking">
+              <input id="naturalistic" type="checkbox"> Naturalistic
+            </label>
             <span class="grow"></span>
             <button class="send" id="send" type="submit" title="Generate video (Ctrl+Enter)" aria-label="Generate video">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>
             </button>
           </div>
+          <details style="padding: 12px">
+            <summary>Voice and delivery</summary>
+            <label for="voice">Voice short name (blank uses the configured voice)</label>
+            <input class="input" id="voice" type="text" placeholder="en-US-AndrewMultilingualNeural">
+            <fieldset id="deliveryControls" disabled style="border: 0; padding: 8px 0">
+              <legend>Naturalistic narration controls</legend>
+              <label for="speechRate">Rate adjustment (%)</label>
+              <input class="input" id="speechRate" type="number" min="-10" max="10" step="1" value="0" required>
+              <label for="sentencePause">Sentence pause (ms)</label>
+              <input class="input" id="sentencePause" type="number" min="0" max="1000" step="1" value="180" required>
+              <label for="speechStyle">Voice style (optional; must be supported by the voice)</label>
+              <input class="input" id="speechStyle" type="text" maxlength="60" placeholder="Leave blank for neutral delivery">
+              <label for="pronunciations">Pronunciation hints (one TEXT=ALIAS per line, maximum 20)</label>
+              <textarea class="input" id="pronunciations" rows="2" placeholder="SQL=sequel"></textarea>
+            </fieldset>
+            <p class="muted small">Naturalistic narration is checked before GPU rendering. Up to two corrections;
+              unresolved overruns fail rather than freeze frames. Delivery controls require narration.</p>
+          </details>
         </form>
         <div class="hint muted small" id="license"></div>
       </section>
@@ -501,13 +522,29 @@
       $("license").textContent = m ? `${m.resolution} · ${m.clip_seconds}s clips${m.native_audio ? " · native audio" : ""} · License: ${m.license}` : "";
     }
     $("model").onchange = showLicense;
+    function updateDeliveryControls() {
+      $("deliveryControls").disabled = !$("naturalistic").checked || !$("narration").checked;
+      $("voice").disabled = !$("narration").checked;
+    }
+    $("naturalistic").onchange = updateDeliveryControls;
+    $("narration").onchange = updateDeliveryControls;
+    updateDeliveryControls();
     $("prompt").oninput = () => { const t = $("prompt"); t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; };
     $("prompt").onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("form").requestSubmit(); };
     $("form").onsubmit = async (e) => {
       e.preventDefault();
       $("send").disabled = true;
       try {
-        const body = { prompt: $("prompt").value, duration_minutes: parseFloat($("duration").value), video_model: $("model").value || null, narration: $("narration").checked };
+        const body = { prompt: $("prompt").value, duration_minutes: parseFloat($("duration").value), video_model: $("model").value || null, narration: $("narration").checked, naturalistic: $("naturalistic").checked, voice: $("voice").value.trim() || null };
+        if (body.naturalistic && body.narration) {
+          const pronunciations = $("pronunciations").value.split(/\r?\n/).filter(line => line.trim()).map(line => {
+            const split = line.indexOf("=");
+            if (split < 1 || !line.slice(split + 1).trim()) throw new Error("Pronunciation hints must use TEXT=ALIAS.");
+            return { text: line.slice(0, split).trim(), alias: line.slice(split + 1).trim() };
+          });
+          body.delivery = { rate_percent: Number($("speechRate").value), sentence_pause_ms: Number($("sentencePause").value),
+            style: $("speechStyle").value.trim() || null, pronunciations };
+        }
         let opts = { method: "POST", body: JSON.stringify(body) };
         if (photo) {
           const form = new FormData();
@@ -524,6 +561,8 @@
         jobs = [job, ...jobs.filter(j => j.id !== job.id)];
         location.hash = job.id;
         loadJobs();
+      } catch (error) {
+        alert(error instanceof Error ? error.message : String(error));
       } finally { $("send").disabled = false; }
     };
     async function errorText(r) {
@@ -767,6 +806,7 @@
         ${job.request.reference_image ? `<img class="ref-photo" alt="Reference photo" src="/api/videos/${encodeURIComponent(job.id)}/image?key=${encodeURIComponent(key())}">` : ""}
         <div class="chips">
           ${job.request.reference_image ? `<span class="chip"><span class="k">mode</span>photo to video</span>` : ""}
+          ${job.request.naturalistic ? `<span class="chip"><span class="k">direction</span>naturalistic</span>` : ""}
           <span class="chip"><span class="k">model</span>${esc(job.request.video_model)}</span>
           <span class="chip"><span class="k">duration</span>${esc(job.request.duration_minutes)} min</span>
           <span class="chip"><span class="k">narration</span>${job.request.narration ? "on" : "off"}</span>
@@ -797,7 +837,10 @@
       }
       const steps = ops.filter(o => o.run === latest && !o.parent_id);
       const started = new Set(steps.map(o => o.attrs.step));
-      const placeholders = isFinished(job) ? [] : STEPS.filter(([k]) => !started.has(k));
+      const plannedSteps = job.request.naturalistic
+        ? [STEPS[0], STEPS[1], ["prepare_narration", "Prepare narration"], STEPS[2], STEPS[3], STEPS[5]]
+        : STEPS;
+      const placeholders = isFinished(job) ? [] : plannedSteps.filter(([k]) => !started.has(k));
       if (runs.length > 1) html += `<div class="run-label">Run ${latest}</div>`;
       html += renderRun(steps, children, placeholders);
       $("timeline").innerHTML = html;

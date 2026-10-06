@@ -12,7 +12,9 @@ from PIL import Image
 
 from video_platform.agents import fit_shot_count
 from video_platform.comfyui import ComfyUIClient, ComfyUIPool
-from video_platform.schemas import CreativeBrief, Character, SceneOutline, Shot, StoryOutline
+from video_platform.schemas import (
+    CreativeBrief, Character, Continuity, NaturalSceneOutline, SceneOutline, Shot, StoryOutline,
+)
 from video_platform.video_models import VideoModel
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
@@ -109,6 +111,7 @@ class FakeTeam:
     def __init__(self):
         self.calls: list[str] = []
         self.images: list[bytes | None] = []
+        self.neighbors: list[str] = []
 
     async def enhance(self, prompt: str, duration_seconds: float, image: bytes | None = None) -> CreativeBrief:
         self.calls.append("enhance")
@@ -121,32 +124,53 @@ class FakeTeam:
             reference_notes="An old man in a yellow raincoat on a pier" if image else "",
         )
 
-    async def outline(self, brief: CreativeBrief, total_shots: int, clip_seconds: float) -> StoryOutline:
+    async def outline(self, brief: CreativeBrief, total_shots: int, clip_seconds: float,
+                      naturalistic: bool = False) -> StoryOutline:
         self.calls.append("outline")
         first = total_shots // 2
         # Labelled like a screenplay on purpose, as real LLMs sometimes do: the pipeline must strip the labels.
-        return StoryOutline(scenes=[
+        outline = StoryOutline(scenes=[
             SceneOutline(title="Dawn", summary="s1", narration="Narrator: The island wakes up.", shot_count=first),
             SceneOutline(title="Storm", summary="s2", narration="**Yann (V.O.):** \"The storm comes.\"",
                          shot_count=total_shots - first),
         ])
+        if naturalistic:
+            outline.scenes = [NaturalSceneOutline(
+                **s.model_dump(), continuity=Continuity(
+                    wardrobe_and_props="yellow raincoat, lantern", lighting_and_location="dawn, pier",
+                    screen_direction="left to right", start_state="standing", end_state="walking",
+                ),
+            ) for s in outline.scenes]
+        return outline
 
-    async def write_shots(self, brief, scene, scene_index, total_scenes, model, keyframes=False) -> list[Shot]:
+    async def write_shots(self, brief, scene, scene_index, total_scenes, model, keyframes=False,
+                          naturalistic=False, neighbors="") -> list[Shot]:
         self.calls.append(f"shots-{scene_index}" + ("-keyframes" if keyframes else ""))
+        self.neighbors.append(neighbors)
         return fit_shot_count(
             [Shot(prompt=f"{scene.title} shot {i}",
                   keyframe_prompt=f"Keep the man from image 1, {scene.title} frame {i}" if keyframes else None)
              for i in range(scene.shot_count)],
             scene.shot_count)
 
+    async def shorten_narration(self, brief, text, measured_seconds, target_seconds) -> str:
+        self.calls.append("shorten")
+        return "The island wakes." if "island" in text else "A storm comes."
+
 
 class FakeNarrator:
     def __init__(self, seconds: float = 3.0):
         self.seconds = seconds
         self.texts: list[str] = []
+        self.deliveries: list = []
 
-    async def synthesize(self, text: str, dest: Path, voice: str | None = None, language: str = "en-US") -> Path:
+    async def validate(self, voice, language, delivery) -> None:
+        pass
+
+    async def synthesize(self, text: str, dest: Path, voice: str | None = None, language: str = "en-US",
+                          delivery=None) -> Path:
         self.texts.append(text)
+        self.deliveries.append(delivery)
         dest.parent.mkdir(parents=True, exist_ok=True)
         return make_wav(dest, self.seconds)
 

@@ -38,6 +38,14 @@ class VideoModel:
     def i2v_workflow_path(self) -> Path:
         return WORKFLOWS_DIR / self.i2v_workflow_file
 
+    @property
+    def naturalistic_guide(self) -> str:
+        if self.has_audio:
+            return ("Keep ambient sound continuous and plausible for the location; no speech, lyrics "
+                    "or dramatic music. Describe gentle room tone and only sounds motivated by visible actions.")
+        return ("Do not request speech or lip movement. Prioritize stable anatomy and simple physical "
+                "interactions over elaborate motion that cannot fit this short clip.")
+
 
 VIDEO_MODELS: dict[str, VideoModel] = {
     "wan22": VideoModel(
