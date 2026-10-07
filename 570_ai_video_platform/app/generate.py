@@ -2,6 +2,7 @@
 
     python generate.py "A documentary about bees" --minutes 0.5 --model wan22
     python generate.py "Her first trip to Japan" --image photo.jpg --minutes 0.5
+    python generate.py "A day at the beach" --orientation vertical --resolution 1080p --upscaler seedvr2
 """
 
 import argparse
@@ -32,6 +33,12 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
                    help="literal pronunciation substitution; may be repeated (maximum 20)")
     p.add_argument("--image", type=Path, default=None,
                    help="reference photo (PNG, JPEG or WebP) of a person or a scene to build the video from")
+    p.add_argument("--orientation", choices=["horizontal", "vertical"], default="horizontal",
+                   help="horizontal (16:9) or vertical (9:16, mobile)")
+    p.add_argument("--resolution", choices=["720p", "1080p", "4k"], default="720p",
+                   help="output resolution; clips render natively at about 720p and are upscaled above it")
+    p.add_argument("--upscaler", choices=["ffmpeg", "seedvr2"], default="ffmpeg",
+                   help="upscaler for 1080p and 4K: ffmpeg (fast) or seedvr2 (SeedVR2 7B on the GPU); ignored at 720p")
     args = p.parse_args(argv)
     pronunciations = []
     for value in args.pronounce:
@@ -50,7 +57,7 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     return VideoRequest(
         prompt=args.prompt, duration_minutes=args.minutes, video_model=args.model,
         narration=not args.no_narration, voice=args.voice, naturalistic=args.naturalistic, delivery=delivery,
-        music=args.music,
+        music=args.music, orientation=args.orientation, resolution=args.resolution, upscaler=args.upscaler,
     ), args.image
 
 

@@ -6,6 +6,9 @@ export DEBIAN_FRONTEND=noninteractive
 COMFY_HOME=/opt/comfyui
 COMFY_DIR=$COMFY_HOME/ComfyUI
 VENV=$COMFY_HOME/venv
+# Pinned release: every node the workflows use (including the native SeedVR2 nodes) is checked against it.
+# To upgrade, change the tag, rerun this script, and check the workflows (see the README).
+COMFYUI_VERSION=v0.39.0
 
 # The VM reboots after the driver install: wait for the driver to be available.
 for i in $(seq 1 60); do
@@ -20,10 +23,11 @@ apt-get install -y -o DPkg::Lock::Timeout=600 git python3 python3-pip python3-ve
 
 mkdir -p $COMFY_HOME
 if [ ! -d "$COMFY_DIR/.git" ]; then
-  git clone https://github.com/comfyanonymous/ComfyUI.git $COMFY_DIR
-else
-  git -C $COMFY_DIR pull --ff-only || true
+  git clone https://github.com/Comfy-Org/ComfyUI.git $COMFY_DIR
 fi
+git -C $COMFY_DIR fetch --tags --force origin
+git -C $COMFY_DIR checkout --detach "refs/tags/$COMFYUI_VERSION"
+echo "ComfyUI $(git -C $COMFY_DIR describe --tags)"
 
 [ -d "$VENV" ] || python3 -m venv $VENV
 $VENV/bin/pip install --upgrade pip

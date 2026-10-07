@@ -218,7 +218,7 @@ async def test_naturalistic_pipeline(settings, tmp_path, monkeypatch, model_key,
     assert all(team.neighbors)
     steps = [op.attrs["step"] for op in await manager.operations(state.id) if op.kind == OpKind.step]
     assert steps == ["enhance_prompt", "plan_storyboard", "prepare_narration",
-                     "generate_keyframes", "generate_clips", "generate_music", "assemble"]
+                     "generate_keyframes", "generate_clips", "process_shots", "generate_music", "assemble"]
     assert len(narrator.deliveries) == (2 if narration else 0)
     assert all(delivery == NarrationDelivery() for delivery in narrator.deliveries)
     await close()

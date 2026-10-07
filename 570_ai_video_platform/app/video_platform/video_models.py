@@ -13,6 +13,26 @@ KEYFRAME_MODEL_NAME = "Qwen-Image-Edit-2511 (4-step Lightning)"
 MUSIC_WORKFLOW = WORKFLOWS_DIR / "minimax_music3_t2m.json"
 MUSIC_MODEL_NAME = "MiniMax-Music3"
 
+# SeedVR2 7B (Apache 2.0, native ComfyUI nodes) upscales each shot to 1080p or 4K when the user picks it.
+UPSCALE_WORKFLOW = WORKFLOWS_DIR / "seedvr2_upscale.json"
+UPSCALE_MODEL_NAME = "SeedVR2 7B"
+
+ORIENTATIONS = ("horizontal", "vertical")
+UPSCALERS = ("ffmpeg", "seedvr2")
+NATIVE_RESOLUTION = "720p"
+# Horizontal (width, height) of each output resolution; vertical videos swap them.
+RESOLUTIONS: dict[str, tuple[int, int]] = {
+    "720p": (1280, 720),
+    "1080p": (1920, 1080),
+    "4k": (3840, 2160),
+}
+
+
+def output_size(orientation: str, resolution: str) -> tuple[int, int]:
+    """Final (width, height) of a video."""
+    width, height = RESOLUTIONS[resolution]
+    return (height, width) if orientation == "vertical" else (width, height)
+
 
 @dataclass(frozen=True)
 class VideoModel:
@@ -33,6 +53,10 @@ class VideoModel:
     @property
     def clip_seconds(self) -> float:
         return self.frames / self.fps
+
+    def render_size(self, orientation: str) -> tuple[int, int]:
+        """(width, height) the model renders at: its native landscape size, swapped for vertical videos."""
+        return (self.height, self.width) if orientation == "vertical" else (self.width, self.height)
 
     @property
     def workflow_path(self) -> Path:

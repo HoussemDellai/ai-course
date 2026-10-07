@@ -34,6 +34,7 @@ class OpKind(str, Enum):
     agent = "agent"
     keyframe = "keyframe"
     clip = "clip"
+    upscale = "upscale"
     narration = "narration"
     music = "music"
     ffmpeg = "ffmpeg"

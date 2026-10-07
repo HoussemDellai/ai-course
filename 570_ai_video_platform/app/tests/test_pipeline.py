@@ -17,24 +17,27 @@ from video_platform.jobs import JobManager
 from video_platform.operations import OpKind, OpStatus, load_operations
 from video_platform.schemas import JobStatus, VideoRequest
 from video_platform.storage import LocalArtifactStore
-from video_platform.video_models import VIDEO_MODELS
+from video_platform.video_models import RESOLUTIONS, VIDEO_MODELS
 from video_platform.workflow import REFERENCE_IMAGE, PipelineDeps, build_video_workflow
 
 pytestmark = requires_ffmpeg
 
 
 @pytest.fixture
-def settings(tmp_path):
-    return Settings(local_output_dir=tmp_path / "out", work_dir=tmp_path / "work", output_width=320,
-                    output_height=180, output_fps=12, clip_retries=0)
+def settings(tmp_path, monkeypatch):
+    # Tiny output formats so the tests run fast (each keeps its aspect ratio and the 1.5x / 3x upscale factors).
+    for key, size in {"720p": (320, 180), "1080p": (480, 270), "4k": (960, 540)}.items():
+        monkeypatch.setitem(RESOLUTIONS, key, size)
+    return Settings(local_output_dir=tmp_path / "out", work_dir=tmp_path / "work", output_fps=12, clip_retries=0)
 
 
-def make_services(settings, tmp_path, monkeypatch, model_key: str, clip_seconds=2.5, narration_seconds=9.0):
+def make_services(settings, tmp_path, monkeypatch, model_key: str, clip_seconds=2.5, narration_seconds=9.0,
+                  clip_size=(320, 176), fail_upscale=False):
     base = VIDEO_MODELS[model_key]
     model = tiny_model(base, frames=int(clip_seconds * base.fps), fps=base.fps)
     monkeypatch.setitem(VIDEO_MODELS, model_key, model)
-    clip = make_clip(tmp_path / "sample.mp4", clip_seconds, base.fps, 320, 176, audio=model.has_audio)
-    fake_comfy = FakeComfy(clip, music=make_flac(tmp_path / "music.flac", 12.0))
+    clip = make_clip(tmp_path / "sample.mp4", clip_seconds, base.fps, *clip_size, audio=model.has_audio)
+    fake_comfy = FakeComfy(clip, music=make_flac(tmp_path / "music.flac", 12.0), fail_upscale=fail_upscale)
     team, narrator = FakeTeam(), FakeNarrator(narration_seconds)
     store = LocalArtifactStore(settings.local_output_dir)
     pool = fake_comfy.pool(servers=2)
@@ -74,7 +77,8 @@ async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
     ops = await manager.operations(state.id)
     steps = [o for o in ops if o.kind == OpKind.step]
     assert [s.attrs["step"] for s in steps] == ["enhance_prompt", "plan_storyboard", "generate_keyframes",
-                                                "generate_clips", "narrate", "generate_music", "assemble"]
+                                                "generate_clips", "process_shots", "narrate", "generate_music",
+                                                "assemble"]
     assert all(s.run == 1 for s in steps)
     skipped = {"generate_keyframes", "generate_music"}
     assert {s.attrs["step"]: s.status for s in steps if s.attrs["step"] in skipped} == {
@@ -252,6 +256,7 @@ async def test_resume_reuses_artifacts(settings, tmp_path, monkeypatch):
             if o.run == 2 and o.kind == OpKind.step}
     assert run2 == {"enhance_prompt": OpStatus.reused, "plan_storyboard": OpStatus.reused,
                     "generate_keyframes": OpStatus.skipped, "generate_clips": OpStatus.reused,
+                    "process_shots": OpStatus.reused,
                     "narrate": OpStatus.reused, "generate_music": OpStatus.skipped, "assemble": OpStatus.succeeded}
     await close()
 
@@ -362,10 +367,33 @@ def test_api(settings, tmp_path, monkeypatch):
         assert state["status"] == "completed", state
         assert client.get(f"/api/videos/{job_id}/storyboard", headers=h).status_code == 200
         ops = client.get(f"/api/videos/{job_id}/operations", headers=h).json()
-        assert sum(o["kind"] == "step" for o in ops) == 7
+        assert sum(o["kind"] == "step" for o in ops) == 8
         assert all(o["status"] == ("skipped" if o["attrs"].get("step") in ("generate_keyframes", "generate_music")
                                    else "succeeded") for o in ops)
         assert client.get(f"/api/videos/{job_id}/image", headers=h).status_code == 404  # text-only video
+
+        # Every intermediate video recorded in the operations can be previewed, with the key, and seeked.
+        artifacts = [o["attrs"][k] for o in ops for k in ("artifact", "voice_artifact", "music_artifact")
+                     if k in o["attrs"]]
+        assert sorted(a.split("/")[0] for a in artifacts if "/" in a) == ["clips"] * 6 + ["processed"] * 6 + [
+            "scenes"] * 4 and "final.mp4" in artifacts
+        media_url = f"/api/videos/{job_id}/media"
+        for name in artifacts:
+            r = client.get(f"{media_url}/{name}?key=secret")
+            assert r.status_code == 200 and r.headers["content-type"] == "video/mp4", name
+        assert client.get(f"{media_url}/clips/shot_000.mp4").status_code == 401
+        assert client.get(f"{media_url}/clips/shot_000.mp4?key=wrong").status_code == 401
+        r = client.get(f"{media_url}/processed/shot_000.mp4", headers={**h, "Range": "bytes=0-99"})
+        assert r.status_code == 206 and len(r.content) == 100
+        for bad in ("state.json", "storyboard.json", "input/reference.png", "clips/shot_000.pending.json",
+                    "clips/../state.json", "..%2Fstate.json", "clips/shot_0.mp4", "final.mp4/x"):
+            assert client.get(f"{media_url}/{bad}", headers=h).status_code == 404, bad
+        assert client.get(f"{media_url}/upscaled/shot_000.mp4", headers=h).status_code == 404  # ffmpeg job
+        assert client.get("/api/videos/nope/media/final.mp4", headers=h).status_code == 404
+        for field, value in (("orientation", "square"), ("resolution", "8k"), ("upscaler", "magic")):
+            assert client.post("/api/videos", headers=h, json={"prompt": "a lighthouse", field: value}).status_code == 422
+        request = client.get(f"/api/videos/{job_id}", headers=h).json()["request"]
+        assert (request["orientation"], request["resolution"], request["upscaler"]) == ("horizontal", "720p", "ffmpeg")
         assert client.get("/api/videos/nope/operations", headers=h).status_code == 404
         assert client.get(f"/api/videos/{job_id}/events").status_code == 401
         with client.stream("GET", f"/api/videos/{job_id}/events?key=secret") as r:
@@ -386,6 +414,7 @@ def test_api_reference_photo(settings, tmp_path, monkeypatch):
     photo = make_png(640, 480, fmt="JPEG")
     with TestClient(app) as client:
         post = lambda **kw: client.post("/api/videos", headers=h, **kw)
+        assert client.get("/api/config", headers=h).json() == {"max_image_mb": 1}
         # JSON clients can't flag a photo that was never uploaded.
         r = post(json={"prompt": "a lighthouse", "duration_minutes": 0.25, "reference_image": True})
         assert r.status_code == 202 and r.json()["request"]["reference_image"] is False
