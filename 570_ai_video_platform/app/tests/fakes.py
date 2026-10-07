@@ -10,10 +10,10 @@ import httpx
 import pytest
 from PIL import Image
 
-from video_platform.agents import fit_shot_count
+from video_platform.agents import fit_music_cues, fit_shot_count
 from video_platform.comfyui import ComfyUIClient, ComfyUIPool
 from video_platform.schemas import (
-    CreativeBrief, Character, Continuity, NaturalSceneOutline, SceneOutline, Shot, StoryOutline,
+    CreativeBrief, Character, Continuity, MusicCue, MusicPlan, NaturalSceneOutline, SceneOutline, Shot, StoryOutline,
 )
 from video_platform.video_models import VideoModel
 
@@ -43,15 +43,24 @@ def make_wav(path: Path, seconds: float) -> Path:
     return path
 
 
+def make_flac(path: Path, seconds: float) -> Path:
+    """Stereo 32 kHz FLAC, like MiniMax Music 3's SaveAudio output."""
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    f"sine=frequency=330:duration={seconds}", "-ar", "32000", "-ac", "2", str(path)], check=True)
+    return path
+
+
 class FakeComfy:
     """In-memory ComfyUI HTTP API (/prompt, /history, /view, /upload/image, /queue)."""
 
-    def __init__(self, clip: Path | None = None, fail_first: int = 0):
+    def __init__(self, clip: Path | None = None, fail_first: int = 0, music: Path | None = None):
         self.clip_bytes = clip.read_bytes() if clip else b"fake-mp4"
         self.image_bytes = make_png()
+        self.music_bytes = music.read_bytes() if music else b"fake-flac"
         self.submitted: list[dict] = []
         self.uploads: list[tuple[str, str, str]] = []  # (server, subfolder, filename)
         self.image_prompts: set[str] = set()
+        self.audio_prompts: set[str] = set()
         self.fail_first = fail_first
         self.failed: set[str] = set()
 
@@ -70,6 +79,8 @@ class FakeComfy:
             pid = f"p{len(self.submitted)}"
             if any(n["class_type"] == "SaveImage" for n in workflow.values()):
                 self.image_prompts.add(pid)
+            if any(n["class_type"] == "SaveAudio" for n in workflow.values()):
+                self.audio_prompts.add(pid)
             return httpx.Response(200, json={"prompt_id": pid, "number": 1, "node_errors": {}})
         if request.method == "GET" and request.url.path.startswith("/history/"):
             pid = request.url.path.rsplit("/", 1)[1]
@@ -82,6 +93,9 @@ class FakeComfy:
             if pid in self.image_prompts:
                 outputs = {"16": {"images": [{"filename": f"{pid}_00001_.png", "subfolder": "aivideo",
                                               "type": "output"}]}}
+            elif pid in self.audio_prompts:
+                outputs = {"9": {"audio": [{"filename": f"{pid}_00001_.flac", "subfolder": "aivideo",
+                                            "type": "output"}]}}
             else:
                 outputs = {"16": {"images": [{"filename": f"{pid}.mp4", "subfolder": "aivideo", "type": "output"}],
                                   "animated": [True]}}
@@ -90,6 +104,8 @@ class FakeComfy:
         if request.method == "GET" and request.url.path == "/view":
             if request.url.params.get("filename", "").endswith(".png"):
                 return httpx.Response(200, content=self.image_bytes)
+            if request.url.params.get("filename", "").endswith(".flac"):
+                return httpx.Response(200, content=self.music_bytes)
             return httpx.Response(200, content=self.clip_bytes)
         if request.method == "GET" and request.url.path == "/queue":
             return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
@@ -112,6 +128,7 @@ class FakeTeam:
         self.calls: list[str] = []
         self.images: list[bytes | None] = []
         self.neighbors: list[str] = []
+        self.music_durations: list[float] = []
 
     async def enhance(self, prompt: str, duration_seconds: float, image: bytes | None = None) -> CreativeBrief:
         self.calls.append("enhance")
@@ -156,6 +173,14 @@ class FakeTeam:
     async def shorten_narration(self, brief, text, measured_seconds, target_seconds) -> str:
         self.calls.append("shorten")
         return "The island wakes." if "island" in text else "A storm comes."
+
+    async def score(self, brief, scenes, durations) -> MusicPlan:
+        self.calls.append("score")
+        self.music_durations = list(durations)
+        return fit_music_cues(MusicPlan(theme="solo cello and soft piano, D minor, 60-70 BPM", scenes=[
+            MusicCue(caption=f"Global Metadata: ambient score for {s.title}.\nArrangement: cello, piano.")
+            for s in scenes
+        ]), len(scenes))
 
 
 class FakeNarrator:

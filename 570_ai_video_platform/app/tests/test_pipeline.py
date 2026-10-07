@@ -2,11 +2,13 @@
 
 import asyncio
 import json
+import re
+import subprocess
 
 import pytest
 from fastapi.testclient import TestClient
 
-from fakes import FakeComfy, FakeNarrator, FakeTeam, make_clip, make_png, requires_ffmpeg, tiny_model
+from fakes import FakeComfy, FakeNarrator, FakeTeam, make_clip, make_flac, make_png, requires_ffmpeg, tiny_model
 from video_platform import media
 from video_platform.api import create_app, job_events
 from video_platform.config import Settings
@@ -32,7 +34,7 @@ def make_services(settings, tmp_path, monkeypatch, model_key: str, clip_seconds=
     model = tiny_model(base, frames=int(clip_seconds * base.fps), fps=base.fps)
     monkeypatch.setitem(VIDEO_MODELS, model_key, model)
     clip = make_clip(tmp_path / "sample.mp4", clip_seconds, base.fps, 320, 176, audio=model.has_audio)
-    fake_comfy = FakeComfy(clip)
+    fake_comfy = FakeComfy(clip, music=make_flac(tmp_path / "music.flac", 12.0))
     team, narrator = FakeTeam(), FakeNarrator(narration_seconds)
     store = LocalArtifactStore(settings.local_output_dir)
     pool = fake_comfy.pool(servers=2)
@@ -72,10 +74,12 @@ async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
     ops = await manager.operations(state.id)
     steps = [o for o in ops if o.kind == OpKind.step]
     assert [s.attrs["step"] for s in steps] == ["enhance_prompt", "plan_storyboard", "generate_keyframes",
-                                                "generate_clips", "narrate", "assemble"]
+                                                "generate_clips", "narrate", "generate_music", "assemble"]
     assert all(s.run == 1 for s in steps)
-    assert {s.attrs["step"]: s.status for s in steps}["generate_keyframes"] == OpStatus.skipped
-    assert all(s.status == OpStatus.succeeded for s in steps if s.attrs["step"] != "generate_keyframes")
+    skipped = {"generate_keyframes", "generate_music"}
+    assert {s.attrs["step"]: s.status for s in steps if s.attrs["step"] in skipped} == {
+        "generate_keyframes": OpStatus.skipped, "generate_music": OpStatus.skipped}
+    assert all(s.status == OpStatus.succeeded for s in steps if s.attrs["step"] not in skipped)
     step_ids = {s.attrs["step"]: s.id for s in steps}
     agents = [o for o in ops if o.kind == OpKind.agent]
     assert [a.title for a in agents][:2] == ["prompt-enhancer", "story-outliner"] and len(agents) == 4
@@ -89,6 +93,76 @@ async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
     assert any(o.kind == OpKind.upload and o.parent_id == step_ids["assemble"] for o in ops)
     assert steps[3].progress_done == steps[3].progress_total == 6
     assert [o.id for o in await load_operations(store, state.id)] == [o.id for o in ops], "persisted"
+    await close()
+
+
+def max_volume(path, start: float, seconds: float) -> float:
+    """Peak level in dB of the audio between start and start + seconds."""
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-ss", str(start), "-t", str(seconds), "-i", str(path),
+                          "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True, check=True)
+    return float(re.search(r"max_volume: (-?[\d.]+|-inf) dB", out.stderr).group(1).replace("-inf", "-200"))
+
+
+@pytest.mark.parametrize("model_key", ["wan22", "ltx25"])
+async def test_pipeline_with_music(settings, tmp_path, monkeypatch, model_key):
+    store, factory, close, fake_comfy, team, _ = make_services(settings, tmp_path, monkeypatch, model_key)
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(VideoRequest(prompt="a lighthouse keeper", duration_minutes=0.25,
+                                              video_model=model_key, music=True))
+    await asyncio.wait_for(manager.wait(state.id), 120)
+    final = await manager.get(state.id)
+    assert final.status == JobStatus.completed, final.error
+
+    # One music render per scene, after all the clips, so ComfyUI swaps models once.
+    is_music = lambda w: any(n["class_type"] == "SaveAudio" for n in w.values())
+    music_wfs = [w for w in fake_comfy.submitted if is_music(w)]
+    assert len(fake_comfy.submitted) == 8 and len(music_wfs) == 2
+    assert all(is_music(w) for w in fake_comfy.submitted[6:])
+    # 9 s narration in 7.5 s of clips: the scene is held to 0.4 + 9 + 0.6 = 10 s, the music gets 1 s of margin.
+    assert team.music_durations == pytest.approx([10.0, 10.0], abs=0.05)
+    encoders = [next(n["inputs"] for n in w.values() if n["class_type"] == "MiniMaxMusic3TextEncode")
+                for w in music_wfs]
+    assert all(e["max_duration"] == 11.0 and isinstance(e["max_duration"], float) for e in encoders)
+    assert all(e["lyrics"] == "[Instrumental]" and "Instrumental only" in e["caption"] for e in encoders)
+    assert sorted(e["caption"].splitlines()[0] for e in encoders) == [
+        "Global Metadata: ambient score for Dawn.", "Global Metadata: ambient score for Storm."]
+
+    video = store.path(state.id, "final.mp4")
+    duration, has_audio = await media.probe(video)
+    assert has_audio and 19.5 < duration < 20.8, duration
+    # Before the narration's 0.4 s lead-in only the music (fading in) can be heard.
+    assert max_volume(video, 0.15, 0.2) > -60
+    assert json.loads(store.path(state.id, "music.json").read_text())["theme"]
+    assert all(store.path(state.id, f"music/scene_{i:03d}.flac").exists() for i in range(2))
+
+    ops = await manager.operations(state.id)
+    step = next(o for o in ops if o.attrs.get("step") == "generate_music")
+    assert step.status == OpStatus.succeeded and step.attrs["model"] == "MiniMax-Music3"
+    assert step.progress_done == step.progress_total == 2
+    cues = [o for o in ops if o.kind == OpKind.music]
+    assert len(cues) == 2 and all(c.parent_id == step.id and c.attrs["prompt_id"] for c in cues)
+    assert any(o.kind == OpKind.agent and o.title == "music-director" and o.parent_id == step.id for o in ops)
+    assert sum(o.kind == OpKind.ffmpeg and o.title.endswith("+ mix music") for o in ops) == 2
+    await close()
+
+
+async def test_music_is_reused_on_resume(settings, tmp_path, monkeypatch):
+    store, factory, close, fake_comfy, team, _ = make_services(settings, tmp_path, monkeypatch, "wan22")
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(VideoRequest(prompt="a lighthouse", duration_minutes=0.25, music=True))
+    await manager.wait(state.id)
+    assert (await manager.get(state.id)).status == JobStatus.completed
+
+    await manager.progress(state.id, JobStatus.assembling)  # crash during assembly
+    submitted, calls = len(fake_comfy.submitted), list(team.calls)
+    manager2 = JobManager(settings, store, factory)
+    await manager2.resume_unfinished()
+    await manager2.wait(state.id)
+    assert (await manager2.get(state.id)).status == JobStatus.completed
+    assert len(fake_comfy.submitted) == submitted and team.calls == calls, "music and its plan are reused"
+    run2 = {o.attrs.get("step"): o.status for o in await manager2.operations(state.id)
+            if o.run == 2 and o.kind == OpKind.step}
+    assert run2["generate_music"] == OpStatus.reused
     await close()
 
 
@@ -178,7 +252,7 @@ async def test_resume_reuses_artifacts(settings, tmp_path, monkeypatch):
             if o.run == 2 and o.kind == OpKind.step}
     assert run2 == {"enhance_prompt": OpStatus.reused, "plan_storyboard": OpStatus.reused,
                     "generate_keyframes": OpStatus.skipped, "generate_clips": OpStatus.reused,
-                    "narrate": OpStatus.reused, "assemble": OpStatus.succeeded}
+                    "narrate": OpStatus.reused, "generate_music": OpStatus.skipped, "assemble": OpStatus.succeeded}
     await close()
 
 
@@ -288,9 +362,9 @@ def test_api(settings, tmp_path, monkeypatch):
         assert state["status"] == "completed", state
         assert client.get(f"/api/videos/{job_id}/storyboard", headers=h).status_code == 200
         ops = client.get(f"/api/videos/{job_id}/operations", headers=h).json()
-        assert sum(o["kind"] == "step" for o in ops) == 6
-        assert all(o["status"] == ("skipped" if o["attrs"].get("step") == "generate_keyframes" else "succeeded")
-                   for o in ops)
+        assert sum(o["kind"] == "step" for o in ops) == 7
+        assert all(o["status"] == ("skipped" if o["attrs"].get("step") in ("generate_keyframes", "generate_music")
+                                   else "succeeded") for o in ops)
         assert client.get(f"/api/videos/{job_id}/image", headers=h).status_code == 404  # text-only video
         assert client.get("/api/videos/nope/operations", headers=h).status_code == 404
         assert client.get(f"/api/videos/{job_id}/events").status_code == 401

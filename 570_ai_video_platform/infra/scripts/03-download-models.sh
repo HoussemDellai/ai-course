@@ -1,7 +1,8 @@
 #!/bin/bash
-# Downloads the models used by the platform (about 190 GB in total):
-# text-to-video and image-to-video for the 3 video models, plus Qwen-Image-Edit for the keyframes
-# of videos built from a reference photo.
+# Downloads the models used by the platform (about 205 GB in total):
+# text-to-video and image-to-video for 3 of the video models, Qwen-Image-Edit for the keyframes of videos built
+# from a reference photo, and MiniMax Music 3 for the background music. LTX-2.5 is gated on Hugging Face and is
+# downloaded separately with 05-download-ltx25.sh.
 # Idempotent: 'wget -c' resumes partial downloads and skips completed files.
 set -euo pipefail
 
@@ -54,5 +55,14 @@ QIE=https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_
 dl diffusion_models $QIE/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors
 dl vae              https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors
 dl loras            https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
+
+########################################################
+# MiniMax Music 3 (MiniMax-Music3 Community License): instrumental background music per scene (opt-in 'music').
+# ComfyUI repack: fp16 DiT, pruned int8 text encoder (8B global LLM + local LLM) and DAV audio VAE, about 13.4 GB.
+########################################################
+MM3=https://huggingface.co/Comfy-Org/MiniMax-Music-3/resolve/main
+dl diffusion_models $MM3/diffusion_models/minimax_music3_dit_fp16.safetensors
+dl text_encoders    $MM3/text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors
+dl vae              $MM3/vae/minimax_music3_dav.safetensors
 
 echo "All models downloaded."

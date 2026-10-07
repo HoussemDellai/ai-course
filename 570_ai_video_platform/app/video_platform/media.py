@@ -151,3 +151,23 @@ async def mix_narration(
     await run("ffmpeg", "-y", "-i", str(video), "-i", str(narration), "-filter_complex", fc,
               "-map", "[v]", "-map", "[a]", "-t", f"{total:.3f}", *VIDEO_ENCODE, *AUDIO_ENCODE, str(dest))
     return dest
+
+
+async def mix_music(video: Path, music: Path, dest: Path, volume: float, fade: float) -> Path:
+    """Lays background music under a finished scene: faded in/out at the cuts, ducked under the scene's audio
+    (narration, ambience), trimmed or padded to the exact scene length. The video stream is copied."""
+    length = await video_duration(video)
+    fade = max(0.0, min(fade, length / 3))
+    fc = (
+        f"[1:a]aresample=48000,aformat=channel_layouts=stereo,volume={volume},atrim=0:{length:.9f},"
+        f"asetpts=PTS-STARTPTS,afade=t=in:d={fade:.6f},afade=t=out:st={length - fade:.6f}:d={fade:.6f},"
+        f"apad=whole_dur={length:.9f}[music];"
+        f"[0:a]apad=whole_dur={length:.9f},atrim=0:{length:.9f},asplit=2[scene][control];"
+        "[music][control]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=400[ducked];"
+        "[scene][ducked]amix=inputs=2:duration=first:normalize=0,"
+        f"alimiter=limit=0.85:level=false:latency=true,atrim=0:{length:.9f}[a]"
+    )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    await run("ffmpeg", "-y", "-i", str(video), "-i", str(music), "-filter_complex", fc,
+              "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", *AUDIO_ENCODE, "-t", f"{length:.9f}", str(dest))
+    return dest

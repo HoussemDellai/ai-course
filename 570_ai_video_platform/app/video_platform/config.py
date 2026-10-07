@@ -33,6 +33,8 @@ class Settings:
     max_concurrent_jobs: int = 1
     ffmpeg_concurrency: int = 2
     ambient_audio_volume: float = 0.25
+    music_volume: float = 0.3
+    music_fade_seconds: float = 1.0
     output_width: int = 1280
     output_height: int = 720
     output_fps: int = 24
@@ -59,6 +61,8 @@ class Settings:
             max_concurrent_jobs=int(e("MAX_CONCURRENT_JOBS", "1")),
             ffmpeg_concurrency=int(e("FFMPEG_CONCURRENCY", "2")),
             ambient_audio_volume=float(e("AMBIENT_AUDIO_VOLUME", "0.25")),
+            music_volume=float(e("MUSIC_VOLUME", "0.3")),
+            music_fade_seconds=float(e("MUSIC_FADE_SECONDS", "1.0")),
             max_image_mb=int(e("MAX_IMAGE_MB", "10")),
         )
 

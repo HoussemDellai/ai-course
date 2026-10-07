@@ -95,6 +95,19 @@ class KeyframeSceneShots(BaseModel):
     shots: list[KeyframeShotPrompt]
 
 
+class MusicCue(BaseModel):
+    caption: str = Field(
+        description="MiniMax Music 3 caption for one scene's instrumental background music, in three parts: "
+        "'Global Metadata: ...' (genre, BPM, key, mood arc, production), 'Vocal Details: Instrumental only. No vocals, "
+        "no singing, no humming, no choir, no spoken words.' and 'Arrangement: ...' (instruments, groove, textures)."
+    )
+
+
+class MusicPlan(BaseModel):
+    theme: str = Field(description="Musical identity shared by every scene: instrument palette, key family, tempo range.")
+    scenes: list[MusicCue]
+
+
 # ---------------------------------------------------------------------------
 # Platform data
 # ---------------------------------------------------------------------------
@@ -153,6 +166,7 @@ class VideoRequest(BaseModel):
     voice: str | None = None
     seed: int | None = None
     naturalistic: bool = False
+    music: bool = Field(default=False, description="Instrumental background music per scene (MiniMax-Music3).")
     delivery: NarrationDelivery | None = None
     reference_image: bool = Field(
         default=False,
@@ -173,6 +187,7 @@ class JobStatus(str, Enum):
     keyframing = "keyframing"
     generating = "generating"
     narrating = "narrating"
+    scoring = "scoring"
     assembling = "assembling"
     completed = "completed"
     failed = "failed"

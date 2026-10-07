@@ -1,8 +1,13 @@
+import re
+
 import pytest
 
 from fakes import FakeComfy
-from video_platform.agents import fit_shot_count, rebalance_outline, shots_for_duration, strip_speaker_labels
+from video_platform.agents import (
+    fit_music_cues, fit_shot_count, music_lyrics, rebalance_outline, shots_for_duration, strip_speaker_labels,
+)
 from video_platform.comfyui import (
+    AUDIO_EXTENSIONS,
     ComfyUIError,
     fill_workflow,
     find_outputs,
@@ -10,8 +15,10 @@ from video_platform.comfyui import (
     load_workflow,
     IMAGE_EXTENSIONS,
 )
-from video_platform.schemas import CreativeBrief, SceneOutline, Shot, Storyboard, StoryOutline
-from video_platform.video_models import KEYFRAME_WORKFLOW, VIDEO_MODELS
+from video_platform.schemas import (
+    CreativeBrief, MusicCue, MusicPlan, SceneOutline, Shot, Storyboard, StoryOutline,
+)
+from video_platform.video_models import KEYFRAME_WORKFLOW, MUSIC_WORKFLOW, VIDEO_MODELS
 
 # Node types used by the templates, all checked against the ComfyUI source (comfy_extras/*.py, nodes.py).
 KNOWN_NODES = {
@@ -27,6 +34,8 @@ KNOWN_NODES = {
     "ConditioningZeroOut", "CLIPVisionLoader", "CLIPVisionEncode", "HunyuanVideo15ImageToVideo",
     "FluxKontextImageScale", "ModelSamplingAuraFlow", "CFGNorm", "TextEncodeQwenImageEditPlus",
     "FluxKontextMultiReferenceLatentMethod", "EmptySD3LatentImage", "KSampler", "SaveImage",
+    # background music (MiniMax Music 3)
+    "MiniMaxMusic3TextEncode", "EmptyMiniMaxMusic3LatentAudio", "VAEDecodeAudio", "SaveAudio",
 }
 
 PARAMS = {"prompt": "a cat", "negative_prompt": "blurry", "seed": 42, "width": 1280, "height": 720,
@@ -81,6 +90,50 @@ def test_keyframe_workflow_is_a_valid_api_graph():
     assert (latent["inputs"]["width"], latent["inputs"]["height"]) == (1280, 704)
     prompts = [n["inputs"]["prompt"] for n in wf.values() if n["class_type"] == "TextEncodeQwenImageEditPlus"]
     assert sorted(prompts) == ["", "Keep the man from image 1"]
+
+
+def test_music_workflow_is_a_valid_api_graph():
+    params = {"caption": "Global Metadata: ambient", "lyrics": "[Instrumental]", "seed": 42, "seconds": 31.0,
+              "filename_prefix": PARAMS["filename_prefix"]}
+    wf = fill_workflow(load_workflow(MUSIC_WORKFLOW), params)
+    check_graph(wf, "SaveAudio", "seed")
+    encoder = next(n["inputs"] for n in wf.values() if n["class_type"] == "MiniMaxMusic3TextEncode")
+    assert (encoder["caption"], encoder["lyrics"], encoder["max_duration"]) == ("Global Metadata: ambient",
+                                                                                 "[Instrumental]", 31.0)
+    # the latent length follows the duration the text encoder settles on
+    latent = next(n["inputs"] for n in wf.values() if n["class_type"] == "EmptyMiniMaxMusic3LatentAudio")
+    encoder_id = next(i for i, n in wf.items() if n["class_type"] == "MiniMaxMusic3TextEncode")
+    assert latent["seconds"] == [encoder_id, 1]
+
+
+def test_music_lyrics_are_section_tags_only():
+    for seconds in (5, 19, 20, 44, 45, 300):
+        lyrics = music_lyrics(seconds)
+        assert re.fullmatch(r"(\[(Intro|Instrumental|Outro)\]\s*)+", lyrics), lyrics
+    assert music_lyrics(10) == "[Instrumental]"
+    assert music_lyrics(60).startswith("[Intro]") and music_lyrics(60).endswith("[Outro]")
+
+
+def test_fit_music_cues():
+    plan = MusicPlan(theme="cello", scenes=[
+        MusicCue(caption="Global Metadata: a.\nVocal Details: Instrumental only. No vocals."),
+        MusicCue(caption="Global Metadata: b."), MusicCue(caption="  "),
+    ])
+    fitted = fit_music_cues(plan, 4)
+    assert len(fitted.scenes) == 4 and fitted.theme == "cello"
+    assert all("instrumental only" in c.caption.lower() for c in fitted.scenes)
+    assert fitted.scenes[0].caption.count("Instrumental only") == 1, "not repeated when already there"
+    assert fitted.scenes[2].caption.startswith("Global Metadata: a."), "blank cues dropped, then padded"
+    assert len(fit_music_cues(plan, 1).scenes) == 1
+    with pytest.raises(ValueError, match="no cues"):
+        fit_music_cues(MusicPlan(theme="x", scenes=[]), 2)
+
+
+def test_find_audio_outputs():
+    entry = {"outputs": {"9": {"audio": [{"filename": "music_00001_.flac", "subfolder": "x", "type": "output"}]},
+                         "3": {"images": [{"filename": "a.png"}]}}}
+    assert find_outputs(entry, AUDIO_EXTENSIONS) == [{"filename": "music_00001_.flac", "subfolder": "x",
+                                                      "type": "output"}]
 
 
 def test_model_clip_settings():

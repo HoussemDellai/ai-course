@@ -23,6 +23,7 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     p.add_argument("--model", default=None, help="wan22, ltx2, ltx25 or hunyuan15")
     p.add_argument("--no-narration", action="store_true")
     p.add_argument("--naturalistic", action="store_true", help="opt in to continuity, measured narration and audio mixing")
+    p.add_argument("--music", action="store_true", help="instrumental background music per scene (MiniMax-Music3)")
     p.add_argument("--voice", help="Speech voice short name (default: configured TTS_VOICE)")
     p.add_argument("--speech-rate", type=int, default=None, help="delivery rate adjustment, -10 to 10 percent")
     p.add_argument("--sentence-pause-ms", type=int, default=None, help="sentence pause, 0 to 1000 ms (default: 180)")
@@ -49,6 +50,7 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     return VideoRequest(
         prompt=args.prompt, duration_minutes=args.minutes, video_model=args.model,
         narration=not args.no_narration, voice=args.voice, naturalistic=args.naturalistic, delivery=delivery,
+        music=args.music,
     ), args.image
 
 

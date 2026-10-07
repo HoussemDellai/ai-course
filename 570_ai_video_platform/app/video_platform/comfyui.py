@@ -14,13 +14,14 @@ from typing import Any
 
 import httpx
 
-from .video_models import KEYFRAME_WORKFLOW, VideoModel
+from .video_models import KEYFRAME_WORKFLOW, MUSIC_WORKFLOW, VideoModel
 
 log = logging.getLogger(__name__)
 
 _PLACEHOLDER = re.compile(r"^\{\{(\w+)\}\}$")
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mkv", ".mov")
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+AUDIO_EXTENSIONS = (".flac", ".wav", ".mp3", ".opus")
 
 SubmittedCallback = Callable[[str, str], Awaitable[None]]  # (server base URL, prompt_id)
 
@@ -253,6 +254,24 @@ class ComfyUIPool:
         params = {"prompt": prompt, "width": width, "height": height, "filename_prefix": filename_prefix}
         return await self._render(KEYFRAME_WORKFLOW, params, seed, dest, timeout, retries, resume, on_submitted,
                                   IMAGE_EXTENSIONS, reference, upload_subfolder, "Keyframe")
+
+    async def generate_music(
+        self,
+        caption: str,
+        lyrics: str,
+        seconds: float,
+        seed: int,
+        dest: Path,
+        filename_prefix: str,
+        timeout: float,
+        retries: int,
+        resume: dict[str, str] | None = None,
+        on_submitted: SubmittedCallback | None = None,
+    ) -> Path:
+        """Renders a piece of music (MiniMax Music 3) of at most `seconds` seconds."""
+        params = {"caption": caption, "lyrics": lyrics, "seconds": float(seconds), "filename_prefix": filename_prefix}
+        return await self._render(MUSIC_WORKFLOW, params, seed, dest, timeout, retries, resume, on_submitted,
+                                  AUDIO_EXTENSIONS, None, "aivideo", "Music")
 
     async def _render(
         self,
