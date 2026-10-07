@@ -97,7 +97,7 @@ KEYFRAME_SHOT_WRITER_INSTRUCTIONS = """\
 You are a prompt engineer for a film built from the user's reference photo. Every clip lasts about
 {clip_seconds:.0f} seconds and is made in two independent steps, so EVERY prompt must be fully self-contained:
 1. keyframe_prompt: an instruction for the {keyframe_model} image-edit model. It receives the reference photo as
-   "image 1" and must redraw it as this shot's FIRST FRAME (16:9). Write it as an edit instruction, e.g.
+   "image 1" and must redraw it as this shot's FIRST FRAME ({aspect}). Write it as an edit instruction, e.g.
    "Keep the woman from image 1 exactly the same (same face, hair, skin tone and build), now wearing ..., standing
    on ..., medium shot from a low angle, golden-hour backlight, 35mm film look." Always say what to keep identical
    from image 1 (the people's faces and bodies, or the place), then the new framing (shot size, angle), pose,
@@ -107,6 +107,14 @@ You are a prompt engineer for a film built from the user's reference photo. Ever
    Model-specific guidance: {prompt_guide}
 Across the scene, vary shot sizes and angles (establishing, medium, close-up, detail, reaction) and make
 consecutive shots flow naturally so the edit feels continuous. Write everything in English.
+"""
+
+VERTICAL_FRAMING = """\
+The film is VERTICAL (9:16 portrait, watched full screen on a phone). Compose every shot for a tall, narrow
+frame: keep the main subject centered, favor medium shots, close-ups and full-body framings over wide
+landscapes, use vertical lines and depth (foreground to background) rather than wide horizontal panoramas,
+prefer vertical or push-in camera moves (tilt, crane, dolly in) over wide horizontal pans, and say
+"vertical 9:16 framing" in every prompt.
 """
 
 MUSIC_DIRECTOR_INSTRUCTIONS = """\
@@ -131,7 +139,7 @@ class CreativeTeam(Protocol):
     ) -> StoryOutline: ...
     async def write_shots(
         self, brief: CreativeBrief, scene: SceneOutline, scene_index: int, total_scenes: int, model: VideoModel,
-        keyframes: bool = False, naturalistic: bool = False, neighbors: str = "",
+        keyframes: bool = False, naturalistic: bool = False, neighbors: str = "", vertical: bool = False,
     ) -> list[Shot]: ...
     async def shorten_narration(
         self, brief: CreativeBrief, text: str, measured_seconds: float, target_seconds: float,
@@ -196,17 +204,19 @@ class FoundryCreativeTeam:
 
     async def write_shots(
         self, brief: CreativeBrief, scene: SceneOutline, scene_index: int, total_scenes: int, model: VideoModel,
-        keyframes: bool = False, naturalistic: bool = False, neighbors: str = "",
+        keyframes: bool = False, naturalistic: bool = False, neighbors: str = "", vertical: bool = False,
     ) -> list[Shot]:
         if keyframes:
             instructions = KEYFRAME_SHOT_WRITER_INSTRUCTIONS.format(
                 model_name=model.display_name, clip_seconds=model.clip_seconds, prompt_guide=model.i2v_prompt_guide,
-                keyframe_model=KEYFRAME_MODEL_NAME,
+                keyframe_model=KEYFRAME_MODEL_NAME, aspect="9:16 vertical" if vertical else "16:9",
             )
         else:
             instructions = SHOT_WRITER_INSTRUCTIONS.format(
                 model_name=model.display_name, clip_seconds=model.clip_seconds, prompt_guide=model.prompt_guide
             )
+        if vertical:
+            instructions += "\n" + VERTICAL_FRAMING
         if naturalistic:
             instructions += "\n" + NATURAL_DIRECTION + "\n" + model.naturalistic_guide
         agent = self._agent("shot-writer", instructions)

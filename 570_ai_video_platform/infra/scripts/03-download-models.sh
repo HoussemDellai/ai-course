@@ -1,9 +1,10 @@
 #!/bin/bash
-# Downloads the models used by the platform (about 245 GB in total):
+# Downloads the models used by the platform (about 262 GB in total):
 # text-to-video and image-to-video for the 4 video models, Qwen-Image-Edit for the keyframes of videos built
-# from a reference photo, and MiniMax Music 3 for the background music.
+# from a reference photo, MiniMax Music 3 for the background music and SeedVR2 for 1080p / 4K upscaling.
 # LTX-2.5 is gated on Hugging Face: missing LTX-2.5 weights need HF_TOKEN from an account with access to
-# Lightricks/LTX-2.5 (already-installed weights don't).
+# Lightricks/LTX-2.5 (already-installed weights don't). Without HF_TOKEN they are skipped with a warning, so
+# Terraform (which never receives the token) still installs every public model; rerun with HF_TOKEN afterwards.
 # Public downloads resume with wget; gated downloads are published only after curl succeeds.
 set +x
 set -euo pipefail
@@ -17,12 +18,7 @@ LTX25_FILES=(
   vae/ltx-2.5-audio-vae-bf16.safetensors
   latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors
 )
-for file in "${LTX25_FILES[@]}"; do
-  if [[ ! -s "$M/$file" && -z "${HF_TOKEN:-}" ]]; then
-    echo "ERROR: LTX-2.5 weights are missing. Set HF_TOKEN to a read token with access to Lightricks/LTX-2.5." >&2
-    exit 1
-  fi
-done
+SKIPPED=0
 mkdir -p $M/text_encoders $M/vae $M/diffusion_models $M/loras $M/checkpoints $M/latent_upscale_models $M/clip_vision
 
 dl() { wget -q -c -P "$M/$1" "$2"; echo "OK $1/$(basename "$2")"; }
@@ -31,6 +27,11 @@ dl_gated() {
   local dest="$M/$1"
   if [[ -s "$dest" ]]; then
     echo "OK $1 (already installed)"
+    return
+  fi
+  if [[ -z "${HF_TOKEN:-}" ]]; then
+    echo "WARNING: skipped $1: set HF_TOKEN to a read token with access to Lightricks/LTX-2.5." >&2
+    SKIPPED=$((SKIPPED + 1))
     return
   fi
   # stdin keeps the token out of process arguments; curl strips Authorization on cross-host redirects.
@@ -112,4 +113,16 @@ dl diffusion_models $MM3/diffusion_models/minimax_music3_dit_fp16.safetensors
 dl text_encoders    $MM3/text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors
 dl vae              $MM3/vae/minimax_music3_dav.safetensors
 
-echo "All models downloaded."
+########################################################
+# SeedVR2 7B (Apache 2.0, native ComfyUI nodes): opt-in 1080p / 4K upscaling of every shot ('upscaler': 'seedvr2').
+# fp16 one-step restoration DiT (16.5 GB) and its VAE (0.5 GB).
+########################################################
+SVR=https://huggingface.co/Comfy-Org/SeedVR2/resolve/main
+dl diffusion_models $SVR/diffusion_models/seedvr2_7b_fp16.safetensors
+dl vae              $SVR/vae/seedvr2_ema_vae_fp16.safetensors
+
+if (( SKIPPED )); then
+  echo "Public models downloaded; $SKIPPED LTX-2.5 file(s) skipped. Rerun with HF_TOKEN to enable LTX-2.5."
+else
+  echo "All models downloaded."
+fi

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import secrets
 import time
 from collections.abc import AsyncIterator
@@ -32,6 +33,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 SSE_POLL_SECONDS = 2.0
 SSE_KEEPALIVE_SECONDS = 15.0
 MULTIPART_OVERHEAD_BYTES = 1024 * 1024  # room for the 'request' JSON field and multipart boundaries
+# The only job files /media serves: generated, upscaled and processed shots, assembled scenes and their mixes, and
+# the final video. A strict allowlist, so a name can never reach state.json, the reference photo or another job.
+MEDIA_NAME = re.compile(r"(?:(?:clips|upscaled|processed)/shot_\d{3}|scenes/scene_\d{3}(?:_voice|_music)?|final)\.mp4")
 
 CREATE_VIDEO_OPENAPI = {
     "requestBody": {
@@ -211,10 +215,15 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
     async def list_models():
         return [
             {"key": m.key, "name": m.display_name, "clip_seconds": round(m.clip_seconds, 2),
-             "resolution": f"{m.width}x{m.height}", "native_audio": m.has_audio, "license": m.license_note,
+             "resolution": f"{m.width}x{m.height}", "vertical_resolution": f"{m.height}x{m.width}",
+             "native_audio": m.has_audio, "license": m.license_note,
              "default": m.key == settings.default_video_model}
             for m in VIDEO_MODELS.values()
         ]
+
+    @app.get("/api/config", dependencies=[Depends(require_api_key)])
+    async def get_config():
+        return {"max_image_mb": settings.max_image_mb}
 
     @app.get("/api/gpu", dependencies=[Depends(require_api_key)])
     async def gpu_stats(request: Request):
@@ -333,6 +342,14 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         if state is None or not state.request.reference_image or shot < 0:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown keyframe")
         return await serve_artifact(request, job_id, keyframe_name(shot), "image/png", cache=True)
+
+    @app.get("/api/videos/{job_id}/media/{name:path}", dependencies=[Depends(require_api_key)])
+    async def get_media(job_id: str, name: str, request: Request):
+        """Intermediate and final videos of a job, as soon as they exist (supports Range requests for seeking)."""
+        if not MEDIA_NAME.fullmatch(name) or await jobs(request).get(job_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown media")
+        # The UI adds ?v=<operation id>, so a file re-rendered by a later run gets a new URL.
+        return await serve_artifact(request, job_id, name, "video/mp4", cache=True)
 
     async def serve_artifact(request: Request, job_id: str, name: str, media_type: str,
                              filename: str | None = None, cache: bool = False):

@@ -123,7 +123,7 @@ resource "azurerm_container_app" "app" {
   }
 
   depends_on = [
-    # terraform_data.build_app_image,
+    terraform_data.build_app_image,
     time_sleep.rbac_propagation,
   ]
 }

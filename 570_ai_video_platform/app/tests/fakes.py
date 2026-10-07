@@ -51,18 +51,40 @@ def make_flac(path: Path, seconds: float) -> Path:
 
 
 class FakeComfy:
-    """In-memory ComfyUI HTTP API (/prompt, /history, /view, /upload/image, /queue)."""
+    """In-memory ComfyUI HTTP API (/prompt, /history, /view, /upload/image, /queue).
 
-    def __init__(self, clip: Path | None = None, fail_first: int = 0, music: Path | None = None):
+    SeedVR2 prompts are rendered for real with ffmpeg (the uploaded clip scaled by the workflow's multiplier,
+    keeping its frames, fps and audio), so the tests check actual output sizes and durations."""
+
+    def __init__(self, clip: Path | None = None, fail_first: int = 0, music: Path | None = None,
+                 fail_upscale: bool = False):
         self.clip_bytes = clip.read_bytes() if clip else b"fake-mp4"
         self.image_bytes = make_png()
         self.music_bytes = music.read_bytes() if music else b"fake-flac"
         self.submitted: list[dict] = []
         self.uploads: list[tuple[str, str, str]] = []  # (server, subfolder, filename)
+        self.uploaded: dict[str, bytes] = {}  # "subfolder/filename" -> content
         self.image_prompts: set[str] = set()
         self.audio_prompts: set[str] = set()
+        self.upscale_prompts: dict[str, tuple[str, float]] = {}  # prompt id -> (input file, scale)
+        self.upscaled: dict[str, bytes] = {}
         self.fail_first = fail_first
+        self.fail_upscale = fail_upscale
         self.failed: set[str] = set()
+
+    def _upscale(self, pid: str) -> bytes:
+        if pid not in self.upscaled:
+            import tempfile
+
+            name, scale = self.upscale_prompts[pid]
+            with tempfile.TemporaryDirectory() as tmp:
+                src, dest = Path(tmp) / "in.mp4", Path(tmp) / "out.mp4"
+                src.write_bytes(self.uploaded[name])
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-vf",
+                                f"scale=trunc(iw*{scale}/2)*2:trunc(ih*{scale}/2)*2", "-c:v", "libx264",
+                                "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", str(dest)], check=True)
+                self.upscaled[pid] = dest.read_bytes()
+        return self.upscaled[pid]
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         import json
@@ -72,6 +94,9 @@ class FakeComfy:
             filename = re.search(r'name="image"; filename="([^"]+)"', body).group(1)
             subfolder = re.search(r'name="subfolder"\r\n\r\n([^\r]*)\r\n', body).group(1)
             self.uploads.append((request.url.host, subfolder, filename))
+            boundary = request.headers["content-type"].split("boundary=", 1)[1].encode()
+            part = next(p for p in request.content.split(b"--" + boundary) if b'name="image"' in p.split(b"\r\n\r\n")[0])
+            self.uploaded[f"{subfolder}/{filename}"] = part.split(b"\r\n\r\n", 1)[1].removesuffix(b"\r\n")
             return httpx.Response(200, json={"name": filename, "subfolder": subfolder, "type": "input"})
         if request.method == "POST" and request.url.path == "/prompt":
             workflow = json.loads(request.content)["prompt"]
@@ -81,6 +106,13 @@ class FakeComfy:
                 self.image_prompts.add(pid)
             if any(n["class_type"] == "SaveAudio" for n in workflow.values()):
                 self.audio_prompts.add(pid)
+            if any(n["class_type"] == "SeedVR2Preprocess" for n in workflow.values()):
+                video = next(n["inputs"]["file"] for n in workflow.values() if n["class_type"] == "LoadVideo")
+                scale = next(n["inputs"]["resize_type.multiplier"] for n in workflow.values()
+                             if n["class_type"] == "ResizeImageMaskNode")
+                self.upscale_prompts[pid] = (video, scale)
+                if self.fail_upscale:
+                    self.failed.add(pid)
             return httpx.Response(200, json={"prompt_id": pid, "number": 1, "node_errors": {}})
         if request.method == "GET" and request.url.path.startswith("/history/"):
             pid = request.url.path.rsplit("/", 1)[1]
@@ -96,6 +128,13 @@ class FakeComfy:
             elif pid in self.audio_prompts:
                 outputs = {"9": {"audio": [{"filename": f"{pid}_00001_.flac", "subfolder": "aivideo",
                                             "type": "output"}]}}
+            elif pid in self.upscale_prompts:
+                # Like ComfyUI: LoadVideo previews its input (type "input"), listed before SaveVideo's output.
+                subfolder, _, name = self.upscale_prompts[pid][0].rpartition("/")
+                outputs = {"1": {"images": [{"filename": name, "subfolder": subfolder, "type": "input"}],
+                                 "animated": [True]},
+                           "15": {"images": [{"filename": f"{pid}.mp4", "subfolder": "aivideo", "type": "output"}],
+                                  "animated": [True]}}
             else:
                 outputs = {"16": {"images": [{"filename": f"{pid}.mp4", "subfolder": "aivideo", "type": "output"}],
                                   "animated": [True]}}
@@ -106,6 +145,12 @@ class FakeComfy:
                 return httpx.Response(200, content=self.image_bytes)
             if request.url.params.get("filename", "").endswith(".flac"):
                 return httpx.Response(200, content=self.music_bytes)
+            pid = request.url.params.get("filename", "").removesuffix(".mp4")
+            if request.url.params.get("type") == "input":
+                key = f"{request.url.params.get('subfolder', '')}/{request.url.params.get('filename', '')}"
+                return httpx.Response(200, content=self.uploaded[key])
+            if pid in self.upscale_prompts:
+                return httpx.Response(200, content=self._upscale(pid))
             return httpx.Response(200, content=self.clip_bytes)
         if request.method == "GET" and request.url.path == "/queue":
             return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
@@ -161,8 +206,9 @@ class FakeTeam:
         return outline
 
     async def write_shots(self, brief, scene, scene_index, total_scenes, model, keyframes=False,
-                          naturalistic=False, neighbors="") -> list[Shot]:
-        self.calls.append(f"shots-{scene_index}" + ("-keyframes" if keyframes else ""))
+                          naturalistic=False, neighbors="", vertical=False) -> list[Shot]:
+        self.calls.append(f"shots-{scene_index}" + ("-keyframes" if keyframes else "")
+                          + ("-vertical" if vertical else ""))
         self.neighbors.append(neighbors)
         return fit_shot_count(
             [Shot(prompt=f"{scene.title} shot {i}",

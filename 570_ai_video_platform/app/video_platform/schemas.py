@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -172,11 +172,28 @@ class VideoRequest(BaseModel):
         default=False,
         description="Set by the server when a reference photo is uploaded (multipart 'image' field).",
     )
+    orientation: Literal["horizontal", "vertical"] = Field(
+        default="horizontal", description="horizontal (16:9) or vertical (9:16, mobile).",
+    )
+    resolution: Literal["720p", "1080p", "4k"] = Field(
+        default="720p", description="Output resolution. Clips render natively at about 720p and are upscaled above it.",
+    )
+    upscaler: Literal["ffmpeg", "seedvr2"] = Field(
+        default="ffmpeg", description="Upscaler for 1080p and 4K: ffmpeg (lanczos, fast) or seedvr2 (SeedVR2 7B on "
+        "the GPU, restores detail). Ignored at 720p.",
+    )
 
     @model_validator(mode="after")
     def delivery_requires_narration(self) -> VideoRequest:
         if self.delivery is not None and not (self.naturalistic and self.narration):
             raise ValueError("Delivery controls require naturalistic mode and narration")
+        return self
+
+    @model_validator(mode="after")
+    def native_resolution_skips_upscaler(self) -> VideoRequest:
+        # 720p is the models' native size: nothing to upscale, so SeedVR2 would only cost GPU time.
+        if self.resolution == "720p" and self.upscaler != "ffmpeg":
+            self.upscaler = "ffmpeg"
         return self
 
 
@@ -186,6 +203,7 @@ class JobStatus(str, Enum):
     planning = "planning"
     keyframing = "keyframing"
     generating = "generating"
+    processing = "processing"
     narrating = "narrating"
     scoring = "scoring"
     assembling = "assembling"

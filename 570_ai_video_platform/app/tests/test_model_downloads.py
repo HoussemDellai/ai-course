@@ -24,8 +24,8 @@ def test_main_downloader_contains_all_ltx25_weights():
     script = SCRIPT.read_text()
     assert len(ltx_files()) == 5
     assert all(name in script for name in ltx_files())
-    wrapper = (SCRIPT.parent / "05-download-ltx25.sh").read_text()
-    assert "03-download-models.sh" in wrapper and "safetensors" not in wrapper
+    other_scripts = [p for p in SCRIPT.parent.glob("*.sh") if p != SCRIPT]
+    assert not any("safetensors" in p.read_text() for p in other_scripts)
 
 
 @pytest.fixture
@@ -72,11 +72,16 @@ printf complete > "$dest"
     return run, models, calls
 
 
-def test_missing_token_fails_before_downloading(downloader):
+def test_missing_token_skips_gated_downloads(downloader):
     run, models, calls = downloader
     result = run()
-    assert result.returncode != 0 and "Set HF_TOKEN" in result.stderr
-    assert not calls.exists() and not models.exists()
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.count("WARNING: skipped") == len(ltx_files())
+    assert "5 LTX-2.5 file(s) skipped" in result.stdout
+    assert "All models downloaded." not in result.stdout
+    called = calls.read_text().splitlines()
+    assert "gated" not in called and "public" in called
+    assert not list(models.rglob("*.safetensors")) and not list(models.rglob("*.part"))
 
 
 def test_gated_downloads_resume_publish_and_skip(downloader):

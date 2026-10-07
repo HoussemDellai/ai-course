@@ -45,11 +45,27 @@ async def video_duration(path: Path) -> float:
     return float(streams[0]["duration"])
 
 
+async def video_size(path: Path) -> tuple[int, int]:
+    """(width, height) of the first video stream."""
+    out = await run("ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                    "stream=width,height", "-of", "json", str(path))
+    streams = json.loads(out).get("streams", [])
+    if not streams or not streams[0].get("width") or not streams[0].get("height"):
+        raise MediaError(f"Missing video size: {path.name}")
+    return int(streams[0]["width"]), int(streams[0]["height"])
+
+
+def fit_scale(width: int, height: int, box_width: int, box_height: int) -> float:
+    """Largest factor that fits a width x height frame into the box without changing its aspect ratio."""
+    return min(box_width / width, box_height / height)
+
+
 async def normalize_clip(
     src: Path, dest: Path, width: int, height: int, fps: int, keep_audio: bool, audio_volume: float,
     naturalistic: bool = False, target_duration: float | None = None,
 ) -> Path:
-    """Scales/pads a clip to the output format and gives it a stereo AAC track (ambient audio or silence)."""
+    """Scales (lanczos, aspect ratio kept) and pads a clip to the output size, and gives it a stereo AAC track
+    (ambient audio or silence)."""
     duration, has_audio = await probe(src)
     if naturalistic:
         if target_duration is None or target_duration <= 0:
@@ -58,7 +74,7 @@ async def normalize_clip(
             raise MediaError(f"Clip {src.name} is shorter than its planned duration; regenerate it")
         duration = target_duration
     vf = (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},setsar=1"
     )
     args = ["ffmpeg", "-y", "-i", str(src)]
@@ -75,7 +91,8 @@ async def normalize_clip(
     else:
         args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
         args += ["-filter_complex", f"[0:v]{vf}[v];[1:a]anull[a]"]
-    args += ["-map", "[v]", "-map", "[a]", "-t", f"{duration:.9f}", *VIDEO_ENCODE, *AUDIO_ENCODE, str(dest)]
+    args += ["-map", "[v]", "-map", "[a]", "-t", f"{duration:.9f}", *VIDEO_ENCODE, *AUDIO_ENCODE,
+             "-movflags", "+faststart", str(dest)]
     dest.parent.mkdir(parents=True, exist_ok=True)
     await run(*args)
     return dest
@@ -114,7 +131,7 @@ async def mix_narration(
     video_len, _ = await probe(video)
     if narration is None:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        await run("ffmpeg", "-y", "-i", str(video), "-c", "copy", str(dest))
+        await run("ffmpeg", "-y", "-i", str(video), "-c", "copy", "-movflags", "+faststart", str(dest))
         return dest
     narration_len, _ = await probe(narration)
     if naturalistic:
@@ -135,7 +152,7 @@ async def mix_narration(
         dest.parent.mkdir(parents=True, exist_ok=True)
         await run("ffmpeg", "-y", "-i", str(video), "-i", str(narration), "-filter_complex", fc,
                   "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", *AUDIO_ENCODE,
-                  "-t", f"{video_len:.9f}", str(dest))
+                  "-t", f"{video_len:.9f}", "-movflags", "+faststart", str(dest))
         return dest
     total = max(video_len, lead_in + narration_len + tail)
     pad = max(0.0, total - video_len)
@@ -149,7 +166,8 @@ async def mix_narration(
     )
     dest.parent.mkdir(parents=True, exist_ok=True)
     await run("ffmpeg", "-y", "-i", str(video), "-i", str(narration), "-filter_complex", fc,
-              "-map", "[v]", "-map", "[a]", "-t", f"{total:.3f}", *VIDEO_ENCODE, *AUDIO_ENCODE, str(dest))
+              "-map", "[v]", "-map", "[a]", "-t", f"{total:.3f}", *VIDEO_ENCODE, *AUDIO_ENCODE,
+              "-movflags", "+faststart", str(dest))
     return dest
 
 
@@ -169,5 +187,6 @@ async def mix_music(video: Path, music: Path, dest: Path, volume: float, fade: f
     )
     dest.parent.mkdir(parents=True, exist_ok=True)
     await run("ffmpeg", "-y", "-i", str(video), "-i", str(music), "-filter_complex", fc,
-              "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", *AUDIO_ENCODE, "-t", f"{length:.9f}", str(dest))
+              "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", *AUDIO_ENCODE, "-t", f"{length:.9f}",
+              "-movflags", "+faststart", str(dest))
     return dest

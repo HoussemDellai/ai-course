@@ -18,7 +18,7 @@ from video_platform.comfyui import (
 from video_platform.schemas import (
     CreativeBrief, MusicCue, MusicPlan, SceneOutline, Shot, Storyboard, StoryOutline,
 )
-from video_platform.video_models import KEYFRAME_WORKFLOW, MUSIC_WORKFLOW, VIDEO_MODELS
+from video_platform.video_models import KEYFRAME_WORKFLOW, MUSIC_WORKFLOW, UPSCALE_WORKFLOW, VIDEO_MODELS
 
 # Node types used by the templates, all checked against the ComfyUI source (comfy_extras/*.py, nodes.py).
 KNOWN_NODES = {
@@ -36,6 +36,9 @@ KNOWN_NODES = {
     "FluxKontextMultiReferenceLatentMethod", "EmptySD3LatentImage", "KSampler", "SaveImage",
     # background music (MiniMax Music 3)
     "MiniMaxMusic3TextEncode", "EmptyMiniMaxMusic3LatentAudio", "VAEDecodeAudio", "SaveAudio",
+    # SeedVR2 upscaling (comfy_extras/nodes_seedvr.py, nodes_video.py, nodes_post_processing.py, ComfyUI v0.39.0)
+    "LoadVideo", "GetVideoComponents", "ResizeImageMaskNode", "SeedVR2Preprocess", "VAEEncodeTiled",
+    "SeedVR2TemporalChunk", "SeedVR2Conditioning", "SeedVR2TemporalMerge", "SeedVR2PostProcessing",
 }
 
 PARAMS = {"prompt": "a cat", "negative_prompt": "blurry", "seed": 42, "width": 1280, "height": 720,
@@ -90,6 +93,29 @@ def test_keyframe_workflow_is_a_valid_api_graph():
     assert (latent["inputs"]["width"], latent["inputs"]["height"]) == (1280, 704)
     prompts = [n["inputs"]["prompt"] for n in wf.values() if n["class_type"] == "TextEncodeQwenImageEditPlus"]
     assert sorted(prompts) == ["", "Keep the man from image 1"]
+
+
+def test_upscale_workflow_is_a_valid_api_graph():
+    params = {"video": "aivideo/job/shot_000.mp4", "scale": 1.5, "seed": 42,
+              "filename_prefix": PARAMS["filename_prefix"]}
+    with pytest.raises(ValueError, match="video"):
+        fill_workflow(load_workflow(UPSCALE_WORKFLOW), {k: v for k, v in params.items() if k != "video"})
+    wf = fill_workflow(load_workflow(UPSCALE_WORKFLOW), params)
+    check_graph(wf, "SaveVideo", "seed")
+    node = lambda t: next((i, n["inputs"]) for i, n in wf.items() if n["class_type"] == t)
+    assert node("LoadVideo")[1]["file"] == params["video"]
+    resize = node("ResizeImageMaskNode")[1]
+    assert resize["resize_type"] == "scale by multiplier" and resize["resize_type.multiplier"] == 1.5
+    assert isinstance(resize["resize_type.multiplier"], float) and resize["scale_method"] == "lanczos"
+    sampler = node("KSampler")[1]
+    assert (sampler["steps"], sampler["cfg"], sampler["denoise"]) == (1, 1.0, 1.0)
+    # The output keeps the source clip's frame rate and audio (the official template hard-codes 30 fps).
+    components = node("GetVideoComponents")[0]
+    create = node("CreateVideo")[1]
+    assert create["fps"] == [components, 2] and create["audio"] == [components, 1]
+    assert node("SeedVR2PostProcessing")[1]["original_resized_images"] == [node("ResizeImageMaskNode")[0], 0]
+    assert node("SeedVR2TemporalMerge")[1]["temporal_overlap"] == [node("SeedVR2TemporalChunk")[0], 1]
+    assert node("UNETLoader")[1]["unet_name"] == "seedvr2_7b_fp16.safetensors"
 
 
 def test_music_workflow_is_a_valid_api_graph():
@@ -161,6 +187,12 @@ def test_find_video_outputs():
                          "16": {"images": [{"filename": "clip_00001_.mp4", "subfolder": "x", "type": "output"}],
                                 "animated": [True]}}}
     assert find_video_outputs(entry) == [{"filename": "clip_00001_.mp4", "subfolder": "x", "type": "output"}]
+    # LoadVideo reports its input first (real ComfyUI history of a SeedVR2 upscale): the saved file must win.
+    entry = {"outputs": {"1": {"images": [{"filename": "shot_000.mp4", "subfolder": "aivideo/j", "type": "input"}],
+                               "animated": [True]},
+                         "15": {"images": [{"filename": "upscaled_00001_.mp4", "subfolder": "aivideo/j",
+                                            "type": "output"}], "animated": [True]}}}
+    assert find_video_outputs(entry)[0]["filename"] == "upscaled_00001_.mp4"
 
 
 async def test_comfy_pool_generates_and_downloads(tmp_path):

@@ -4,6 +4,7 @@ import asyncio
 import copy
 import json
 import logging
+import mimetypes
 import random
 import re
 import uuid
@@ -14,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from .video_models import KEYFRAME_WORKFLOW, MUSIC_WORKFLOW, VideoModel
+from .video_models import KEYFRAME_WORKFLOW, MUSIC_WORKFLOW, UPSCALE_WORKFLOW, VideoModel
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +54,10 @@ def fill_workflow(template: dict[str, Any], params: dict[str, Any]) -> dict[str,
 
 
 def find_outputs(history_entry: dict[str, Any], extensions: tuple[str, ...]) -> list[dict[str, str]]:
-    """Returns the saved files ({filename, subfolder, type}) with one of the extensions listed in a /history entry."""
+    """Returns the saved files ({filename, subfolder, type}) with one of the extensions listed in a /history entry.
+
+    Files the workflow saved (type "output") come first: loader nodes such as LoadVideo also report a preview of
+    their input file (type "input"), which must never be taken for the result."""
     files: list[dict[str, str]] = []
     for node_output in history_entry.get("outputs", {}).values():
         for items in node_output.values():
@@ -62,7 +66,7 @@ def find_outputs(history_entry: dict[str, Any], extensions: tuple[str, ...]) -> 
             for item in items:
                 if isinstance(item, dict) and str(item.get("filename", "")).lower().endswith(extensions):
                     files.append(item)
-    return files
+    return sorted(files, key=lambda f: f.get("type", "output") != "output")
 
 
 def find_video_outputs(history_entry: dict[str, Any]) -> list[dict[str, str]]:
@@ -125,12 +129,14 @@ class ComfyUIClient:
         return dest
 
     async def upload_image(self, path: Path, subfolder: str) -> str:
-        """Uploads an input image (POST /upload/image) and returns the value for a LoadImage node."""
-        files = {"image": (path.name, path.read_bytes(), "image/png")}
+        """Uploads an input file (POST /upload/image, also used for videos) and returns the value for a
+        LoadImage / LoadVideo node."""
+        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        files = {"image": (path.name, path.read_bytes(), media_type)}
         data = {"type": "input", "subfolder": subfolder, "overwrite": "true"}
         r = await self._http.post(f"{self.base_url}/upload/image", files=files, data=data)
         if r.status_code != 200:
-            raise ComfyUIError(f"ComfyUI rejected the image upload ({r.status_code}): {r.text[:500]}")
+            raise ComfyUIError(f"ComfyUI rejected the upload of {path.name} ({r.status_code}): {r.text[:500]}")
         body = r.json()
         return f"{body['subfolder']}/{body['name']}" if body.get("subfolder") else body["name"]
 
@@ -220,13 +226,17 @@ class ComfyUIPool:
         on_submitted: SubmittedCallback | None = None,
         start_image: Path | None = None,
         upload_subfolder: str = "aivideo",
+        width: int | None = None,
+        height: int | None = None,
     ) -> Path:
-        """Text-to-video, or image-to-video from start_image (a keyframe) when given."""
+        """Text-to-video, or image-to-video from start_image (a keyframe) when given.
+
+        width/height default to the model's native landscape size (vertical videos pass it swapped)."""
         params = {
             "prompt": prompt,
             "negative_prompt": model.negative_prompt,
-            "width": model.width,
-            "height": model.height,
+            "width": width or model.width,
+            "height": height or model.height,
             "length": model.frames,
             "fps": float(model.fps),
             "filename_prefix": filename_prefix,
@@ -273,6 +283,24 @@ class ComfyUIPool:
         return await self._render(MUSIC_WORKFLOW, params, seed, dest, timeout, retries, resume, on_submitted,
                                   AUDIO_EXTENSIONS, None, "aivideo", "Music")
 
+    async def upscale_video(
+        self,
+        source: Path,
+        scale: float,
+        seed: int,
+        dest: Path,
+        filename_prefix: str,
+        timeout: float,
+        retries: int,
+        resume: dict[str, str] | None = None,
+        on_submitted: SubmittedCallback | None = None,
+        upload_subfolder: str = "aivideo",
+    ) -> Path:
+        """Upscales a clip by `scale` with SeedVR2, keeping its frames, fps and audio."""
+        params = {"scale": float(scale), "filename_prefix": filename_prefix}
+        return await self._render(UPSCALE_WORKFLOW, params, seed, dest, timeout, retries, resume, on_submitted,
+                                  VIDEO_EXTENSIONS, source, upload_subfolder, "SeedVR2 upscale", input_key="video")
+
     async def _render(
         self,
         template_path: Path,
@@ -287,6 +315,7 @@ class ComfyUIPool:
         input_image: Path | None,
         upload_subfolder: str,
         label: str,
+        input_key: str = "image",
     ) -> Path:
         # A previous run of the orchestrator may have submitted this render already: reattach to it
         # instead of paying for the same GPU work twice.
@@ -307,11 +336,12 @@ class ComfyUIPool:
                 try:
                     if input_image is not None:
                         # Every server has its own input folder: upload to the one that renders this attempt.
-                        attempt_params["image"] = await client.upload_image(input_image, upload_subfolder)
+                        attempt_params[input_key] = await client.upload_image(input_image, upload_subfolder)
                     workflow = fill_workflow(template, attempt_params)
                     return await client.generate(workflow, dest, timeout, on_submitted, extensions)
                 except (ComfyUIError, httpx.HTTPError) as e:
-                    last_error = e
+                    # Some httpx errors (timeouts, dropped connections) have an empty message: keep the type.
+                    last_error = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
                     log.warning("%s %s failed on %s (attempt %d): %s", label, dest.name, client.base_url,
-                                attempt + 1, e)
+                                attempt + 1, last_error)
         raise ComfyUIError(f"{label} {dest.name} failed after {retries + 1} attempts: {last_error}")

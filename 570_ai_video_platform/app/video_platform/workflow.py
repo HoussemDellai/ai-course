@@ -1,13 +1,16 @@
 """Video production pipeline as a Microsoft Agent Framework workflow.
 
-    EnhancePrompt -> PlanStoryboard -> GenerateKeyframes -> GenerateClips -> Narrate -> GenerateMusic -> Assemble
+    EnhancePrompt -> PlanStoryboard -> GenerateKeyframes -> GenerateClips -> ProcessShots -> Narrate
+        -> GenerateMusic -> Assemble
 
 The creative steps are LLM agents (gpt-6-astra in Foundry); the heavy steps are deterministic executors
 calling ComfyUI, Azure AI Speech and ffmpeg. When the user uploads a reference photo, the agents see it,
 every shot gets a keyframe redrawn from the photo (Qwen-Image-Edit) and the clips are rendered image-to-video
 from those keyframes; otherwise GenerateKeyframes is skipped and the clips are text-to-video.
+Clips render natively at about 720p in the chosen orientation; ProcessShots brings them to the output resolution
+(ffmpeg, or SeedVR2 on the GPU for 1080p and 4K).
 Every step persists its artifacts so a job can resume after a restart without redoing finished work
-(LLM calls, keyframes, clips or narration).
+(LLM calls, keyframes, clips, upscaled shots or narration), and so the UI can preview the intermediate videos.
 """
 
 from __future__ import annotations
@@ -35,7 +38,9 @@ from .schemas import (
 )
 from .speech import Narrator, SpeechError
 from .storage import ArtifactStore, read_json, write_json
-from .video_models import KEYFRAME_MODEL_NAME, MUSIC_MODEL_NAME, VideoModel, get_video_model
+from .video_models import (
+    KEYFRAME_MODEL_NAME, MUSIC_MODEL_NAME, UPSCALE_MODEL_NAME, VideoModel, get_video_model, output_size,
+)
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +77,7 @@ class VideoJob:
     reference: Path | None = None  # local copy of the uploaded photo
     keyframes: list[Path] = field(default_factory=list)
     clips: list[Path] = field(default_factory=list)
+    processed: list[Path] = field(default_factory=list)  # clips scaled, padded and timed to the output format
     narrations: list[Path | None] = field(default_factory=list)
     music: list[Path | None] = field(default_factory=list)
 
@@ -80,8 +86,35 @@ class VideoJob:
         """ComfyUI input subfolder for this job's images."""
         return f"aivideo/{self.job_id}"
 
+    @property
+    def render_size(self) -> tuple[int, int]:
+        """(width, height) the video model renders at, in the requested orientation."""
+        return self.model.render_size(self.request.orientation)
+
+    @property
+    def output_size(self) -> tuple[int, int]:
+        """(width, height) of the final video."""
+        return output_size(self.request.orientation, self.request.resolution)
+
+    @property
+    def seedvr2(self) -> bool:
+        return self.request.upscaler == "seedvr2"
+
     def clip_budget(self, fps: int) -> float:
         return math.floor(self.model.clip_seconds * fps) / fps
+
+
+def naturalistic_manifest(job: VideoJob, settings: Settings) -> dict:
+    """Inputs that the naturalistic visual and narration artifacts depend on."""
+    return {
+        # Music is mixed last and doesn't change the visual or narration artifacts. The output format is in
+        # "output", so jobs created before it was selectable (1280x720) keep the same fingerprint.
+        "version": 1,
+        "request": job.request.model_dump(exclude={"music", "orientation", "resolution", "upscaler"}),
+        "model": vars(job.model), "voice": settings.tts_voice,
+        "output": [*job.output_size, settings.output_fps],
+        "ambient_volume": settings.ambient_audio_volume,
+    }
 
 
 async def require_manifest(d: PipelineDeps, job: VideoJob, name: str, inputs: object) -> None:
@@ -117,6 +150,24 @@ def keyframe_name(i: int) -> str:
 
 def keyframe_pending_name(i: int) -> str:
     return f"keyframes/shot_{i:03d}.pending.json"
+
+
+def upscaled_name(i: int) -> str:
+    """SeedVR2 output of a shot, before it is padded and timed to the output format."""
+    return f"upscaled/shot_{i:03d}.mp4"
+
+
+def upscale_pending_name(i: int) -> str:
+    return f"upscaled/shot_{i:03d}.pending.json"
+
+
+def processed_name(i: int) -> str:
+    return f"processed/shot_{i:03d}.mp4"
+
+
+def scene_name(i: int, mix: str = "") -> str:
+    """Assembled scene: '' = concatenated shots, 'voice' = + narration, 'music' = + music."""
+    return f"scenes/scene_{i:03d}{'_' + mix if mix else ''}.mp4"
 
 
 def narration_name(i: int) -> str:
@@ -200,13 +251,7 @@ class EnhancePromptExecutor(Executor):
                 if (await read_json(d.store, job.job_id, "naturalistic.json") is None
                         and await d.store.exists(job.job_id, "brief.json")):
                     raise ValueError("Legacy artifacts cannot be reused in naturalistic mode; create a new job")
-                await require_manifest(d, job, "naturalistic.json", {
-                    # Music is mixed last and doesn't change the visual or narration artifacts.
-                    "version": 1, "request": job.request.model_dump(exclude={"music"}),
-                    "model": vars(job.model), "voice": d.settings.tts_voice,
-                    "output": [d.settings.output_width, d.settings.output_height, d.settings.output_fps],
-                    "ambient_volume": d.settings.ambient_audio_volume,
-                })
+                await require_manifest(d, job, "naturalistic.json", naturalistic_manifest(job, d.settings))
             saved = await read_json(d.store, job.job_id, "brief.json")
             if saved:
                 job.brief = CreativeBrief.model_validate(saved)
@@ -266,7 +311,8 @@ class PlanStoryboardExecutor(Executor):
                                                          neighbors="\n".join(
                                                              s.model_dump_json() for n, s in enumerate(outline.scenes)
                                                              if abs(n - i) == 1
-                                                         ) if job.request.naturalistic else "")
+                                                         ) if job.request.naturalistic else "",
+                                                         vertical=job.request.orientation == "vertical")
                         agent.set(summary=f"{scene.title} · {len(shots)} prompts")
                         return shots
 
@@ -344,8 +390,8 @@ class GenerateKeyframesExecutor(Executor):
                         reference=reference,
                         prompt=prompt,
                         seed=job.seed + i,
-                        width=job.model.width,
-                        height=job.model.height,
+                        width=job.render_size[0],
+                        height=job.render_size[1],
                         dest=local,
                         filename_prefix=f"aivideo/{job.job_id}/keyframe_{i:03d}",
                         timeout=d.settings.clip_timeout_seconds,
@@ -384,7 +430,8 @@ class GenerateClipsExecutor(Executor):
         lock = asyncio.Lock()
 
         async with ops.op(OpKind.step, "Generate clips", step=self.id, model=job.model.display_name,
-                          servers=d.comfy.size, mode="image-to-video" if job.keyframes else "text-to-video") as step:
+                          servers=d.comfy.size, mode="image-to-video" if job.keyframes else "text-to-video",
+                          resolution="x".join(map(str, job.render_size))) as step:
             step.progress(0, len(shots))
             await d.progress(job.job_id, JobStatus.generating)
 
@@ -411,8 +458,11 @@ class GenerateClipsExecutor(Executor):
                             on_submitted=make_submit_recorder(d, job, op, pending_name(i)),
                             start_image=start_image,
                             upload_subfolder=job.upload_subfolder,
+                            width=job.render_size[0],
+                            height=job.render_size[1],
                         )
                         await d.store.upload(job.job_id, clip_name(i), local)
+                    op.update(artifact=clip_name(i))
                 async with lock:
                     done += 1
                     step.progress(done, len(shots))
@@ -426,6 +476,103 @@ class GenerateClipsExecutor(Executor):
             else:
                 step.set(summary=f"{len(shots)} clips" + (f" · {reused} reused" if reused else ""))
         await ctx.send_message(job)
+
+
+class ProcessShotsExecutor(Executor):
+    """Brings every generated shot to the output format: SeedVR2 upscaling on the GPU when chosen, then ffmpeg
+    (lanczos scale, pad, fps, audio, naturalistic duration). The generated shots are kept unchanged."""
+
+    def __init__(self, deps: PipelineDeps):
+        super().__init__(id="process_shots")
+        self.deps = deps
+
+    @handler
+    async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
+        assert job.storyboard is not None
+        d = self.deps
+        s = d.settings
+        ops = d.ops(job.job_id)
+        shots = job.storyboard.shots
+        scene_titles = [scene.title for scene in job.storyboard.scenes for _ in scene.shots]
+        width, height = job.output_size
+        upscaler = UPSCALE_MODEL_NAME if job.seedvr2 else "ffmpeg"
+        done = reused = 0
+        lock = asyncio.Lock()
+        encoders = asyncio.Semaphore(s.ffmpeg_concurrency)  # a 10 min video has ~120 clips
+
+        async with ops.op(OpKind.step, "Process shots", step=self.id, resolution=f"{width}x{height}",
+                          fps=s.output_fps, upscaler=upscaler,
+                          concurrency=s.ffmpeg_concurrency) as step:
+            step.progress(0, len(shots))
+            await d.progress(job.job_id, JobStatus.processing)
+
+            async def one(i: int, clip: Path) -> Path:
+                nonlocal done, reused
+                local = job.work_dir / processed_name(i)
+                kind = OpKind.upscale if job.seedvr2 else OpKind.ffmpeg
+                async with ops.op(kind, f"Shot {i + 1}/{len(shots)}", summary=scene_titles[i], queued=job.seedvr2,
+                                  shot=i, source=clip_name(i)) as op:
+                    if local.exists() or await d.store.download(job.job_id, processed_name(i), local):
+                        op.reuse()
+                        reused += 1
+                    else:
+                        source = await self._upscale(job, i, clip, op) if job.seedvr2 else clip
+                        op.start()
+                        async with encoders:
+                            await media.normalize_clip(
+                                source, local, width, height, s.output_fps,
+                                keep_audio=job.model.has_audio, audio_volume=s.ambient_audio_volume,
+                                naturalistic=job.request.naturalistic,
+                                target_duration=job.clip_budget(s.output_fps) if job.request.naturalistic else None,
+                            )
+                        await d.store.upload(job.job_id, processed_name(i), local)
+                    op.update(artifact=processed_name(i))
+                async with lock:
+                    done += 1
+                    step.progress(done, len(shots))
+                return local
+
+            job.processed = await gather_all([one(i, clip) for i, clip in enumerate(job.clips)])
+            summary = f"{len(shots)} shots · {width}x{height} · {upscaler}"
+            if reused == len(shots):
+                step.reuse(summary)
+            else:
+                step.set(summary=summary + (f" · {reused} reused" if reused else ""))
+        await ctx.send_message(job)
+
+    async def _upscale(self, job: VideoJob, i: int, clip: Path, op) -> Path:
+        """SeedVR2 output of shot i (rendered once, then kept in the store so a restart reuses it)."""
+        d = self.deps
+        local = job.work_dir / upscaled_name(i)
+        if local.exists() or await d.store.download(job.job_id, upscaled_name(i), local):
+            op.log("Reusing the SeedVR2 output of a previous run")
+            return local
+        clip_width, clip_height = await media.video_size(clip)
+        width, height = job.output_size
+        scale = media.fit_scale(clip_width, clip_height, width, height)
+        op.update(model=UPSCALE_MODEL_NAME, scale=round(scale, 3), seed=job.seed + 20_000 + i)
+        try:
+            await d.comfy.upscale_video(
+                source=clip,
+                scale=scale,
+                seed=job.seed + 20_000 + i,
+                dest=local,
+                filename_prefix=f"aivideo/{job.job_id}/upscaled_{i:03d}",
+                timeout=d.settings.clip_timeout_seconds,
+                retries=d.settings.clip_retries,
+                resume=await pending_resume(d, job, op, upscale_pending_name(i)),
+                on_submitted=make_submit_recorder(d, job, op, upscale_pending_name(i)),
+                upload_subfolder=job.upload_subfolder,
+            )
+        except Exception as e:
+            # Never fall back to ffmpeg silently: the user asked for SeedVR2.
+            raise UpscaleError(f"SeedVR2 upscaling of shot {i + 1} failed: {e}") from e
+        await d.store.upload(job.job_id, upscaled_name(i), local)
+        return local
+
+
+class UpscaleError(RuntimeError):
+    pass
 
 
 class NarrateExecutor(Executor):
@@ -609,51 +756,39 @@ class AssembleExecutor(Executor):
         s = d.settings
         ops = d.ops(job.job_id)
         scenes = job.storyboard.scenes
+        width, height = job.output_size
         async with ops.op(OpKind.step, "Assemble video", step=self.id,
-                          resolution=f"{s.output_width}x{s.output_height}", fps=s.output_fps) as step:
+                          resolution=f"{width}x{height}", fps=s.output_fps) as step:
             await d.progress(job.job_id, JobStatus.assembling)
-            work = job.work_dir / "assembly"
-            encoders = asyncio.Semaphore(s.ffmpeg_concurrency)  # a 10 min video has ~120 clips
-
-            async with ops.op(OpKind.ffmpeg, f"Normalize {len(job.clips)} clips",
-                              summary=f"{s.output_width}x{s.output_height} @ {s.output_fps} fps",
-                              concurrency=s.ffmpeg_concurrency) as norm:
-                norm.progress(0, len(job.clips))
-                normalized_count = 0
-
-                async def normalize(i: int, clip: Path) -> Path:
-                    nonlocal normalized_count
-                    async with encoders:
-                        out = await media.normalize_clip(
-                            clip, work / f"norm_{i:03d}.mp4", s.output_width, s.output_height, s.output_fps,
-                            keep_audio=job.model.has_audio, audio_volume=s.ambient_audio_volume,
-                            naturalistic=job.request.naturalistic,
-                            target_duration=job.clip_budget(s.output_fps) if job.request.naturalistic else None,
-                        )
-                    normalized_count += 1
-                    norm.progress(normalized_count, len(job.clips))
-                    return out
-
-                normalized = await gather_all([normalize(i, clip) for i, clip in enumerate(job.clips)])
 
             scene_files: list[Path] = []
             index = 0
             for i, scene in enumerate(scenes):
-                parts = normalized[index : index + len(scene.shots)]
+                parts = job.processed[index : index + len(scene.shots)]
                 index += len(scene.shots)
                 narration = job.narrations[i] if i < len(job.narrations) else None
                 music = job.music[i] if i < len(job.music) else None
-                title = (f"Scene {i + 1}/{len(scenes)}: concat {len(parts)} clips"
+                title = (f"Scene {i + 1}/{len(scenes)}: concat {len(parts)} shots"
                          + (" + mix narration" if narration else "") + (" + mix music" if music else ""))
-                async with ops.op(OpKind.ffmpeg, title, summary=scene.title):
-                    raw = await media.concat(list(parts), work / f"scene_{i:03d}_raw.mp4",
+                # Every stage is kept in the store, so the UI can preview it after the work dir is deleted.
+                async with ops.op(OpKind.ffmpeg, title, summary=scene.title, scene=i) as op:
+                    raw = await media.concat(list(parts), job.work_dir / scene_name(i),
                                              exact=job.request.naturalistic)
-                    scene_file = await media.mix_narration(
-                        raw, narration, work / f"scene_{i:03d}_voice.mp4", naturalistic=job.request.naturalistic,
-                    )
+                    await d.store.upload(job.job_id, scene_name(i), raw)
+                    op.update(artifact=scene_name(i))
+                    scene_file = raw
+                    if narration is not None:
+                        scene_file = await media.mix_narration(
+                            raw, narration, job.work_dir / scene_name(i, "voice"),
+                            naturalistic=job.request.naturalistic,
+                        )
+                        await d.store.upload(job.job_id, scene_name(i, "voice"), scene_file)
+                        op.update(voice_artifact=scene_name(i, "voice"))
                     if music is not None:
-                        scene_file = await media.mix_music(scene_file, music, work / f"scene_{i:03d}_music.mp4",
+                        scene_file = await media.mix_music(scene_file, music, job.work_dir / scene_name(i, "music"),
                                                            volume=s.music_volume, fade=s.music_fade_seconds)
+                        await d.store.upload(job.job_id, scene_name(i, "music"), scene_file)
+                        op.update(music_artifact=scene_name(i, "music"))
                     scene_files.append(scene_file)
 
             async with ops.op(OpKind.ffmpeg, f"Concatenate {len(scene_files)} scenes") as op:
@@ -661,9 +796,10 @@ class AssembleExecutor(Executor):
                 duration, _ = await media.probe(final)
                 op.set(summary=format_seconds(duration))
             async with ops.op(OpKind.upload, f"Upload {FINAL_VIDEO}",
-                              summary=f"{final.stat().st_size / 1e6:.1f} MB"):
+                              summary=f"{final.stat().st_size / 1e6:.1f} MB") as op:
                 await d.store.upload(job.job_id, FINAL_VIDEO, final)
-            step.set(summary=f"{format_seconds(duration)} video")
+                op.update(artifact=FINAL_VIDEO)
+            step.set(summary=f"{format_seconds(duration)} video · {width}x{height}")
         await ctx.yield_output(
             VideoResult(job_id=job.job_id, title=job.storyboard.brief.title, blob_name=FINAL_VIDEO,
                         duration_seconds=duration)
@@ -676,6 +812,7 @@ def build_video_workflow(deps: PipelineDeps) -> Workflow:
     prepare_narration = NarrateExecutor(deps, early=True)
     keyframes = GenerateKeyframesExecutor(deps)
     clips = GenerateClipsExecutor(deps)
+    process = ProcessShotsExecutor(deps)
     narrate = NarrateExecutor(deps)
     music = GenerateMusicExecutor(deps)
     assemble = AssembleExecutor(deps)
@@ -685,7 +822,8 @@ def build_video_workflow(deps: PipelineDeps) -> Workflow:
         .add_edge(plan, prepare_narration)
         .add_edge(prepare_narration, keyframes)
         .add_edge(keyframes, clips)
-        .add_edge(clips, narrate)
+        .add_edge(clips, process)
+        .add_edge(process, narrate)
         .add_edge(narrate, music)
         .add_edge(music, assemble)
         .build()

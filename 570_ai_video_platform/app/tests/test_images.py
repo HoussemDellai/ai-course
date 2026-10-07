@@ -1,9 +1,11 @@
+import os
 from io import BytesIO
 
 import pytest
 from PIL import Image
 
 from fakes import make_png
+from video_platform.config import Settings
 from video_platform.images import MAX_SIDE, ImageError, ImageTooLarge, UnsupportedImage, sanitize_image
 
 MB = 1024 * 1024
@@ -44,6 +46,15 @@ def test_transparency_is_flattened_on_white():
 def test_large_photos_are_downscaled():
     im = decode(sanitize_image(make_png(4000, 3000, fmt="JPEG"), 10 * MB))
     assert max(im.size) == MAX_SIDE and im.size == (MAX_SIDE, 1536)
+
+
+def test_photos_over_10_mb_are_accepted_by_default():
+    src = BytesIO()
+    Image.frombytes("RGB", (2600, 2000), os.urandom(2600 * 2000 * 3)).save(src, format="PNG")  # noise: no compression
+    data = src.getvalue()
+    assert len(data) > 14 * MB
+    im = decode(sanitize_image(data, Settings().max_image_bytes))
+    assert im.size == (MAX_SIDE, 1575)
 
 
 def test_rejections():

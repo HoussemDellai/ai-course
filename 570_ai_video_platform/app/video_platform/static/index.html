@@ -134,6 +134,7 @@
     .attachment .att-remove:hover { color: var(--fg); background: var(--hover); }
     .ref-photo { display: block; max-width: 280px; max-height: 220px; margin-top: 10px; border-radius: 8px; border: 1px solid var(--border); }
     .thumb { display: block; width: 100%; max-width: 360px; border-radius: 6px; border: 1px solid var(--border-muted); background: var(--bg-inset); aspect-ratio: 16 / 9; object-fit: cover; }
+    .thumb.vertical { max-width: 180px; aspect-ratio: 9 / 16; }
 
     /* Session view */
     .session { max-width: 900px; margin: 0 auto; padding: 24px 24px 64px; }
@@ -201,6 +202,22 @@
     .player { margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #000; }
     .player video { display: block; width: 100%; max-height: 70vh; }
     .player-bar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--border); }
+    .pill.off { opacity: .5; cursor: default; }
+
+    /* Intermediate videos: appended as they become available, never re-rendered (playback is never interrupted) */
+    .outputs { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .outputs:empty { display: none; }
+    .output-group { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+    .output-group > summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; list-style: none; }
+    .output-group > summary::-webkit-details-marker { display: none; }
+    .output-group > summary::before { content: "▸"; color: var(--muted); transition: transform .12s; }
+    .output-group[open] > summary::before { transform: rotate(90deg); }
+    .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; padding: 0 12px 12px; }
+    .outputs.vertical .media-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+    .media-card { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .media-card video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 6px; border: 1px solid var(--border-muted); }
+    .outputs.vertical .media-card video { aspect-ratio: 9 / 16; }
+    .media-card figcaption { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     @media (max-width: 768px) {
       .layout { flex-direction: column; overflow-y: auto; }
@@ -261,7 +278,7 @@
           <div class="attachments" id="attachments"></div>
           <textarea id="prompt" required minlength="3" maxlength="4000" placeholder="Describe your video, e.g. A documentary about a lighthouse keeper's last winter on a remote Breton island. Attach a photo to build the video around a person or a scene."></textarea>
           <div class="composer-bar">
-            <label class="pill" id="attachBtn" title="Attach a photo of a person or a scene (PNG, JPEG or WebP, up to 10 MB). You can also drop or paste it." aria-label="Attach a photo">
+            <label class="pill" id="attachBtn" title="Attach a photo of a person or a scene (PNG, JPEG or WebP, up to 50 MB). You can also drop or paste it." aria-label="Attach a photo">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6" r="1.25"/><path d="m2 12 4-4 3 3 2-2 3.5 3.5"/></svg>
               <input id="image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
             </label>
@@ -272,6 +289,26 @@
             <label class="pill" title="Duration in minutes">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
               <input id="duration" type="number" min="0.25" max="10" step="0.25" value="5" aria-label="Duration in minutes"> min
+            </label>
+            <label class="pill" title="Orientation: horizontal 16:9, or vertical 9:16 for phones. The clips are rendered in this orientation">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/></svg>
+              <select id="orientation" aria-label="Orientation">
+                <option value="horizontal" selected>Horizontal 16:9</option>
+                <option value="vertical">Vertical 9:16</option>
+              </select>
+            </label>
+            <label class="pill" title="Output resolution. The clips are rendered natively at about 720p; 1080p and 4K are upscaled">
+              <select id="resolution" aria-label="Output resolution">
+                <option value="720p" selected>720p</option>
+                <option value="1080p">1080p</option>
+                <option value="4k">4K</option>
+              </select>
+            </label>
+            <label class="pill" id="upscalerPill" title="Upscaler for 1080p and 4K: FFmpeg (lanczos, fast) or SeedVR2 7B on the GPU (restores detail, slower). Not used at 720p">
+              <select id="upscaler" aria-label="Upscaler">
+                <option value="ffmpeg" selected>FFmpeg</option>
+                <option value="seedvr2">SeedVR2</option>
+              </select>
             </label>
             <label class="pill" title="Voice-over narration">
               <input id="narration" type="checkbox" checked> Narration
@@ -321,6 +358,7 @@
             <div class="msg-col">
               <div class="msg-title" id="agentTitle"></div>
               <div id="timeline"></div>
+              <div class="outputs" id="outputs"></div>
               <div id="outcome"></div>
             </div>
           </div>
@@ -339,26 +377,35 @@
 
     const STEPS = [
       ["enhance_prompt", "Enhance prompt"], ["plan_storyboard", "Plan storyboard"], ["generate_keyframes", "Generate keyframes"],
-      ["generate_clips", "Generate clips"], ["narrate", "Narrate"], ["generate_music", "Generate music"],
-      ["assemble", "Assemble video"],
+      ["generate_clips", "Generate clips"], ["process_shots", "Process shots"], ["narrate", "Narrate"],
+      ["generate_music", "Generate music"], ["assemble", "Assemble video"],
     ];
     const STATUS_TEXT = {
       queued: "Queued", enhancing: "Enhancing prompt", planning: "Planning storyboard", keyframing: "Generating keyframes",
-      generating: "Generating clips", narrating: "Narrating", scoring: "Composing music", assembling: "Assembling",
-      completed: "Completed", failed: "Failed",
+      generating: "Generating clips", processing: "Processing shots", narrating: "Narrating", scoring: "Composing music",
+      assembling: "Assembling", completed: "Completed", failed: "Failed",
     };
     const AGENT_TEXT = {
       queued: "is waiting for a free worker", enhancing: "is writing the creative brief", planning: "is planning the storyboard",
       keyframing: "is drawing the keyframes from your photo",
-      generating: "is generating the clips", narrating: "is recording the narration",
+      generating: "is generating the clips", processing: "is bringing the shots to the output resolution",
+      narrating: "is recording the narration",
       scoring: "is composing the background music", assembling: "is assembling the video",
       completed: "finished the video", failed: "stopped because of an error",
     };
-    const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", narration: "Speech", music: "ComfyUI", ffmpeg: "ffmpeg", upload: "Storage" };
+    const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", upscale: "ComfyUI", narration: "Speech", music: "ComfyUI", ffmpeg: "ffmpeg", upload: "Storage" };
     const DETAIL_LABEL = { agent: "Result", keyframe: "Edit prompt", clip: "Prompt", narration: "Narration", music: "Caption" };
-    const HIDDEN_ATTRS = new Set(["step", "shot", "keyframe", "scene"]);
+    const HIDDEN_ATTRS = new Set(["step", "shot", "keyframe", "scene", "source", "artifact", "voice_artifact", "music_artifact"]);
+    const RESOLUTION_SIZES = { "720p": [1280, 720], "1080p": [1920, 1080], "4k": [3840, 2160] };
+    const RESOLUTION_TEXT = { "720p": "720p", "1080p": "1080p", "4k": "4K" };
+    const UPSCALER_TEXT = { ffmpeg: "FFmpeg", seedvr2: "SeedVR2" };
+    // Outputs panel groups, in pipeline order (the final video is the player below them).
+    const OUTPUT_GROUPS = [
+      ["clips", "Generated shots"], ["processed", "Processed shots"], ["scenes", "Assembled scenes"],
+      ["mixes", "Narration and music mixes"],
+    ];
     const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
-    const MAX_IMAGE_MB = 10;
+    let maxImageMb = 50;  // replaced by the server's MAX_IMAGE_MB in loadModels()
 
     const ICONS = {
       succeeded: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m4.8 8.2 2.1 2.1 4.3-4.6" fill="none" stroke="#0d1117" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
@@ -399,6 +446,7 @@
     let jobs = [], models = [];
     let cur = null;                 // { id, job, ops: Map }
     let source = null, pollTimer = null, renderQueued = false, outcomeKey = "", userMsgKey = "";
+    let outputs = new Map();        // artifact name -> { card, video, src } of the Outputs panel
     let photo = null, photoUrl = null;  // reference photo attached in the composer
     const toggled = new Map();      // op id / run id -> open, when the user expanded or collapsed it
 
@@ -517,6 +565,11 @@
 
     // ---------------------------------------------------------------- composer
     async function loadModels() {
+      api("/api/config").then(r => r.ok ? r.json() : null).then(c => {
+        if (!c) return;
+        maxImageMb = c.max_image_mb;
+        $("attachBtn").title = $("attachBtn").title.replace(/up to \d+ MB/, `up to ${maxImageMb} MB`);
+      }).catch(() => {});
       const r = await api("/api/models");
       if (!r.ok) return;
       models = await r.json();
@@ -525,9 +578,26 @@
     }
     function showLicense() {
       const m = models.find(m => m.key === $("model").value);
-      $("license").textContent = m ? `${m.resolution} · ${m.clip_seconds}s clips${m.native_audio ? " · native audio" : ""} · License: ${m.license}` : "";
+      const vertical = $("orientation").value === "vertical";
+      const resolution = $("resolution").value || "720p";
+      let [w, h] = RESOLUTION_SIZES[resolution] || RESOLUTION_SIZES["720p"];
+      if (vertical) [w, h] = [h, w];
+      const render = m ? (vertical ? m.vertical_resolution : m.resolution) : "";
+      const output = resolution === "720p" ? `${w}x${h}` : `upscaled to ${w}x${h} with ${UPSCALER_TEXT[$("upscaler").value] || "FFmpeg"}`;
+      $("license").textContent = m ? `${render} · ${output} · ${m.clip_seconds}s clips${m.native_audio ? " · native audio" : ""} · License: ${m.license}` : "";
     }
     $("model").onchange = showLicense;
+    function updateFormatControls() {
+      // 720p is the models' native size: there is nothing to upscale.
+      const native = ($("resolution").value || "720p") === "720p";
+      $("upscaler").disabled = native;
+      $("upscalerPill").classList.toggle("off", native);
+      showLicense();
+    }
+    $("orientation").onchange = showLicense;
+    $("resolution").onchange = updateFormatControls;
+    $("upscaler").onchange = showLicense;
+    updateFormatControls();
     function updateDeliveryControls() {
       $("deliveryControls").disabled = !$("naturalistic").checked || !$("narration").checked;
       $("voice").disabled = !$("narration").checked;
@@ -542,6 +612,9 @@
       $("send").disabled = true;
       try {
         const body = { prompt: $("prompt").value, duration_minutes: parseFloat($("duration").value), video_model: $("model").value || null, narration: $("narration").checked, naturalistic: $("naturalistic").checked, music: $("music").checked, voice: $("voice").value.trim() || null };
+        body.orientation = $("orientation").value || "horizontal";
+        body.resolution = $("resolution").value || "720p";
+        body.upscaler = body.resolution === "720p" ? "ffmpeg" : ($("upscaler").value || "ffmpeg");
         if (body.naturalistic && body.narration) {
           const pronunciations = $("pronunciations").value.split(/\r?\n/).filter(line => line.trim()).map(line => {
             const split = line.indexOf("=");
@@ -582,7 +655,7 @@
     // Reference photo: picker, drag & drop and paste.
     function setPhoto(file) {
       if (file && !IMAGE_TYPES.includes(file.type)) { alert("Use a PNG, JPEG or WebP photo."); file = null; }
-      else if (file && file.size > MAX_IMAGE_MB * 1024 * 1024) { alert(`The photo must be ${MAX_IMAGE_MB} MB or less.`); file = null; }
+      else if (file && file.size > maxImageMb * 1024 * 1024) { alert(`The photo must be ${maxImageMb} MB or less.`); file = null; }
       if (photoUrl) URL.revokeObjectURL(photoUrl);
       photo = file; photoUrl = file ? URL.createObjectURL(file) : null;
       $("image").value = "";
@@ -653,6 +726,7 @@
       stopWatching();
       cur = { id, job: jobs.find(j => j.id === id) || null, ops: new Map() };
       toggled.clear(); outcomeKey = ""; userMsgKey = "";
+      resetOutputs();
       $("composeView").hidden = true; $("jobView").hidden = false;
       $("main").scrollTop = 0;
       renderSidebar(); renderJob();
@@ -744,7 +818,7 @@
       if (open) {
         body = `<div class="op-body">
           ${attrs.length ? `<div class="chips">${attrs.map(([k, v]) => `<span class="chip" title="${esc(attrValue(k, v))}"><span class="k">${esc(k.replace(/_/g, " "))}</span>${esc(attrValue(k, v))}</span>`).join("")}</div>` : ""}
-          ${thumbShot != null ? `<div><div class="field-label">Keyframe</div><img class="thumb" loading="lazy" alt="Keyframe of shot ${esc(thumbShot + 1)}" src="/api/videos/${encodeURIComponent(cur.id)}/keyframes/${esc(thumbShot)}?key=${encodeURIComponent(key())}"></div>` : ""}
+          ${thumbShot != null ? `<div><div class="field-label">Keyframe</div><img class="thumb${cur.job && cur.job.request.orientation === "vertical" ? " vertical" : ""}" loading="lazy" alt="Keyframe of shot ${esc(thumbShot + 1)}" src="/api/videos/${encodeURIComponent(cur.id)}/keyframes/${esc(thumbShot)}?key=${encodeURIComponent(key())}"></div>` : ""}
           ${op.detail ? `<div><div class="field-label">${DETAIL_LABEL[op.kind] || "Details"}</div><div class="detail">${esc(op.detail)}</div></div>` : ""}
           ${op.error ? `<div class="op-error">${esc(op.error)}</div>` : ""}
           ${op.logs.length ? `<pre class="log">${op.logs.map(l => `<span class="ts">${esc(time(l.at))}</span> <span class="lvl-${esc(l.level)}">${esc(l.level.padEnd(7))}</span> ${esc(l.message)}`).join("\n")}</pre>` : ""}
@@ -778,6 +852,95 @@
       }
       return `<div class="timeline">${rows.join("")}</div>`;
     }
+    // ---------------------------------------------------------------- outputs panel
+    function formatText(request) {
+      const resolution = request.resolution || "720p";
+      const text = `${RESOLUTION_TEXT[resolution] || resolution} ${request.orientation === "vertical" ? "vertical" : "horizontal"}`;
+      return resolution === "720p" ? text : `${text} · ${UPSCALER_TEXT[request.upscaler] || request.upscaler}`;
+    }
+    // Videos only start loading when they scroll into view: a 10 min video has ~120 shots per group.
+    const lazyVideos = typeof IntersectionObserver === "function" ? new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { loadVideo(e.target); lazyVideos.unobserve(e.target); }
+    }, { rootMargin: "300px" }) : null;
+    function loadVideo(video) { if (video.dataset.src && video.getAttribute("src") !== video.dataset.src) video.src = video.dataset.src; }
+    function resetOutputs() {
+      for (const item of outputs.values()) if (lazyVideos) lazyVideos.unobserve(item.video);
+      outputs = new Map();
+      $("outputs").innerHTML = "";
+    }
+    function outputItems(ops) {
+      // An operation records the file it produced once it is stored; for files re-rendered by a later run, the
+      // latest operation wins (ops are in creation order).
+      const items = new Map();
+      for (const op of ops) {
+        for (const [attr, mix, rank] of [["artifact", "", 0], ["voice_artifact", "narration", 1], ["music_artifact", "music", 2]]) {
+          const name = op.attrs[attr];
+          if (typeof name !== "string" || name === "final.mp4") continue;
+          const group = mix ? "mixes" : name.split("/")[0];
+          if (!OUTPUT_GROUPS.some(([g]) => g === group)) continue;
+          const n = parseInt((name.match(/_(\d{3})/) || [])[1], 10) || 0;
+          const shot = group === "clips" || group === "processed";
+          items.set(name, { name, group, label: shot ? `Shot ${n + 1}` : `Scene ${n + 1}${mix ? ` · ${mix}` : ""}`,
+            title: op.summary || "", version: op.id, order: n * 3 + rank });
+        }
+      }
+      return items;
+    }
+    function outputGroup(job, key) {
+      const root = $("outputs");
+      let group = root.querySelector(`[data-group="${key}"]`);
+      if (group) return group;
+      group = document.createElement("details");
+      group.className = "output-group";
+      group.dataset.group = key;
+      // Long videos have many shots: their groups start collapsed so the scenes and the final video stay close.
+      group.open = !((key === "clips" || key === "processed") && (job.clips_total || 0) > 12);
+      const label = OUTPUT_GROUPS.find(([g]) => g === key)[1];
+      group.innerHTML = `<summary>${esc(label)} <span class="count muted"></span></summary><div class="media-grid"></div>`;
+      const index = OUTPUT_GROUPS.findIndex(([g]) => g === key);
+      const after = [...root.children].find(c => OUTPUT_GROUPS.findIndex(([g]) => g === c.dataset.group) > index);
+      root.insertBefore(group, after || null);
+      return group;
+    }
+    // Reconciled by file name, never re-rendered with innerHTML: a video that is playing keeps playing while the
+    // timeline above it updates live.
+    function renderOutputs(job, ops) {
+      $("outputs").classList.toggle("vertical", job.request.orientation === "vertical");
+      const enc = encodeURIComponent(job.id);
+      for (const item of outputItems(ops).values()) {
+        const src = `/api/videos/${enc}/media/${item.name}?v=${encodeURIComponent(item.version)}&key=${encodeURIComponent(key())}`;
+        const existing = outputs.get(item.name);
+        if (existing) {
+          // Re-rendered by a later run: switch to the new file, but never under a viewer who is watching it.
+          if (existing.src !== src && existing.video.paused) {
+            existing.src = existing.video.dataset.src = src;
+            if (existing.video.getAttribute("src")) existing.video.src = src;
+          }
+          continue;
+        }
+        const group = outputGroup(job, item.group);
+        const grid = group.querySelector(".media-grid");
+        const card = document.createElement("figure");
+        card.className = "media-card";
+        card.dataset.name = item.name;
+        card.dataset.order = item.order;
+        const video = document.createElement("video");
+        video.controls = true; video.preload = "metadata"; video.playsInline = true;
+        video.dataset.src = src;
+        video.setAttribute("aria-label", `${item.label}${item.title ? ` · ${item.title}` : ""}`);
+        const caption = document.createElement("figcaption");
+        caption.title = `${item.label}${item.title ? ` · ${item.title}` : ""} (${item.name})`;
+        caption.innerHTML = `${esc(item.label)}${item.title ? ` <span class="muted">· ${esc(item.title)}</span>` : ""}`;
+        card.append(video, caption);
+        // Shots finish out of order: keep the cards in shot / scene order.
+        const next = [...grid.children].find(c => Number(c.dataset.order) > item.order);
+        grid.insertBefore(card, next || null);
+        group.querySelector(".count").textContent = grid.children.length;
+        outputs.set(item.name, { card, video, src });
+        if (lazyVideos) lazyVideos.observe(video); else loadVideo(video);
+      }
+    }
+
     function renderJob() {
       if (!cur) return;
       const job = cur.job;
@@ -788,6 +951,7 @@
       if (!job) {
         $("jobHead").innerHTML = `<h2>Loading…</h2>`;
         $("userMsg").innerHTML = ""; userMsgKey = ""; $("agentTitle").innerHTML = ""; $("timeline").innerHTML = ""; $("outcome").innerHTML = "";
+        resetOutputs();
         return;
       }
       const statusClass = job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "queued" ? "queued" : "active";
@@ -797,6 +961,7 @@
         <div class="job-meta">
           <span class="label ${statusClass}">${statusClass === "active" ? `<span class="icon">${ICONS.running}</span>` : ""}${esc(STATUS_TEXT[job.status] || job.status)}</span>
           <span>${esc(model ? model.name : job.request.video_model)}</span>
+          <span>·</span><span>${esc(formatText(job.request))}</span>
           <span>·</span><span>${esc(job.request.duration_minutes)} min</span>
           ${job.duration_seconds ? `<span>·</span><span>${esc(fmtDur(job.duration_seconds))} rendered</span>` : ""}
           <span>·</span><span title="${esc(new Date(job.created_at).toLocaleString())}">${esc(ago(job.created_at))}</span>
@@ -814,6 +979,7 @@
           ${job.request.reference_image ? `<span class="chip"><span class="k">mode</span>photo to video</span>` : ""}
           ${job.request.naturalistic ? `<span class="chip"><span class="k">direction</span>naturalistic</span>` : ""}
           <span class="chip"><span class="k">model</span>${esc(job.request.video_model)}</span>
+          <span class="chip"><span class="k">format</span>${esc(formatText(job.request))}</span>
           <span class="chip"><span class="k">duration</span>${esc(job.request.duration_minutes)} min</span>
           <span class="chip"><span class="k">narration</span>${job.request.narration ? "on" : "off"}</span>
           ${job.request.music ? `<span class="chip"><span class="k">music</span>MiniMax-Music3</span>` : ""}
@@ -852,6 +1018,7 @@
       if (runs.length > 1) html += `<div class="run-label">Run ${latest}</div>`;
       html += renderRun(steps, children, placeholders);
       $("timeline").innerHTML = html;
+      renderOutputs(job, ops);
 
       // Outcome is only re-rendered when it changes, so the video player keeps playing.
       const k = `${job.id}|${job.status}|${job.error || ""}`;
