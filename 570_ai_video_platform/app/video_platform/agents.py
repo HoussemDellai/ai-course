@@ -13,8 +13,11 @@ from pydantic import BaseModel
 from .schemas import (
     CreativeBrief,
     KeyframeSceneShots,
+    MusicCue,
+    MusicPlan,
     NarrationRewrite,
     NaturalStoryOutline,
+    Scene,
     SceneOutline,
     SceneShots,
     Shot,
@@ -106,6 +109,20 @@ Across the scene, vary shot sizes and angles (establishing, medium, close-up, de
 consecutive shots flow naturally so the edit feels continuous. Write everything in English.
 """
 
+MUSIC_DIRECTOR_INSTRUCTIONS = """\
+You are a film composer writing the background score of a narrated short film, one cue per scene.
+The music is rendered by MiniMax Music 3 and plays UNDER a voice-over, so it must support the narration, never
+compete with it: instrumental only, sparse, no busy lead melody in the voice's mid-range, gentle dynamics.
+1. Define one musical theme for the whole film (instrument palette, key family, tempo range) that fits the brief's
+   tone, setting and visual style. Every cue restates and varies this theme so the scenes sound like one score.
+2. Write exactly one caption per scene, in scene order, in English, in this three-part format:
+   "Global Metadata: <genre>, <BPM>, <key and scale>, <mood and how it evolves over the scene>, <production>.
+   Vocal Details: Instrumental only. No vocals, no singing, no humming, no choir, no spoken words.
+   Arrangement: <primary and secondary instruments>, <groove and percussion>, <textures and space>."
+   Follow each scene's emotion (calm, tension, wonder, resolution), and its duration: short scenes need a simple
+   idea, long scenes can build. Never mention real artists, songs or brands.
+"""
+
 
 class CreativeTeam(Protocol):
     async def enhance(self, prompt: str, duration_seconds: float, image: bytes | None = None) -> CreativeBrief: ...
@@ -119,6 +136,7 @@ class CreativeTeam(Protocol):
     async def shorten_narration(
         self, brief: CreativeBrief, text: str, measured_seconds: float, target_seconds: float,
     ) -> str: ...
+    async def score(self, brief: CreativeBrief, scenes: list[Scene], durations: list[float]) -> MusicPlan: ...
 
 
 async def _run_structured(agent: Agent, message: str | Message, output_type: type[T], attempts: int = 3) -> T:
@@ -225,6 +243,20 @@ class FoundryCreativeTeam:
             raise ValueError("Narration correction returned no spoken words")
         return cleaned
 
+    async def score(self, brief: CreativeBrief, scenes: list[Scene], durations: list[float]) -> MusicPlan:
+        agent = self._agent("music-director", MUSIC_DIRECTOR_INSTRUCTIONS)
+        listing = "\n".join(
+            f"{i + 1}. {s.title} ({d:.0f} s): {s.summary}\n   Narration: {s.narration or '(none)'}"
+            for i, (s, d) in enumerate(zip(scenes, durations))
+        )
+        message = (
+            f"Write exactly {len(scenes)} cues, one per scene.\n"
+            f"Brief: title {brief.title!r}, tone: {brief.tone}, setting: {brief.setting}, "
+            f"visual style: {brief.visual_style}, narration style: {brief.narration_style}.\n"
+            f"Scenes:\n{listing}"
+        )
+        return fit_music_cues(await _run_structured(agent, message, MusicPlan), len(scenes))
+
 
 def shots_for_duration(duration_seconds: float, clip_seconds: float) -> int:
     return max(1, math.ceil(duration_seconds / clip_seconds))
@@ -263,6 +295,34 @@ def fit_shot_count(shots: list[Shot], count: int) -> list[Shot]:
     while len(padded) < count:
         padded.append(shots[len(padded) % len(shots)])
     return padded
+
+
+INSTRUMENTAL_ONLY = "Vocal Details: Instrumental only. No vocals, no singing, no humming, no choir, no spoken words."
+
+
+def fit_music_cues(plan: MusicPlan, count: int) -> MusicPlan:
+    """Exactly one cue per scene, each one explicitly instrumental."""
+    cues = [c for c in plan.scenes if c.caption.strip()]
+    if not cues:
+        raise ValueError("The music director returned no cues")
+    while len(cues) < count:
+        cues.append(cues[len(cues) % len(cues)])
+    fitted = []
+    for cue in cues[:count]:
+        caption = cue.caption.strip()
+        if "instrumental only" not in caption.lower():
+            caption += "\n" + INSTRUMENTAL_ONLY
+        fitted.append(MusicCue(caption=caption))
+    return MusicPlan(theme=plan.theme, scenes=fitted)
+
+
+def music_lyrics(seconds: float) -> str:
+    """Section tags without words: Music 3 conditions the song structure on the lyrics, which keeps it instrumental."""
+    if seconds < 20:
+        return "[Instrumental]"
+    if seconds < 45:
+        return "[Intro]\n\n[Instrumental]\n\n[Outro]"
+    return "[Intro]\n\n[Instrumental]\n\n[Instrumental]\n\n[Outro]"
 
 
 NARRATOR_LABELS = {

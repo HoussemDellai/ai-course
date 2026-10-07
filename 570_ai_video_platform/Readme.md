@@ -17,12 +17,13 @@ Open-weight video models generate **~5 second clips**. A 5-10 minute video is th
 | 3 | `GenerateKeyframesExecutor` | Only with a photo (otherwise *skipped*). **Qwen-Image-Edit-2511** (4-step Lightning LoRA) redraws the photo into the first frame of every shot, at the video model's resolution. All keyframes are rendered before any clip, so ComfyUI loads each model once instead of swapping models for every shot. |
 | 4 | `GenerateClipsExecutor` | Sends each shot to ComfyUI through its HTTP API (`/upload/image`, `/prompt`, `/history`, `/view`) and spreads the work over every server in `COMFYUI_URLS`: **text-to-video**, or **image-to-video** from the shot's keyframe. Failed clips are retried with a new seed. |
 | 5 | `NarrateExecutor` | Azure AI Speech synthesizes each scene's voice-over, in the brief's language, using a multilingual neural voice. The narration is plain spoken text: screenplay-style speaker labels the LLM might add ("Narrator:", "Maya (V.O.):") are stripped so they are never read aloud. |
-| 6 | `AssembleExecutor` | ffmpeg normalizes the clips to 1280x720 at 24 fps, concatenates each scene, and mixes in the narration (the LTX-2 / LTX-2.5 audio stays underneath as ambience at 25% volume). If the narration is longer than the scene, the last frame is held. The scenes are then joined into `final.mp4`. |
+| 6 | `GenerateMusicExecutor` | Only with `music` (otherwise *skipped*). The **music-director agent** writes one instrumental cue per scene around a shared theme, and **MiniMax Music 3** renders each cue on ComfyUI, sized to the scene's length. See [Background music](#background-music). |
+| 7 | `AssembleExecutor` | ffmpeg normalizes the clips to 1280x720 at 24 fps, concatenates each scene, and mixes in the narration (the LTX-2 / LTX-2.5 audio stays underneath as ambience at 25% volume) and the scene's music. If the narration is longer than the scene, the last frame is held. The scenes are then joined into `final.mp4`. |
 
 This is the default pipeline. The opt-in **naturalistic mode** prepares and measures narration
 immediately after the storyboard, before keyframes or clips, and never extends scenes with frozen frames.
 
-The creative steps use LLM agents. The heavy steps are deterministic executors: an LLM tool-calling loop that runs for hours and 120 times would be slow, expensive and fragile. **Each step saves its output** (`input/reference.png`, `brief.json`, `storyboard.json`, `keyframes/shot_NNN.png`, `clips/shot_NNN.mp4`, `narration/scene_NNN.wav`) to Blob Storage. A job interrupted by a restart, deployment or failure resumes where it stopped, without re-rendering finished keyframes or clips. The `prompt_id` of every keyframe and clip sent to ComfyUI is saved too, so after a restart the orchestrator reattaches to a render that is still running instead of starting it again. Each running job holds a renewable **Blob lease**, so even when Container Apps briefly runs two replicas during a rollout, a job never runs twice.
+The creative steps use LLM agents. The heavy steps are deterministic executors: an LLM tool-calling loop that runs for hours and 120 times would be slow, expensive and fragile. **Each step saves its output** (`input/reference.png`, `brief.json`, `storyboard.json`, `keyframes/shot_NNN.png`, `clips/shot_NNN.mp4`, `narration/scene_NNN.wav`, `music.json`, `music/scene_NNN.flac`) to Blob Storage. A job interrupted by a restart, deployment or failure resumes where it stopped, without re-rendering finished keyframes, clips or music. The `prompt_id` of every keyframe, clip and music cue sent to ComfyUI is saved too, so after a restart the orchestrator reattaches to a render that is still running instead of starting it again. Each running job holds a renewable **Blob lease**, so even when Container Apps briefly runs two replicas during a rollout, a job never runs twice.
 
 ### Videos from a photo
 
@@ -56,7 +57,7 @@ It is off by default; existing jobs keep their original behavior.
   Exhaustion fails the job visibly; create a new job with a shorter script or longer scenes.
 - **Audio:** consistent narration loudness (ffmpeg loudnorm target -18 LUFS), speech-driven
   ambience ducking, peak limiting with headroom, and short ambience fades at clip boundaries.
-  Silent models still receive silence under narration; no new audio-generation model is used.
+  Silent models still receive silence under narration (unless [background music](#background-music) is enabled).
   Visual cuts remain hard cuts. Extra encoding is needed to avoid accumulated AAC timestamp gaps.
 - **Duration:** each clip is trimmed down to a whole number of output frames before timing
   narration. A clip shorter than its planned duration fails rather than being padded.
@@ -110,6 +111,19 @@ video model, automatic visual scoring, selective retake UI, or keyframe approval
 release. These remain later features. Automated fixture tests check timing and mixing, not
 photorealism or whether narration edits preserve every nuance.
 
+### Background music
+
+Tick **Music (MiniMax-Music3)** in the composer, use `--music` in the CLI, or send `"music": true`. It is off by default, and it works with every video model, with or without a photo, in both the default and the naturalistic mode.
+
+- **Scoring**: once the narration is ready (so every scene's final length is known), the **music-director agent** defines one musical theme for the film (instrument palette, key family, tempo range) and writes one cue per scene in the MiniMax Music 3 caption format: *Global Metadata* (genre, BPM, key, mood arc), *Vocal Details* (always "Instrumental only. No vocals, no singing, no humming, no choir, no spoken words.") and *Arrangement*. The lyrics sent to the model are only section tags (`[Intro]`, `[Instrumental]`, `[Outro]`), so it has no words to sing.
+- **Rendering**: [MiniMax Music 3](https://huggingface.co/MiniMaxAI/MiniMax-Music3) renders each cue on ComfyUI ([comfy_workflows/minimax_music3_t2m.json](app/video_platform/comfy_workflows/minimax_music3_t2m.json), translated from the official `audio_minimax_music_3` template) as 32 kHz stereo FLAC, one second longer than the scene. All cues are rendered after all clips, so ComfyUI loads the model once.
+- **Mixing**: the cue is trimmed to the exact scene length, faded in and out at the cuts (`MUSIC_FADE_SECONDS`, 1 s by default), played at `MUSIC_VOLUME` (0.3 by default) and **ducked** under the narration and the model's ambience. The video stream is copied, so naturalistic exact durations are kept.
+
+> [!IMPORTANT]
+> MiniMax Music 3 uses the [MiniMax-Music3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-Music3/blob/main/LICENSE). Commercial use is free under 20 million USD of yearly revenue (above that, ask MiniMax for a license), and a commercial product or service using it must **prominently display "MiniMax-Music3"** in its user interface: the composer option, the job chips and the timeline step show it. A hosted service must keep safeguards against misuse, and AI-generated content published in a public environment must be disclosed as machine-generated. Unlike MiniMax H3, the license has no territorial restriction.
+
+Music 3 is a song model: the instrumental-only caption and the tag-only lyrics keep it instrumental, but listen to the result before publishing.
+
 ## Video models
 
 | Key | Model | Clip | Audio | License |
@@ -121,7 +135,7 @@ photorealism or whether narration edits preserve every nuance.
 
 Keyframes for videos made from a photo use **Qwen-Image-Edit-2511** (fp8) with the **4-step Lightning LoRA** (Apache 2.0), whatever the video model.
 
-The workflows in [app/video_platform/comfy_workflows](app/video_platform/comfy_workflows) are API-format translations of the official ComfyUI templates (`video_wan2_2_14B_t2v`, `video_wan2_2_14B_i2v`, `video_ltx2_t2v_distilled`, `video_ltx2_i2v_distilled`, `video_ltx2_5_t2v`, `video_ltx2_5_i2v`, `video_hunyuan_video_1.5_720p_t2v`, `video_hunyuan_video_1.5_720p_i2v`, `image_qwen_image_edit_2511`). Values like `"{{prompt}}"`, `"{{seed}}"`, `"{{width}}"` and `"{{image}}"` are filled at run time with the right JSON type. Input images are uploaded with `/upload/image` to a per-job subfolder (`aivideo/<job id>`) of the ComfyUI server that renders them. To change a workflow, build it in the ComfyUI UI, use **Export (API)**, and put the placeholders back.
+The workflows in [app/video_platform/comfy_workflows](app/video_platform/comfy_workflows) are API-format translations of the official ComfyUI templates (`video_wan2_2_14B_t2v`, `video_wan2_2_14B_i2v`, `video_ltx2_t2v_distilled`, `video_ltx2_i2v_distilled`, `video_ltx2_5_t2v`, `video_ltx2_5_i2v`, `video_hunyuan_video_1.5_720p_t2v`, `video_hunyuan_video_1.5_720p_i2v`, `image_qwen_image_edit_2511`, `audio_minimax_music_3`). Values like `"{{prompt}}"`, `"{{seed}}"`, `"{{width}}"` and `"{{image}}"` are filled at run time with the right JSON type. Input images are uploaded with `/upload/image` to a per-job subfolder (`aivideo/<job id>`) of the ComfyUI server that renders them. To change a workflow, build it in the ComfyUI UI, use **Export (API)**, and put the placeholders back.
 
 > [!NOTE]
 > **Rendering time is dominated by the GPU.** Rough single-H100 estimates: Wan 2.2 (4 steps) takes about 1.5-3 min per clip, so 3-6 h for a 10-minute video. LTX-2 and LTX-2.5 distilled are faster. HunyuanVideo 1.5 (20 steps) is the slowest. Measure on your own VM. To render clips in parallel, add more ComfyUI VMs to `COMFYUI_URLS` (comma-separated).
@@ -150,7 +164,7 @@ Prerequisites: Azure CLI (`az login`), Terraform >= 1.14, quota for `Standard_NC
 ```sh
 cd infra
 terraform init
-terraform apply   # about 1 h 30: GPU driver, ComfyUI, ~190 GB of model downloads, image build in ACR
+terraform apply   # about 1 h 30: GPU driver, ComfyUI, ~205 GB of model downloads, image build in ACR
 ```
 
 Terraform creates:
@@ -173,7 +187,7 @@ terraform output -raw api_key
 
 Open `app_url` in a browser, paste the API key, describe your video, optionally attach a photo (photo button, drag and drop, or paste), pick the duration and the model, then send it.
 
-The web UI follows the GitHub Copilot app (dark theme). Your videos are listed in a sidebar. Each video opens as a session: your prompt (and photo), then a live timeline of what the agent is doing. The six pipeline steps expand into their operations:
+The web UI follows the GitHub Copilot app (dark theme). Your videos are listed in a sidebar. Each video opens as a session: your prompt (and photo), then a live timeline of what the agent is doing. The seven pipeline steps expand into their operations:
 
 - each agent call
 - each keyframe (with its image once rendered) and each clip, with its ComfyUI server, prompt id, seed, prompt and retries
@@ -227,6 +241,7 @@ curl -s "$URL/api/gpu" -H "X-API-Key: $KEY"                      # live GPU, CPU
 | `voice` | `en-US-AndrewMultilingualNeural` | Any Azure neural voice, e.g. `fr-FR-VivienneMultilingualNeural` |
 | `seed` | random | Makes clip generation reproducible |
 | `naturalistic` | `false` | Opt-in continuity, measured narration before rendering, and improved audio mixing |
+| `music` | `false` | Opt-in instrumental background music per scene (MiniMax-Music3), see [Background music](#background-music) |
 | `delivery` | `null` | Optional structured controls above; requires naturalistic mode and narration |
 
 ## Run the orchestrator locally
@@ -251,7 +266,7 @@ cd app
 pytest
 ```
 
-The tests check every ComfyUI workflow graph (text-to-video, image-to-video and keyframe: placeholders, links, node types) and the ComfyUI client (image upload, submit, poll, download, retry with a new seed). They also run the **real Agent Framework workflow with real ffmpeg** against a fake ComfyUI, fake LLM agents and fake TTS. That covers the whole pipeline (from a prompt, and from a photo for all four models: the agents get the photo, keyframes come before clips, clips start from their keyframe), the photo checks (formats, size, EXIF orientation and metadata removal), narration longer than a scene, resume without re-rendering keyframes or clips, reattaching to an in-flight ComfyUI prompt, concurrent retries, jobs locked by another replica, audio/video sync, the operation timeline (live, persisted, across retries and replicas), the REST API (JSON and multipart uploads) with its event stream, and the live GPU stats (exporter parsing of `nvidia-smi` and `/proc` CPU/RAM, offline VMs, `/api/gpu`).
+The tests check every ComfyUI workflow graph (text-to-video, image-to-video, keyframe and music: placeholders, links, node types) and the ComfyUI client (image upload, submit, poll, download, retry with a new seed). They also run the **real Agent Framework workflow with real ffmpeg** against a fake ComfyUI, fake LLM agents and fake TTS. That covers the whole pipeline (from a prompt, and from a photo for all four models: the agents get the photo, keyframes come before clips, clips start from their keyframe), the photo checks (formats, size, EXIF orientation and metadata removal), narration longer than a scene, resume without re-rendering keyframes, clips or music, background music (one cue per scene after the clips, instrumental captions and tag-only lyrics, exact scene lengths, fades and ducking), reattaching to an in-flight ComfyUI prompt, concurrent retries, jobs locked by another replica, audio/video sync, the operation timeline (live, persisted, across retries and replicas), the REST API (JSON and multipart uploads) with its event stream, and the live GPU stats (exporter parsing of `nvidia-smi` and `/proc` CPU/RAM, offline VMs, `/api/gpu`).
 
 Naturalistic regression tests cover controls and SSML escaping, language/style validation,
 strict continuity output schemas, JSON/multipart/CLI options, early narration, bounded corrections,
@@ -280,7 +295,7 @@ from synthetic fixture tests.
 │   │   ├── agents.py               # prompt-enhancer (sees the photo), story-outliner, shot-writer agents
 │   │   ├── comfyui.py              # ComfyUI API client (image upload, T2V/I2V clips, keyframes) + multi-server pool
 │   │   ├── gpu.py                  # live GPU, CPU and RAM stats from the VM exporters (/api/gpu)
-│   │   ├── comfy_workflows/        # API-format workflows: T2V and I2V for the 4 models, Qwen-Image-Edit keyframes
+│   │   ├── comfy_workflows/        # API-format workflows: T2V and I2V for the 4 models, Qwen-Image-Edit keyframes, MiniMax Music 3
 │   │   ├── video_models.py         # model registry: resolution, fps, frames, T2V/I2V prompt guides, license
 │   │   ├── images.py               # reference photo checks and cleanup (format, size, EXIF/GPS removal)
 │   │   ├── speech.py               # Azure AI Speech TTS (Entra ID)
@@ -301,5 +316,4 @@ from synthetic fixture tests.
 - **Several photos**: `TextEncodeQwenImageEditPlus` accepts up to three images, e.g. two people and a place.
 - **LTX-2.5 multishot**: LTX-2.5 can render several connected shots in one pass, keeping the character, lighting and voice across the cuts. A scene could become one multishot clip instead of independent 5 s shots.
 - **Scale out**: run several GPU VMs (or a VM Scale Set) and list them all in `COMFYUI_URLS` (and their exporters in `GPU_STATS_URLS`).
-- **Music**: add a music-generation step and mix it under the narration in `media.mix_narration`.
 - **Hosted agent**: the same workflow can be exposed as a Foundry hosted agent with `agent-framework-foundry-hosting`.

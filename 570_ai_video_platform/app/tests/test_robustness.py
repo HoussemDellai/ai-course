@@ -4,8 +4,8 @@ import asyncio
 import json
 import subprocess
 
-from fakes import make_clip, requires_ffmpeg
-from test_pipeline import make_services, settings  # noqa: F401 (fixture)
+from fakes import make_clip, make_flac, requires_ffmpeg
+from test_pipeline import make_services, max_volume, settings  # noqa: F401 (fixture)
 from video_platform import media
 from video_platform.jobs import JobManager
 from video_platform.schemas import JobStatus, VideoRequest
@@ -82,3 +82,23 @@ async def test_normalize_adds_silence_when_no_audio(tmp_path):
     out = await media.normalize_clip(src, tmp_path / "n.mp4", 320, 180, 12, keep_audio=True, audio_volume=0.5)
     duration, has_audio = await media.probe(out)
     assert has_audio and abs(duration - 1.5) < 0.15
+
+
+async def test_mix_music_keeps_the_scene_length_and_fades(tmp_path):
+    scene = await media.normalize_clip(make_clip(tmp_path / "s.mp4", 4.0, 24, 320, 180, audio=False),
+                                       tmp_path / "scene.mp4", 320, 180, 24, keep_audio=False, audio_volume=0)
+    video_before = await media.video_duration(scene)
+    durations = {}
+    for name, seconds in (("long", 9.0), ("short", 2.0)):  # music longer than the scene, and shorter
+        out = await media.mix_music(scene, make_flac(tmp_path / f"{name}.flac", seconds),
+                                    tmp_path / f"{name}.mp4", volume=0.5, fade=1.0)
+        info = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration",
+                                          "-of", "json", str(out)], capture_output=True, text=True,
+                                         check=True).stdout)
+        durations[name] = {s["codec_type"]: float(s["duration"]) for s in info["streams"]}
+        assert durations[name]["video"] == video_before, "video stream copied as is"
+        assert abs(durations[name]["audio"] - video_before) < 0.03, durations
+    out = tmp_path / "long.mp4"
+    assert max_volume(out, 1.5, 1.0) > -40, "music audible in the middle of the scene (silence is about -91 dB)"
+    assert max_volume(out, 0.0, 0.05) < max_volume(out, 1.5, 1.0) - 10, "faded in"
+    assert max_volume(out, video_before - 0.05, 0.05) < max_volume(out, 1.5, 1.0) - 10, "faded out"

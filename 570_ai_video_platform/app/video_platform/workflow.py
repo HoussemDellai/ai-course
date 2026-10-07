@@ -1,6 +1,6 @@
 """Video production pipeline as a Microsoft Agent Framework workflow.
 
-    EnhancePrompt -> PlanStoryboard -> GenerateKeyframes -> GenerateClips -> Narrate -> Assemble
+    EnhancePrompt -> PlanStoryboard -> GenerateKeyframes -> GenerateClips -> Narrate -> GenerateMusic -> Assemble
 
 The creative steps are LLM agents (gpt-6-astra in Foundry); the heavy steps are deterministic executors
 calling ComfyUI, Azure AI Speech and ffmpeg. When the user uploads a reference photo, the agents see it,
@@ -25,15 +25,17 @@ from agent_framework import Executor, Workflow, WorkflowBuilder, WorkflowContext
 from typing_extensions import Never
 
 from . import media
-from .agents import CreativeTeam, shots_for_duration, strip_speaker_labels
+from .agents import CreativeTeam, fit_music_cues, music_lyrics, shots_for_duration, strip_speaker_labels
 from .comfyui import ComfyUIPool
 from .config import Settings
 from .operations import OperationRecorder, OpKind
 from .narration import fingerprint, fit_narration
-from .schemas import CreativeBrief, JobStatus, NarrationDelivery, NaturalSceneOutline, Scene, Storyboard, VideoRequest
+from .schemas import (
+    CreativeBrief, JobStatus, MusicPlan, NarrationDelivery, NaturalSceneOutline, Scene, Storyboard, VideoRequest,
+)
 from .speech import Narrator, SpeechError
 from .storage import ArtifactStore, read_json, write_json
-from .video_models import KEYFRAME_MODEL_NAME, VideoModel, get_video_model
+from .video_models import KEYFRAME_MODEL_NAME, MUSIC_MODEL_NAME, VideoModel, get_video_model
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +73,7 @@ class VideoJob:
     keyframes: list[Path] = field(default_factory=list)
     clips: list[Path] = field(default_factory=list)
     narrations: list[Path | None] = field(default_factory=list)
+    music: list[Path | None] = field(default_factory=list)
 
     @property
     def upload_subfolder(self) -> str:
@@ -118,6 +121,17 @@ def keyframe_pending_name(i: int) -> str:
 
 def narration_name(i: int) -> str:
     return f"narration/scene_{i:03d}.wav"
+
+
+MUSIC_PLAN = "music.json"
+
+
+def music_name(i: int) -> str:
+    return f"music/scene_{i:03d}.flac"
+
+
+def music_pending_name(i: int) -> str:
+    return f"music/scene_{i:03d}.pending.json"
 
 
 def format_seconds(seconds: float) -> str:
@@ -187,7 +201,8 @@ class EnhancePromptExecutor(Executor):
                         and await d.store.exists(job.job_id, "brief.json")):
                     raise ValueError("Legacy artifacts cannot be reused in naturalistic mode; create a new job")
                 await require_manifest(d, job, "naturalistic.json", {
-                    "version": 1, "request": job.request.model_dump(),
+                    # Music is mixed last and doesn't change the visual or narration artifacts.
+                    "version": 1, "request": job.request.model_dump(exclude={"music"}),
                     "model": vars(job.model), "voice": d.settings.tts_voice,
                     "output": [d.settings.output_width, d.settings.output_height, d.settings.output_fps],
                     "ambient_volume": d.settings.ambient_audio_volume,
@@ -491,6 +506,97 @@ class NarrateExecutor(Executor):
         await ctx.send_message(job)
 
 
+class GenerateMusicExecutor(Executor):
+    """Opt-in: one instrumental MiniMax Music 3 cue per scene, rendered once the scene lengths are known."""
+
+    def __init__(self, deps: PipelineDeps):
+        super().__init__(id="generate_music")
+        self.deps = deps
+
+    async def _scene_seconds(self, job: VideoJob, i: int, scene: Scene) -> float:
+        s = self.deps.settings
+        if job.request.naturalistic:
+            return len(scene.shots) * job.clip_budget(s.output_fps)
+        seconds = len(scene.shots) * job.model.clip_seconds
+        narration = job.narrations[i] if i < len(job.narrations) else None
+        if narration is not None:
+            # Same rule as media.mix_narration, which holds the last frame while the narration finishes.
+            narration_seconds, _ = await media.probe(narration)
+            seconds = max(seconds, 0.4 + narration_seconds + 0.6)
+        return seconds
+
+    @handler
+    async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
+        assert job.storyboard is not None
+        d = self.deps
+        ops = d.ops(job.job_id)
+        scenes = job.storyboard.scenes
+        async with ops.op(OpKind.step, "Generate music", step=self.id, model=MUSIC_MODEL_NAME,
+                          servers=d.comfy.size) as step:
+            if not job.request.music:
+                job.music = [None] * len(scenes)
+                step.skip("Music disabled")
+            else:
+                job.music = await self._render_all(job, step)
+        await ctx.send_message(job)
+
+    async def _render_all(self, job: VideoJob, step) -> list[Path | None]:
+        d = self.deps
+        ops = d.ops(job.job_id)
+        scenes = job.storyboard.scenes
+        await d.progress(job.job_id, JobStatus.scoring)
+        lengths = [await self._scene_seconds(job, i, scene) for i, scene in enumerate(scenes)]
+        saved = await read_json(d.store, job.job_id, MUSIC_PLAN)
+        if saved:
+            plan = fit_music_cues(MusicPlan.model_validate(saved), len(scenes))
+        else:
+            async with ops.op(OpKind.agent, "music-director", summary=f"Scoring {len(scenes)} scenes",
+                              model=d.settings.foundry_model) as agent:
+                plan = await d.team.score(job.storyboard.brief, scenes, lengths)
+                agent.set(summary=f"{len(plan.scenes)} cues", detail=plan.theme)
+            await write_json(d.store, job.job_id, MUSIC_PLAN, plan.model_dump())
+        step.progress(0, len(scenes))
+        done = reused = 0
+        lock = asyncio.Lock()
+
+        async def one(i: int, scene: Scene) -> Path:
+            nonlocal done, reused
+            local = job.work_dir / music_name(i)
+            # A second of margin: the mix trims the music to the exact scene length.
+            seconds = math.ceil(lengths[i] + 1.0)
+            async with ops.op(OpKind.music, f"Scene {i + 1}/{len(scenes)}", summary=scene.title,
+                              detail=plan.scenes[i].caption, queued=True, seed=job.seed + 10_000 + i,
+                              seconds=seconds, scene=i) as op:
+                if local.exists() or await d.store.download(job.job_id, music_name(i), local):
+                    op.reuse()
+                    reused += 1
+                else:
+                    await d.comfy.generate_music(
+                        caption=plan.scenes[i].caption,
+                        lyrics=music_lyrics(seconds),
+                        seconds=seconds,
+                        seed=job.seed + 10_000 + i,
+                        dest=local,
+                        filename_prefix=f"aivideo/{job.job_id}/music_{i:03d}",
+                        timeout=d.settings.clip_timeout_seconds,
+                        retries=d.settings.clip_retries,
+                        resume=await pending_resume(d, job, op, music_pending_name(i)),
+                        on_submitted=make_submit_recorder(d, job, op, music_pending_name(i)),
+                    )
+                    await d.store.upload(job.job_id, music_name(i), local)
+            async with lock:
+                done += 1
+                step.progress(done, len(scenes))
+            return local
+
+        music = await gather_all([one(i, scene) for i, scene in enumerate(scenes)])
+        if reused == len(scenes):
+            step.reuse(f"{len(scenes)} cues")
+        else:
+            step.set(summary=f"{len(scenes)} cues" + (f" · {reused} reused" if reused else ""))
+        return music
+
+
 class AssembleExecutor(Executor):
     def __init__(self, deps: PipelineDeps):
         super().__init__(id="assemble")
@@ -536,13 +642,19 @@ class AssembleExecutor(Executor):
                 parts = normalized[index : index + len(scene.shots)]
                 index += len(scene.shots)
                 narration = job.narrations[i] if i < len(job.narrations) else None
-                title = f"Scene {i + 1}/{len(scenes)}: concat {len(parts)} clips" + (" + mix narration" if narration else "")
+                music = job.music[i] if i < len(job.music) else None
+                title = (f"Scene {i + 1}/{len(scenes)}: concat {len(parts)} clips"
+                         + (" + mix narration" if narration else "") + (" + mix music" if music else ""))
                 async with ops.op(OpKind.ffmpeg, title, summary=scene.title):
                     raw = await media.concat(list(parts), work / f"scene_{i:03d}_raw.mp4",
                                              exact=job.request.naturalistic)
-                    scene_files.append(await media.mix_narration(
-                        raw, narration, work / f"scene_{i:03d}.mp4", naturalistic=job.request.naturalistic,
-                    ))
+                    scene_file = await media.mix_narration(
+                        raw, narration, work / f"scene_{i:03d}_voice.mp4", naturalistic=job.request.naturalistic,
+                    )
+                    if music is not None:
+                        scene_file = await media.mix_music(scene_file, music, work / f"scene_{i:03d}_music.mp4",
+                                                           volume=s.music_volume, fade=s.music_fade_seconds)
+                    scene_files.append(scene_file)
 
             async with ops.op(OpKind.ffmpeg, f"Concatenate {len(scene_files)} scenes") as op:
                 final = await media.concat(scene_files, job.work_dir / FINAL_VIDEO, exact=job.request.naturalistic)
@@ -565,6 +677,7 @@ def build_video_workflow(deps: PipelineDeps) -> Workflow:
     keyframes = GenerateKeyframesExecutor(deps)
     clips = GenerateClipsExecutor(deps)
     narrate = NarrateExecutor(deps)
+    music = GenerateMusicExecutor(deps)
     assemble = AssembleExecutor(deps)
     return (
         WorkflowBuilder(name="video-production", start_executor=enhance)
@@ -573,7 +686,8 @@ def build_video_workflow(deps: PipelineDeps) -> Workflow:
         .add_edge(prepare_narration, keyframes)
         .add_edge(keyframes, clips)
         .add_edge(clips, narrate)
-        .add_edge(narrate, assemble)
+        .add_edge(narrate, music)
+        .add_edge(music, assemble)
         .build()
     )
 

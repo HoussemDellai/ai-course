@@ -279,6 +279,9 @@
             <label class="pill" title="Continuity, restrained direction, measured narration and audio ducking">
               <input id="naturalistic" type="checkbox"> Naturalistic
             </label>
+            <label class="pill" title="Instrumental background music for each scene, generated with MiniMax-Music3">
+              <input id="music" type="checkbox"> Music (MiniMax-Music3)
+            </label>
             <span class="grow"></span>
             <button class="send" id="send" type="submit" title="Generate video (Ctrl+Enter)" aria-label="Generate video">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>
@@ -336,21 +339,24 @@
 
     const STEPS = [
       ["enhance_prompt", "Enhance prompt"], ["plan_storyboard", "Plan storyboard"], ["generate_keyframes", "Generate keyframes"],
-      ["generate_clips", "Generate clips"], ["narrate", "Narrate"], ["assemble", "Assemble video"],
+      ["generate_clips", "Generate clips"], ["narrate", "Narrate"], ["generate_music", "Generate music"],
+      ["assemble", "Assemble video"],
     ];
     const STATUS_TEXT = {
       queued: "Queued", enhancing: "Enhancing prompt", planning: "Planning storyboard", keyframing: "Generating keyframes",
-      generating: "Generating clips", narrating: "Narrating", assembling: "Assembling", completed: "Completed", failed: "Failed",
+      generating: "Generating clips", narrating: "Narrating", scoring: "Composing music", assembling: "Assembling",
+      completed: "Completed", failed: "Failed",
     };
     const AGENT_TEXT = {
       queued: "is waiting for a free worker", enhancing: "is writing the creative brief", planning: "is planning the storyboard",
       keyframing: "is drawing the keyframes from your photo",
-      generating: "is generating the clips", narrating: "is recording the narration", assembling: "is assembling the video",
+      generating: "is generating the clips", narrating: "is recording the narration",
+      scoring: "is composing the background music", assembling: "is assembling the video",
       completed: "finished the video", failed: "stopped because of an error",
     };
-    const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", narration: "Speech", ffmpeg: "ffmpeg", upload: "Storage" };
-    const DETAIL_LABEL = { agent: "Result", keyframe: "Edit prompt", clip: "Prompt", narration: "Narration" };
-    const HIDDEN_ATTRS = new Set(["step", "shot", "keyframe"]);
+    const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", narration: "Speech", music: "ComfyUI", ffmpeg: "ffmpeg", upload: "Storage" };
+    const DETAIL_LABEL = { agent: "Result", keyframe: "Edit prompt", clip: "Prompt", narration: "Narration", music: "Caption" };
+    const HIDDEN_ATTRS = new Set(["step", "shot", "keyframe", "scene"]);
     const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
     const MAX_IMAGE_MB = 10;
 
@@ -535,7 +541,7 @@
       e.preventDefault();
       $("send").disabled = true;
       try {
-        const body = { prompt: $("prompt").value, duration_minutes: parseFloat($("duration").value), video_model: $("model").value || null, narration: $("narration").checked, naturalistic: $("naturalistic").checked, voice: $("voice").value.trim() || null };
+        const body = { prompt: $("prompt").value, duration_minutes: parseFloat($("duration").value), video_model: $("model").value || null, narration: $("narration").checked, naturalistic: $("naturalistic").checked, music: $("music").checked, voice: $("voice").value.trim() || null };
         if (body.naturalistic && body.narration) {
           const pronunciations = $("pronunciations").value.split(/\r?\n/).filter(line => line.trim()).map(line => {
             const split = line.indexOf("=");
@@ -810,6 +816,7 @@
           <span class="chip"><span class="k">model</span>${esc(job.request.video_model)}</span>
           <span class="chip"><span class="k">duration</span>${esc(job.request.duration_minutes)} min</span>
           <span class="chip"><span class="k">narration</span>${job.request.narration ? "on" : "off"}</span>
+          ${job.request.music ? `<span class="chip"><span class="k">music</span>MiniMax-Music3</span>` : ""}
           ${job.request.voice ? `<span class="chip"><span class="k">voice</span>${esc(job.request.voice)}</span>` : ""}
           ${job.request.seed != null ? `<span class="chip"><span class="k">seed</span>${esc(job.request.seed)}</span>` : ""}
         </div>`;
@@ -837,8 +844,9 @@
       }
       const steps = ops.filter(o => o.run === latest && !o.parent_id);
       const started = new Set(steps.map(o => o.attrs.step));
+      // Naturalistic jobs write the narration before the keyframes (prepare_narration) instead of after the clips.
       const plannedSteps = job.request.naturalistic
-        ? [STEPS[0], STEPS[1], ["prepare_narration", "Prepare narration"], STEPS[2], STEPS[3], STEPS[5]]
+        ? STEPS.flatMap(s => s[0] === "narrate" ? [] : s[0] === "generate_keyframes" ? [["prepare_narration", "Prepare narration"], s] : [s])
         : STEPS;
       const placeholders = isFinished(job) ? [] : plannedSteps.filter(([k]) => !started.has(k));
       if (runs.length > 1) html += `<div class="run-label">Run ${latest}</div>`;

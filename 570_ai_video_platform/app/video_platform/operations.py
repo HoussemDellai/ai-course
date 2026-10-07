@@ -35,6 +35,7 @@ class OpKind(str, Enum):
     keyframe = "keyframe"
     clip = "clip"
     narration = "narration"
+    music = "music"
     ffmpeg = "ffmpeg"
     upload = "upload"
 

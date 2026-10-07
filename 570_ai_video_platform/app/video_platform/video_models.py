@@ -9,6 +9,10 @@ WORKFLOWS_DIR = Path(__file__).parent / "comfy_workflows"
 KEYFRAME_WORKFLOW = WORKFLOWS_DIR / "qwen_image_edit_keyframe.json"
 KEYFRAME_MODEL_NAME = "Qwen-Image-Edit-2511 (4-step Lightning)"
 
+# MiniMax Music 3 (MiniMax-Music3 Community License) renders each scene's instrumental background music.
+MUSIC_WORKFLOW = WORKFLOWS_DIR / "minimax_music3_t2m.json"
+MUSIC_MODEL_NAME = "MiniMax-Music3"
+
 
 @dataclass(frozen=True)
 class VideoModel:

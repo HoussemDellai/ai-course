@@ -48,6 +48,12 @@ def test_delivery_validation_and_legacy_defaults():
         NarrationDelivery(unknown_control=True)
 
 
+def test_music_is_opt_in():
+    assert not VideoRequest(prompt="a lighthouse").music
+    assert not parse_request(["a lighthouse"])[0].music
+    assert parse_request(["a lighthouse", "--music"])[0].music
+
+
 def test_cli_controls():
     request, image = parse_request([
         "a lighthouse", "--naturalistic", "--minutes", "0.25", "--voice", "test-voice",
@@ -178,6 +184,7 @@ def test_api_accepts_controls_in_json_and_multipart(settings, monkeypatch):
         assert invalid.status_code == 422
         schema = client.get("/openapi.json").json()["components"]["schemas"]["VideoRequest"]
         assert "naturalistic" in schema["properties"] and "delivery" in schema["properties"]
+        assert schema["properties"]["music"]["default"] is False
         asyncio.run(write_json(store, "test", "storyboard.json", {"narration": "original"}))
         asyncio.run(write_json(store, "test", "storyboard.narrated.json", {"narration": "accepted"}))
         assert client.get("/api/videos/test/storyboard").json() == {"narration": "accepted"}
@@ -211,9 +218,26 @@ async def test_naturalistic_pipeline(settings, tmp_path, monkeypatch, model_key,
     assert all(team.neighbors)
     steps = [op.attrs["step"] for op in await manager.operations(state.id) if op.kind == OpKind.step]
     assert steps == ["enhance_prompt", "plan_storyboard", "prepare_narration",
-                     "generate_keyframes", "generate_clips", "assemble"]
+                     "generate_keyframes", "generate_clips", "generate_music", "assemble"]
     assert len(narrator.deliveries) == (2 if narration else 0)
     assert all(delivery == NarrationDelivery() for delivery in narrator.deliveries)
+    await close()
+
+
+@requires_ffmpeg
+async def test_naturalistic_pipeline_with_music_keeps_exact_durations(settings, tmp_path, monkeypatch):
+    store, factory, close, comfy, team, _ = make_services(settings, tmp_path, monkeypatch, "ltx25",
+                                                           narration_seconds=3)
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(VideoRequest(prompt="a lighthouse", duration_minutes=0.25, video_model="ltx25",
+                                              naturalistic=True, music=True))
+    await manager.wait(state.id)
+    final = await manager.get(state.id)
+    assert final.status == JobStatus.completed, final.error
+    assert abs(await media.video_duration(store.path(state.id, "final.mp4")) - 15) <= 1 / settings.output_fps
+    # Naturalistic scenes are exactly their shots' frame-aligned budget: 3 shots of 2.5 s.
+    assert team.music_durations == pytest.approx([7.5, 7.5], abs=1 / settings.output_fps)
+    assert sum(any(n["class_type"] == "SaveAudio" for n in w.values()) for w in comfy.submitted) == 2
     await close()
 
 
