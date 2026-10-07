@@ -1,15 +1,53 @@
 #!/bin/bash
-# Downloads the models used by the platform (about 205 GB in total):
-# text-to-video and image-to-video for 3 of the video models, Qwen-Image-Edit for the keyframes of videos built
-# from a reference photo, and MiniMax Music 3 for the background music. LTX-2.5 is gated on Hugging Face and is
-# downloaded separately with 05-download-ltx25.sh.
-# Idempotent: 'wget -c' resumes partial downloads and skips completed files.
+# Downloads the models used by the platform (about 245 GB in total):
+# text-to-video and image-to-video for the 4 video models, Qwen-Image-Edit for the keyframes of videos built
+# from a reference photo, and MiniMax Music 3 for the background music.
+# LTX-2.5 is gated on Hugging Face: missing LTX-2.5 weights need HF_TOKEN from an account with access to
+# Lightricks/LTX-2.5 (already-installed weights don't).
+# Public downloads resume with wget; gated downloads are published only after curl succeeds.
+set +x
 set -euo pipefail
 
 M=/opt/comfyui/ComfyUI/models
+LTX25=https://huggingface.co/Lightricks/LTX-2.5/resolve/main
+LTX25_FILES=(
+  diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors
+  text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors
+  vae/ltx-2.5-video-vae-bf16.safetensors
+  vae/ltx-2.5-audio-vae-bf16.safetensors
+  latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors
+)
+for file in "${LTX25_FILES[@]}"; do
+  if [[ ! -s "$M/$file" && -z "${HF_TOKEN:-}" ]]; then
+    echo "ERROR: LTX-2.5 weights are missing. Set HF_TOKEN to a read token with access to Lightricks/LTX-2.5." >&2
+    exit 1
+  fi
+done
 mkdir -p $M/text_encoders $M/vae $M/diffusion_models $M/loras $M/checkpoints $M/latent_upscale_models $M/clip_vision
 
 dl() { wget -q -c -P "$M/$1" "$2"; echo "OK $1/$(basename "$2")"; }
+
+dl_gated() {
+  local dest="$M/$1"
+  if [[ -s "$dest" ]]; then
+    echo "OK $1 (already installed)"
+    return
+  fi
+  # stdin keeps the token out of process arguments; curl strips Authorization on cross-host redirects.
+  if ! printf 'Authorization: Bearer %s\n' "$HF_TOKEN" |
+    curl --fail --location --silent --show-error --retry 3 --connect-timeout 30 \
+      --proto '=https' --proto-redir '=https' --header @- --continue-at - \
+      --output "$dest.part" "$LTX25/$1"; then
+    echo "ERROR: failed to download $1. Check HF_TOKEN and model access; rerun to resume the .part file." >&2
+    return 1
+  fi
+  if [[ ! -s "$dest.part" ]]; then
+    echo "ERROR: empty download for $1" >&2
+    return 1
+  fi
+  mv "$dest.part" "$dest"
+  echo "OK $1"
+}
 
 ########################################################
 # Wan 2.2 14B text-to-video (Apache 2.0)
@@ -27,6 +65,7 @@ dl diffusion_models $WAN/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.sa
 dl loras            $WAN/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors
 dl loras            $WAN/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors
 
+
 ########################################################
 # LTX-2 19B distilled, video + synchronized audio (LTX-2 Community License)
 # The same checkpoint does text-to-video and image-to-video.
@@ -34,6 +73,14 @@ dl loras            $WAN/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safe
 dl checkpoints           https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-19b-distilled.safetensors
 dl latent_upscale_models https://huggingface.co/Lightricks/LTX-2/resolve/main/ltx-2-spatial-upscaler-x2-1.0.safetensors
 dl text_encoders         https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors
+
+########################################################
+# LTX-2.5 22B distilled (LTX-2.x Community License, gated on Hugging Face)
+# Separate transformer, text encoder, video/audio VAEs and spatial upscaler.
+########################################################
+for file in "${LTX25_FILES[@]}"; do
+  dl_gated "$file"
+done
 
 ########################################################
 # HunyuanVideo 1.5 720p text-to-video (Tencent Hunyuan Community License)

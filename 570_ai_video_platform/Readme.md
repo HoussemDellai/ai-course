@@ -130,7 +130,7 @@ Music 3 is a song model: the instrumental-only caption and the tag-only lyrics k
 |---|---|---|---|---|
 | `wan22` (default) | Wan 2.2 14B fp8 + LightX2V 4-step LoRA (T2V and I2V) | 1280x720, 81 frames at 16 fps (5 s) | No | **Apache 2.0**: commercial use allowed |
 | `ltx2` | LTX-2 19B distilled, two-stage with x2 latent upscaler (same checkpoint for T2V and I2V) | 1280x704, 121 frames at 24 fps (5 s) | **Yes** (synchronized ambient) | Free under **$10M revenue**, paid license above |
-| `ltx25` | LTX-2.5 22B distilled (int8) + Gemma 4 12B text encoder, two-stage with x2 latent upscaler (same transformer for T2V and I2V). Sharper faces and textures, better prompt adherence than LTX-2. **Weights downloaded manually**, see [Enable LTX-2.5](#enable-ltx-25). | 1280x704, 121 frames at 24 fps (5 s) | **Yes** (synchronized ambient) | LTX-2.x Community License: free under **$10M revenue**, paid license above |
+| `ltx25` | LTX-2.5 22B distilled (int8) + Gemma 4 12B text encoder, two-stage with x2 latent upscaler (same transformer for T2V and I2V). Sharper faces and textures, better prompt adherence than LTX-2. Downloaded by `03-download-models.sh`; requires authorized `HF_TOKEN`, see [Enable LTX-2.5](#enable-ltx-25). | 1280x704, 121 frames at 24 fps (5 s) | **Yes** (synchronized ambient) | LTX-2.x Community License: free under **$10M revenue**, paid license above |
 | `hunyuan15` | HunyuanVideo 1.5 720p T2V / I2V (+ SigLIP vision encoder), 20 steps | 1280x720, 121 frames at 24 fps (5 s) | No | Tencent Hunyuan Community License: territory **reportedly excludes the EU, UK and South Korea**. Check before using it in France. |
 
 Keyframes for videos made from a photo use **Qwen-Image-Edit-2511** (fp8) with the **4-step Lightning LoRA** (Apache 2.0), whatever the video model.
@@ -142,20 +142,38 @@ The workflows in [app/video_platform/comfy_workflows](app/video_platform/comfy_w
 
 ### Enable LTX-2.5
 
-`terraform apply` doesn't download the LTX-2.5 weights: the [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5) repository on Hugging Face is gated, so the download needs your token. Until the weights are on the VM, ComfyUI rejects `ltx25` clips (*value not in list* for the model files) and the job fails.
+All model downloads, including LTX-2.5, are in [infra/scripts/03-download-models.sh](infra/scripts/03-download-models.sh).
+The [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5) repository is gated, so
+missing LTX-2.5 weights require an authorized `HF_TOKEN` in the downloader's environment.
+The script fails explicitly if files are missing and no token is supplied. Terraform runs
+this script on the VM, but does **not** forward your workstation's `HF_TOKEN`; securely run
+the downloader on the VM as below before applying the updated run command. Already-installed
+LTX-2.5 files do not require the token on subsequent runs. Never put the token in Terraform
+variables, state, source files, or command-line arguments.
 
 1. Sign in to Hugging Face, open [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5) and accept the license (access is granted right away).
 2. Create a **read** token in [Settings > Access Tokens](https://huggingface.co/settings/tokens).
-3. Run [infra/scripts/05-download-ltx25.sh](infra/scripts/05-download-ltx25.sh) on the VM. It downloads about 37 GB (transformer, text encoder, video and audio VAEs, upscaler) into the ComfyUI `models/` folders, and updates ComfyUI only if it doesn't have the LTX-2.5 nodes yet:
+3. Copy [infra/scripts/03-download-models.sh](infra/scripts/03-download-models.sh) to the VM.
+   In an interactive SSH session, run the following from its directory. It installs the five
+   LTX-2.5 files (about 40 GB / 37 GiB) alongside the other models. The token is read without echo and
+   is passed to the downloader in its environment:
 
 ```sh
-terraform -chdir=infra output -raw vm_admin_password   # SSH password for azureuser
-read -rs HF_TOKEN                                      # paste the token (not echoed, not saved in the history)
-ssh azureuser@$(terraform -chdir=infra output -raw vm_public_ip) \
-  "tr -d '\r' | sudo HF_TOKEN=$HF_TOKEN bash -s" < infra/scripts/05-download-ltx25.sh
+sudo bash
+read -rs -p "Hugging Face read token: " HF_TOKEN; echo
+export HF_TOKEN
+tr -d '\r' < 03-download-models.sh | bash
+unset HF_TOKEN
+exit
 ```
 
-`tr -d '\r'` strips the Windows line endings that git adds on a Windows checkout. The script is idempotent: if the SSH session drops, run it again and the downloads resume. Run it between jobs: if ComfyUI needs an update, the restart drops the clip being rendered.
+`tr -d '\r'` strips Windows line endings. Interrupted gated downloads resume from `.part`
+files; only successful downloads are renamed to the model filenames. Authentication is sent
+through curl's standard input, not its command-line arguments, and is not forwarded to a
+different host on redirects. The downloader does not update or restart ComfyUI and can add
+weights without interrupting a render. If the runtime lacks LTX-2.5 node support, update
+ComfyUI separately between jobs. The old `05-download-ltx25.sh` entry point delegates to
+the main downloader rather than maintaining a second model list.
 
 ## Deploy
 
@@ -164,7 +182,7 @@ Prerequisites: Azure CLI (`az login`), Terraform >= 1.14, quota for `Standard_NC
 ```sh
 cd infra
 terraform init
-terraform apply   # about 1 h 30: GPU driver, ComfyUI, ~205 GB of model downloads, image build in ACR
+terraform apply   # about 1 h 30: GPU driver, ComfyUI, ~205 GB of public model downloads (+ ~40 GB of LTX-2.5 with HF_TOKEN), image build in ACR
 ```
 
 Terraform creates:
