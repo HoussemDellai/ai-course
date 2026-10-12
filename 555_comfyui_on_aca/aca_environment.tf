@@ -63,7 +63,10 @@ resource "terraform_data" "add_serverless_gpu_profile_GPU-NC24-A100" {
     command = "az containerapp env workload-profile add --name ${azurerm_container_app_environment.aca_environment.name} --resource-group ${azurerm_container_app_environment.aca_environment.resource_group_name} --workload-profile-type Consumption-GPU-NC24-A100 --workload-profile-name GPU-NC24-A100"
   }
 
-  depends_on = [ azurerm_container_app_environment.aca_environment, terraform_data.add_serverless_gpu_profile_GPU-NC8as-T4 ]
+  depends_on = [
+    azurerm_container_app_environment.aca_environment,
+    terraform_data.add_serverless_gpu_profile_GPU-NC8as-T4
+  ]
 }
 
 # resource "azapi_update_resource" "add_serverless_gpu_profile" {
@@ -182,6 +185,14 @@ resource "azurerm_container_app_environment_storage" "storage_aca_comfyui_smb" {
   share_name                   = azurerm_storage_share.fileshare_comfyui.name
   access_key                   = azurerm_storage_account.storage_comfyui.primary_access_key
   access_mode                  = "ReadWrite" # "ReadOnly"
+}
+
+resource "azurerm_container_app_environment_storage" "storage_aca_comfyui_nfs_readonly" {
+  name                         = "storage-aca-comfyui-nfs-readonly"
+  container_app_environment_id = azurerm_container_app_environment.aca_environment.id
+  share_name                   = azurerm_container_app_environment_storage.storage_aca_comfyui_nfs.share_name
+  nfs_server_url               = azurerm_container_app_environment_storage.storage_aca_comfyui_nfs.nfs_server_url
+  access_mode                  = "ReadOnly"
 }
 
 # role assignment to allow ACA environment to access the storage account File Share

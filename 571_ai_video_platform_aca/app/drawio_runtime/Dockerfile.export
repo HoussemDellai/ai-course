@@ -1,0 +1,18 @@
+# Build from app/drawio_runtime; draw.io includes the native stencil libraries.
+# The runtime is deliberately separate from MCP and has no network when invoked.
+FROM ubuntu:24.04
+ARG DRAWIO_VERSION=32.4.1
+ARG DRAWIO_SHA256=f4455b3bba3d3b539c3cd069218fc64f0462b1b01610fe8d11acc3ca8566f32b
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl xvfb xauth fonts-dejavu-core libasound2t64 libgbm1 \
+    libgtk-3-0 libnss3 libxss1 libxtst6 \
+    && curl --fail --location --output /drawio.deb \
+    "https://github.com/jgraph/drawio-desktop/releases/download/v${DRAWIO_VERSION}/drawio-amd64-${DRAWIO_VERSION}.deb" \
+    && echo "${DRAWIO_SHA256}  /drawio.deb" | sha256sum --check - \
+    && apt-get install -y --no-install-recommends /drawio.deb \
+    && rm /drawio.deb && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 drawio \
+    && mkdir /work && chown drawio:drawio /work
+USER drawio
+WORKDIR /work
+ENTRYPOINT ["timeout", "--signal=TERM", "--kill-after=5", "90", "xvfb-run", "-a", "drawio", "--no-sandbox", "--disable-gpu"]

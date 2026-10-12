@@ -1,0 +1,19 @@
+# Optional private MCP only; no Azure resource or paid service is created.
+services:
+  drawio-mcp:
+    image: jgraph/drawio-mcp:1.0.6@sha256:4ad6be7215bec6d266337fe7037cfdaa250a01db11c9783708b885b395350828
+    ports:
+      - "127.0.0.1:${DRAWIO_MCP_HOST_PORT:-3001}:3001"
+    environment:
+      LISTEN: "0.0.0.0"
+      DRAWIO_ICON_SERVICE_URL: "off"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,drawio-mcp"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    logging:
+      driver: "local"
+      options:
+        max-size: "5m"
+        max-file: "2"

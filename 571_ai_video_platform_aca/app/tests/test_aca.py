@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import asyncio
+import importlib.util
+import json
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+from test_gpu import load_exporter
+
+INFRA = Path(__file__).parents[2] / "infra"
+
+
+def test_comfyui_memory_is_configurable_with_compatible_default():
+    app = (INFRA / "aca_comfyui.tf").read_text()
+    variables = (INFRA / "variables.tf").read_text()
+    memory = variables.split('variable "comfyui_memory_gib" {')[1].split('variable "comfyui_image"')[0]
+    assert 'memory  = "${var.comfyui_memory_gib}Gi"' in app
+    assert "default     = 4" in memory
+    assert "var.comfyui_memory_gib <= 220" in memory
+    assert "comfyui_memory_gib" in (INFRA / "education.tfvars").read_text()
+
+
+def test_deployment_is_independent_and_gpu_only():
+    providers = (INFRA / "providers.tf").read_text()
+    variables = (INFRA / "variables.tf").read_text()
+    app = (INFRA / "aca_comfyui.tf").read_text()
+    environment = (INFRA / "aca_environment.tf").read_text()
+    assert 'path = "state-571/terraform.tfstate"' in providers
+    assert 'default     = "aivideo571"' in variables
+    assert "variable \"vm_" not in variables
+    assert "min_replicas                     = 1" in app
+    assert "max_replicas                     = 1" in app
+    assert 'revision_mode                = "Single"' in app
+    assert "allow_insecure_connections = false" in app
+    assert "Consumption-GPU-NC24-A100" in environment
+    assert "T4" not in environment and "ignore_changes" not in environment
+    assert 'memory  = "${var.comfyui_memory_gib}Gi"' in app
+    assert 'variable "comfyui_memory_gib" {' in variables
+    assert not (INFRA / "vm_comfyui.tf").exists()
+    assert 'value = local.gpu_stats_url' in (INFRA / "container_app.tf").read_text()
+    assert "gpu_stats_url = local.comfyui_url" in app
+
+
+def test_downloader_inventory_covers_every_workflow():
+    script = (INFRA / "scripts" / "03-download-models.sh").read_text()
+    workflows = Path(__file__).parents[1] / "video_platform" / "comfy_workflows"
+    for path in workflows.glob("*.json"):
+        graph = json.loads(path.read_text())
+        for node in graph.values():
+            for value in node.get("inputs", {}).values():
+                if isinstance(value, str) and value.endswith(".safetensors"):
+                    assert value in script, (path.name, value)
+    job = (INFRA / "aca_job_download_models.tf").read_text()
+    assert "555_comfyui_on_aca" not in job
+    assert "raw.githubusercontent.com" not in job
+    assert "key_vault_secret_id" in job and "HF_TOKEN" in job
+    assert "run-model-job.ps1" in job
+    assert "terraform_data.provision_models" in (INFRA / "aca_comfyui.tf").read_text()
+
+
+def test_cgroup_v2_metrics_use_container_limits(monkeypatch):
+    exporter = load_exporter()
+    files = {
+        "cpu.stat": "usage_usec 2000000\nuser_usec 1000000",
+        "cpu.max": "200000 100000",
+        "memory.current": str(512 << 20),
+        "memory.max": str(2048 << 20),
+    }
+    monkeypatch.setattr(exporter.os.path, "isfile", lambda _: True)
+    monkeypatch.setattr(exporter, "_read", lambda path: files[Path(path).name])
+    monkeypatch.setattr(exporter.time, "monotonic", lambda: 10.0)
+    assert exporter.read_container()["cpu_percent"] is None
+    files["cpu.stat"] = "usage_usec 3000000"
+    monkeypatch.setattr(exporter.time, "monotonic", lambda: 11.0)
+    result = exporter.read_container()
+    assert result["cpu_percent"] == 50.0
+    assert result["cpu_count"] == 2
+    assert result["memory_used_mib"] == 512
+    assert result["memory_total_mib"] == 2048
+    assert result["scope"] == "container" and result["load_1m"] is None
+
+
+def test_cgroup_v1_and_unlimited_metrics(monkeypatch):
+    exporter = load_exporter()
+    files = {"cpu.cfs_quota_us": "-1", "cpu.cfs_period_us": "100000",
+             "cpuacct.usage": "1000000", "memory.usage_in_bytes": "1048576",
+             "memory.limit_in_bytes": str(1 << 62)}
+    monkeypatch.setattr(exporter.os.path, "isfile", lambda _: False)
+    monkeypatch.setattr(exporter, "_read", lambda path: files[Path(path).name])
+    result = exporter.read_container()
+    assert result["cpu_count"] is None and result["memory_total_mib"] is None
+    assert result["memory_used_mib"] == 1
+
+
+def test_unavailable_container_metrics_are_explicit(monkeypatch, caplog):
+    exporter = load_exporter()
+    def fail():
+        raise OSError("no cgroup access")
+    monkeypatch.setattr(exporter, "_container_values", fail)
+    result = exporter.read_container()
+    assert result["error"] == "no cgroup access"
+    assert result["cpu_percent"] is None and result["memory_total_mib"] is None
+    assert "unavailable" in caplog.text
+
+
+async def test_comfyui_telemetry_route_is_nonblocking_and_reports_errors(monkeypatch):
+    from aiohttp import web
+
+    routes = web.RouteTableDef()
+    server = types.ModuleType("server")
+    server.PromptServer = types.SimpleNamespace(instance=types.SimpleNamespace(routes=routes))
+    monkeypatch.setitem(sys.modules, "server", server)
+    package = types.ModuleType("platform_gpu")
+    package.__path__ = []
+    monkeypatch.setitem(sys.modules, "platform_gpu", package)
+    monkeypatch.setitem(sys.modules, "platform_gpu.gpu_stats_exporter", load_exporter())
+    spec = importlib.util.spec_from_file_location("platform_gpu.extension", INFRA / "scripts" / "comfyui_gpu_extension.py")
+    extension = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(extension)
+    assert next(iter(routes)).path == "/gpu_stats"
+    calls = []
+    async def thread_call(callback):
+        calls.append(callback)
+        return {"gpus": [], "host": None}
+    monkeypatch.setattr(asyncio, "to_thread", thread_call)
+    response = await extension.gpu_stats(None)
+    assert response.status == 200 and calls == [extension.snapshot]
+    assert response.headers["Cache-Control"] == "no-store"
+    async def fail(callback):
+        raise OSError("CUDA unavailable")
+    monkeypatch.setattr(asyncio, "to_thread", fail)
+    response = await extension.gpu_stats(None)
+    assert response.status == 503 and b"CUDA unavailable" in response.body

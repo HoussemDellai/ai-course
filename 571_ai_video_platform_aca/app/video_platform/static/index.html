@@ -1,0 +1,1399 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AI Video Platform</title>
+  <style>
+    :root {
+      --bg: #0d1117; --bg-inset: #010409; --panel: #151b23; --panel-2: #212830; --hover: #656c7633;
+      --border: #3d444d; --border-muted: #3d444db3; --fg: #f0f6fc; --muted: #9198a1; --subtle: #656c76;
+      --accent: #4493f8; --accent-emph: #1f6feb; --success: #3fb950; --success-emph: #238636; --danger: #f85149;
+      --attention: #d29922; --done: #ab7df8; --done-emph: #8957e5;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font); display: flex; flex-direction: column; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    code, .mono { font-family: var(--mono); font-size: 12px; }
+    svg { flex: none; }
+    [hidden] { display: none !important; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    .grow { flex: 1; }
+    .education-controls, .review-panel { padding: 16px; border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; }
+    .education-controls label, .review-panel label { display: block; margin-top: 10px; }
+    .review-panel textarea.input { height: auto; min-height: 80px; padding: 8px 12px; }
+    .review-panel fieldset { border: 1px solid var(--border); margin: 16px 0; }
+    .review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .review-error { color: var(--danger); white-space: pre-wrap; }
+    .public-sources li { margin: 8px 0; overflow-wrap: anywhere; }
+
+    /* Top bar */
+    .topbar { height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: var(--bg-inset); border-bottom: 1px solid var(--border); }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+    .brand .logo { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #8957e5, #1f6feb); }
+    .crumb { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .crumb::before { content: "/"; margin: 0 8px; color: var(--subtle); }
+    .crumb:empty { display: none; }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .btn:hover { background: #2a313c; border-color: #656c76; text-decoration: none; }
+    .btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
+    .btn-primary { background: var(--success-emph); border-color: #ffffff1a; color: #fff; }
+    .btn-primary:hover { background: #29903b; }
+    .btn-block { width: 100%; justify-content: center; }
+    .icon-btn { width: 32px; padding: 0; justify-content: center; }
+
+    /* API key popover */
+    .key-wrap { position: relative; }
+    .popover { position: absolute; right: 0; top: 40px; width: 320px; z-index: 10; padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px #010409cc; }
+    .popover label { display: block; font-weight: 600; margin-bottom: 6px; }
+    .input { width: 100%; height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); outline: none; }
+    .input:focus, .composer:focus-within { border-color: var(--accent-emph); box-shadow: 0 0 0 1px var(--accent-emph); }
+
+    /* GPU badge + popover */
+    .gpu-wrap { position: relative; }
+    .gpu-btn { font-variant-numeric: tabular-nums; }
+    .gpu-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--subtle); }
+    .gpu-btn.online .dot { background: var(--success); box-shadow: 0 0 0 3px #3fb95033; }
+    .gpu-btn .meter { width: 40px; height: 6px; border-radius: 3px; background: var(--panel); overflow: hidden; }
+    .gpu-btn .meter i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+    .gpu-pop { width: 380px; max-height: calc(100vh - 80px); overflow-y: auto; }
+    .gpu-server + .gpu-server { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-muted); }
+    .gpu-server-head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; }
+    .gpu-card + .gpu-card { margin-top: 12px; }
+    .gpu-name { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .gpu-row { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .gpu-row + .gpu-row { margin-top: 4px; }
+    .gpu-bar { height: 8px; border-radius: 4px; background: var(--bg); overflow: hidden; }
+    .gpu-bar i { display: block; height: 100%; transition: width .4s; }
+    .gpu-bar.util i { background: var(--accent); }
+    .gpu-bar.mem i { background: var(--done); }
+    .gpu-bar.cpu i { background: var(--success); }
+    .gpu-bar.ram i { background: var(--attention); }
+    .gpu-facts { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .gpu-spark { display: block; width: 100%; height: 44px; margin-top: 8px; background: var(--bg); border-radius: 6px; }
+    .gpu-legend { display: flex; gap: 12px; margin-top: 4px; font-size: 11px; color: var(--muted); }
+    .gpu-legend span::before { content: ""; display: inline-block; width: 8px; height: 2px; margin-right: 4px; vertical-align: middle; background: var(--c); }
+
+    /* Layout */
+    .layout { flex: 1; display: flex; min-height: 0; }
+    .sidebar { width: 300px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 16px 8px 16px 16px; border-right: 1px solid var(--border); background: var(--bg); overflow-y: auto; }
+    .side-title { margin: 12px 8px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+    main { flex: 1; overflow-y: auto; min-width: 0; }
+
+    /* Session list */
+    .job-list { display: flex; flex-direction: column; gap: 2px; }
+    .job-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 6px; color: var(--fg); position: relative; }
+    .job-item:hover { background: var(--hover); text-decoration: none; }
+    .job-item.active { background: var(--hover); }
+    .job-item.active::before { content: ""; position: absolute; left: -8px; top: 6px; bottom: 6px; width: 4px; border-radius: 6px; background: var(--accent); }
+    .job-item .icon { margin-top: 2px; }
+    .ji-main { min-width: 0; display: flex; flex-direction: column; }
+    .ji-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ji-meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { padding: 8px; color: var(--muted); }
+
+    /* Status icons */
+    .icon { width: 16px; height: 16px; display: inline-grid; place-items: center; }
+    .c-succeeded, .c-completed { color: var(--success); }
+    .c-failed { color: var(--danger); }
+    .c-running, .c-active { color: var(--attention); }
+    .c-queued, .c-pending, .c-skipped, .c-cancelled { color: var(--subtle); }
+    .c-reused { color: var(--done); }
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Composer view */
+    .compose-view { max-width: 768px; margin: 0 auto; padding: 12vh 24px 48px; }
+    .hero { text-align: center; margin-bottom: 24px; }
+    .hero .logo { width: 48px; height: 48px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #8957e5, #1f6feb); }
+    .hero h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
+    .composer { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 12px; }
+    .composer textarea { width: 100%; min-height: 96px; max-height: 320px; resize: none; border: 0; outline: none; background: transparent; line-height: 1.5; }
+    .composer textarea::placeholder { color: var(--subtle); }
+    .composer-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); font-size: 12px; cursor: pointer; }
+    .pill:hover { color: var(--fg); }
+    .pill select, .pill input { border: 0; background: transparent; outline: none; color: var(--fg); font-size: 12px; }
+    .pill select option { background: var(--panel); }
+    .pill input[type=number] { width: 48px; }
+    .pill input[type=checkbox] { accent-color: var(--accent-emph); margin: 0; }
+    .send { min-width: 180px; height: 48px; padding: 0 20px; border-radius: 10px; border: 1px solid #ffffff33; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(135deg, #7c3aed, var(--accent-emph)); color: #fff; font-size: 16px; font-weight: 600; box-shadow: 0 4px 12px #1f6feb33; cursor: pointer; }
+    .send:hover:not(:disabled) { background: linear-gradient(135deg, #6d28d9, #185ddc); box-shadow: 0 6px 16px #1f6feb4d; }
+    .send:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .send:disabled { background: var(--panel-2); color: var(--muted); box-shadow: none; opacity: .6; cursor: not-allowed; }
+    .hint { margin: 10px 4px 0; }
+    .composer.dragging { border-color: var(--accent-emph); box-shadow: 0 0 0 1px var(--accent-emph); background: var(--panel-2); }
+    #attachBtn { width: 28px; padding: 0; justify-content: center; }
+    #attachBtn.on { color: var(--accent-emph); border-color: var(--accent-emph); }
+    .attachments { display: flex; gap: 8px; margin: 4px 0 8px; }
+    .attachments:empty { display: none; }
+    .attachment { position: relative; display: flex; align-items: center; gap: 8px; padding: 4px 28px 4px 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); max-width: 100%; }
+    .attachment img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; display: block; }
+    .attachment .att-name { font-size: 12px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .attachment .att-remove { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+    .attachment .att-remove:hover { color: var(--fg); background: var(--hover); }
+    .ref-photo { display: block; max-width: 280px; max-height: 220px; margin-top: 10px; border-radius: 8px; border: 1px solid var(--border); }
+    .thumb { display: block; width: 100%; max-width: 360px; border-radius: 6px; border: 1px solid var(--border-muted); background: var(--bg-inset); aspect-ratio: 16 / 9; object-fit: cover; }
+    .thumb.vertical { max-width: 180px; aspect-ratio: 9 / 16; }
+
+    /* Session view */
+    .session { max-width: 900px; margin: 0 auto; padding: 24px 24px 64px; }
+    .job-head h2 { margin: 0 0 6px; font-size: 20px; font-weight: 600; }
+    .job-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); font-size: 12px; }
+    .label { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid; border-radius: 2em; font-size: 12px; font-weight: 500; line-height: 20px; }
+    .label.completed { color: var(--success); border-color: #238636; }
+    .label.failed { color: var(--danger); border-color: #da3633; }
+    .label.active { color: var(--attention); border-color: #9e6a03; }
+    .label.queued { color: var(--muted); border-color: var(--border); }
+    .thread { margin-top: 24px; display: flex; flex-direction: column; gap: 24px; }
+    .msg { display: flex; gap: 12px; }
+    .avatar { width: 32px; height: 32px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+    .avatar.user { background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
+    .avatar.agent { background: linear-gradient(135deg, #8957e5, #1f6feb); }
+    .msg-col { flex: 1; min-width: 0; }
+    .msg-title { display: flex; align-items: baseline; gap: 6px; margin: 4px 0 10px; }
+    .bubble { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 12px 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .chip { display: inline-flex; gap: 6px; align-items: center; padding: 0 8px; border-radius: 2em; background: var(--panel-2); border: 1px solid var(--border-muted); font-size: 12px; line-height: 20px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip .k { color: var(--muted); }
+
+    /* Operations timeline */
+    .timeline { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); overflow: hidden; }
+    .timeline > .op + .op { border-top: 1px solid var(--border-muted); }
+    .op-row { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 12px; cursor: pointer; user-select: none; }
+    .op-row:hover { background: var(--hover); }
+    .op-row:focus-visible { outline: 2px solid var(--accent-emph); outline-offset: -2px; }
+    .op-row.static { cursor: default; }
+    .op-row.static:hover { background: transparent; }
+    .chev { width: 16px; height: 16px; color: var(--muted); transition: transform .12s; }
+    .open > .op-row .chev { transform: rotate(90deg); }
+    .chev.none { visibility: hidden; }
+    .op-title { font-weight: 600; white-space: nowrap; }
+    .op-summary { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .tool { flex: none; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border-muted); color: var(--muted); font-size: 11px; line-height: 18px; }
+    .dur { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
+    .count { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .bar { flex: none; width: 96px; height: 6px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
+    .bar > span { display: block; height: 100%; background: var(--accent-emph); border-radius: 6px; transition: width .3s; }
+    .pending > .op-row { cursor: default; }
+    .pending > .op-row:hover { background: transparent; }
+    .pending .op-title { color: var(--muted); font-weight: 500; }
+    .op-body { padding: 0 12px 12px 44px; display: flex; flex-direction: column; gap: 10px; }
+    .op-children { border-left: 1px solid var(--border); margin-left: -20px; padding-left: 8px; display: flex; flex-direction: column; }
+    .op-children .op-row { min-height: 32px; padding: 4px 8px; border-radius: 6px; }
+    .op-children .op-title { font-weight: 500; }
+    .op-children .op-body { padding: 0 8px 8px 40px; }
+    .field-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+    .detail { padding: 8px 12px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border-muted); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+    .log { margin: 0; padding: 8px 12px; border-radius: 6px; background: var(--bg-inset); border: 1px solid var(--border-muted); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }
+    .log .ts { color: var(--subtle); }
+    .log .lvl-warning { color: var(--attention); }
+    .log .lvl-error, .log .lvl-critical { color: var(--danger); }
+    .op-error { padding: 8px 12px; border-radius: 6px; border: 1px solid #f8514966; background: #f851491a; color: #ffa198; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--mono); }
+    .run-group { border: 1px solid var(--border); border-radius: 12px; background: var(--bg); margin-bottom: 12px; overflow: hidden; }
+    .run-group > .op-row { color: var(--muted); }
+    .run-group > .op-body { padding: 0 12px 12px; }
+    .run-label { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 8px; }
+
+    /* Outcome */
+    .flash { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; margin-top: 12px; border-radius: 12px; border: 1px solid; }
+    .flash-error { border-color: #f8514966; background: #f851491a; }
+    .flash-error .flash-text { color: #ffa198; font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; flex: 1; }
+    .player { margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #000; }
+    .player video { display: block; width: 100%; max-height: 70vh; }
+    .player-bar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--border); }
+    .pill.off { opacity: .5; cursor: default; }
+
+    /* Intermediate videos: appended as they become available, never re-rendered (playback is never interrupted) */
+    .outputs { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .outputs:empty { display: none; }
+    .output-group { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+    .output-group > summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-weight: 600; list-style: none; }
+    .output-group > summary::-webkit-details-marker { display: none; }
+    .output-group > summary::before { content: "▸"; color: var(--muted); transition: transform .12s; }
+    .output-group[open] > summary::before { transform: rotate(90deg); }
+    .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; padding: 0 12px 12px; }
+    .outputs.vertical .media-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+    .media-card { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .media-card video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 6px; border: 1px solid var(--border-muted); }
+    .outputs.vertical .media-card video { aspect-ratio: 9 / 16; }
+    .media-card figcaption { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    @media (max-width: 768px) {
+      .layout { flex-direction: column; overflow-y: auto; }
+      .sidebar { width: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--border); padding: 12px; }
+      main { overflow: visible; }
+      .op-summary, .bar { display: none; }
+      .op-body { padding-left: 12px; }
+      .send { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" title="New video">
+      <span class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="#fff"><path d="M8 0l1.6 4.8L14.4 6.4 9.6 8 8 12.8 6.4 8 1.6 6.4l4.8-1.6zM13 10l.8 2.2L16 13l-2.2.8L13 16l-.8-2.2L10 13l2.2-.8z"/></svg></span>
+      <span style="color: var(--fg)">AI Video Platform</span>
+    </a>
+    <span class="crumb" id="crumb"></span>
+    <span class="grow"></span>
+    <div class="gpu-wrap" id="gpuWrap" hidden>
+      <button class="btn btn-sm gpu-btn" id="gpuBtn" type="button" title="Live GPU and ComfyUI container CPU/RAM utilisation">
+        <span class="dot"></span>
+        <span id="gpuText">GPU</span>
+        <span class="meter"><i id="gpuMeter" style="width: 0%"></i></span>
+      </button>
+      <div class="popover gpu-pop" id="gpuPop" hidden></div>
+    </div>
+    <div class="key-wrap">
+      <button class="btn btn-sm" id="keyBtn" type="button">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="11" r="3"/><path d="M7.2 8.8 14 2M11.5 4.5 13 6M10 6l1.2 1.2"/></svg>
+        API key
+      </button>
+      <div class="popover" id="keyPop" hidden>
+        <label for="key">API key</label>
+        <input class="input" id="key" type="password" autocomplete="off" placeholder="Paste the platform API key">
+        <p class="muted small" style="margin: 8px 0 0">Stored in this browser only and sent as <code>X-API-Key</code>.</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <a class="btn btn-block" href="#">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+        New video
+      </a>
+      <div class="side-title">Videos</div>
+      <nav class="job-list" id="jobs"></nav>
+    </aside>
+
+    <main id="main">
+      <section class="compose-view" id="composeView">
+        <div class="hero">
+          <div class="logo"><svg width="24" height="24" viewBox="0 0 16 16" fill="#fff"><path d="M8 0l1.6 4.8L14.4 6.4 9.6 8 8 12.8 6.4 8 1.6 6.4l4.8-1.6zM13 10l.8 2.2L16 13l-2.2.8L13 16l-.8-2.2L10 13l2.2-.8z"/></svg></div>
+          <h1>What should we film today?</h1>
+          <div class="muted">Prompt (and optionally a photo of a person or a scene) &rarr; creative brief, storyboard &amp; shot prompts &rarr; keyframes &rarr; ComfyUI clips &rarr; Azure AI Speech narration &rarr; ffmpeg</div>
+        </div>
+        <form class="composer" id="form">
+          <label class="pill">Use case
+            <select id="useCase" aria-label="Use case">
+              <option value="cinematic">Cinematic</option><option value="educational">Educational / presentation</option>
+            </select>
+          </label>
+          <fieldset class="education-controls" id="educationControls" hidden disabled>
+            <legend>Educational plan — review before rendering</legend>
+            <p class="muted">Only the explicit public topic below is sent to web search. Never include private information.
+              Creation plans only; images, video and music wait for approval. Exact narration may extend the requested duration up to 10 minutes.</p>
+            <label for="publicTopic">Public-only search topic (required)</label>
+            <input class="input" id="publicTopic" minlength="3" maxlength="1000" required>
+            <label for="educationStyle">Visual style</label>
+            <select class="input" id="educationStyle"><option value="presentation">Animated presentation</option><option value="ai_motion">AI motion with illustrations / diagrams</option></select>
+            <label for="imageProvider">Illustration provider</label>
+            <select class="input" id="imageProvider"><option value="comfyui">ComfyUI</option><option value="foundry">Foundry</option></select>
+            <label for="motionProvider">Motion provider (AI-motion style only)</label>
+            <select class="input" id="motionProvider"><option value="comfyui">ComfyUI</option><option value="foundry">Foundry</option></select>
+            <label for="textModel">Text deployment</label><select class="input" id="textModel"><option value="">Configured default</option></select>
+            <label for="audience">Audience</label><input class="input" id="audience" value="General audience" required maxlength="300">
+            <label for="musicMode">Music placement (MiniMax-Music3)</label>
+            <select class="input" id="musicMode"><option value="intro_outro">Intro / outro only</option><option value="off">Off</option><option value="background">Full background</option></select>
+            <p class="muted small" id="educationCapabilities">Loading configuration; provider availability is not verified live.</p>
+          </fieldset>
+          <div class="attachments" id="attachments"></div>
+          <textarea id="prompt" required minlength="3" maxlength="4000" placeholder="Describe your video, e.g. A documentary about a lighthouse keeper's last winter on a remote Breton island. Attach a photo to build the video around a person or a scene."></textarea>
+          <div class="composer-bar">
+            <label class="pill" id="attachBtn" title="Attach a photo of a person or a scene (PNG, JPEG or WebP, up to 50 MB). You can also drop or paste it." aria-label="Attach a photo">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6" r="1.25"/><path d="m2 12 4-4 3 3 2-2 3.5 3.5"/></svg>
+              <input id="image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            </label>
+            <label class="pill" title="Video model">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="3.5" width="9" height="9" rx="1.5"/><path d="M10.5 7 14.5 4.5v7L10.5 9"/></svg>
+              <select id="model" aria-label="Video model"></select>
+            </label>
+            <label class="pill" title="Duration in minutes">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
+              <input id="duration" type="number" min="0.25" max="10" step="0.25" value="5" aria-label="Duration in minutes"> min
+            </label>
+            <label class="pill" title="Orientation: horizontal 16:9, or vertical 9:16 for phones. The clips are rendered in this orientation">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/></svg>
+              <select id="orientation" aria-label="Orientation">
+                <option value="horizontal" selected>Horizontal 16:9</option>
+                <option value="vertical">Vertical 9:16</option>
+              </select>
+            </label>
+            <label class="pill" title="Output resolution. The clips are rendered natively at about 720p; 1080p and 4K are upscaled">
+              <select id="resolution" aria-label="Output resolution">
+                <option value="720p" selected>720p</option>
+                <option value="1080p">1080p</option>
+                <option value="4k">4K</option>
+              </select>
+            </label>
+            <label class="pill" id="upscalerPill" title="Upscaler for 1080p and 4K: FFmpeg (lanczos, fast) or SeedVR2 7B on the GPU (restores detail, slower). Not used at 720p">
+              <select id="upscaler" aria-label="Upscaler">
+                <option value="ffmpeg" selected>FFmpeg</option>
+                <option value="seedvr2">SeedVR2</option>
+              </select>
+            </label>
+            <label class="pill" title="Voice-over narration">
+              <input id="narration" type="checkbox" checked> Narration
+            </label>
+            <label class="pill" title="Continuity, restrained direction, measured narration and audio ducking">
+              <input id="naturalistic" type="checkbox"> Naturalistic
+            </label>
+            <label class="pill" title="Instrumental background music for each scene, generated with MiniMax-Music3">
+              <input id="music" type="checkbox"> Music (MiniMax-Music3)
+            </label>
+            <span class="grow"></span>
+            <button class="send" id="send" type="submit" title="Generate video (Ctrl+Enter)" aria-label="Generate video">
+              <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>
+              <span>Generate video</span>
+            </button>
+          </div>
+          <details style="padding: 12px">
+            <summary>Voice and delivery</summary>
+            <label for="voice">Voice short name (blank uses the configured voice)</label>
+            <input class="input" id="voice" type="text" placeholder="en-US-AndrewMultilingualNeural">
+            <fieldset id="deliveryControls" disabled style="border: 0; padding: 8px 0">
+              <legend>Naturalistic narration controls</legend>
+              <label for="speechRate">Rate adjustment (%)</label>
+              <input class="input" id="speechRate" type="number" min="-10" max="10" step="1" value="0" required>
+              <label for="sentencePause">Sentence pause (ms)</label>
+              <input class="input" id="sentencePause" type="number" min="0" max="1000" step="1" value="180" required>
+              <label for="speechStyle">Voice style (optional; must be supported by the voice)</label>
+              <input class="input" id="speechStyle" type="text" maxlength="60" placeholder="Leave blank for neutral delivery">
+              <label for="pronunciations">Pronunciation hints (one TEXT=ALIAS per line, maximum 20)</label>
+              <textarea class="input" id="pronunciations" rows="2" placeholder="SQL=sequel"></textarea>
+            </fieldset>
+            <p class="muted small">Naturalistic narration is checked before GPU rendering. Up to two corrections;
+              unresolved overruns fail rather than freeze frames. Delivery controls require narration.</p>
+          </details>
+        </form>
+        <div class="hint muted small" id="license"></div>
+      </section>
+
+      <section class="session" id="jobView" hidden>
+        <div class="job-head" id="jobHead"></div>
+        <div class="thread">
+          <div class="msg">
+            <div class="avatar user">You</div>
+            <div class="msg-col" id="userMsg"></div>
+          </div>
+          <div class="msg">
+            <div class="avatar agent"><svg width="16" height="16" viewBox="0 0 16 16" fill="#fff"><path d="M8 0l1.6 4.8L14.4 6.4 9.6 8 8 12.8 6.4 8 1.6 6.4l4.8-1.6zM13 10l.8 2.2L16 13l-2.2.8L13 16l-.8-2.2L10 13l2.2-.8z"/></svg></div>
+            <div class="msg-col">
+              <div class="msg-title" id="agentTitle"></div>
+              <div id="timeline"></div>
+              <section class="review-panel" id="educationReview" hidden aria-label="Educational draft review"></section>
+              <div class="outputs" id="outputs"></div>
+              <div id="outcome"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const key = () => $("key").value;
+    const api = (path, opts = {}) => fetch(path, { ...opts, headers: {
+      ...(typeof opts.body === "string" ? { "Content-Type": "application/json" } : {}),  // FormData sets its own boundary
+      "X-API-Key": key(), ...(opts.headers || {}) } });
+
+    const STEPS = [
+      ["enhance_prompt", "Enhance prompt"], ["plan_storyboard", "Plan storyboard"], ["generate_keyframes", "Generate keyframes"],
+      ["generate_clips", "Generate clips"], ["process_shots", "Process shots"], ["narrate", "Narrate"],
+      ["generate_music", "Generate music"], ["assemble", "Assemble video"],
+    ];
+    const STATUS_TEXT = {
+      researching: "Researching public topic", awaiting_review: "Awaiting your review",
+      queued: "Queued", enhancing: "Enhancing prompt", planning: "Planning storyboard", keyframing: "Generating keyframes",
+      generating: "Generating clips", processing: "Processing shots", narrating: "Narrating", scoring: "Composing music",
+      assembling: "Assembling", completed: "Completed", failed: "Failed",
+    };
+    const AGENT_TEXT = {
+      researching: "is researching the public topic", awaiting_review: "is paused — review and explicitly approve the draft",
+      queued: "is waiting for a free worker", enhancing: "is writing the creative brief", planning: "is planning the storyboard",
+      keyframing: "is drawing the keyframes from your photo",
+      generating: "is generating the clips", processing: "is bringing the shots to the output resolution",
+      narrating: "is recording the narration",
+      scoring: "is composing the background music", assembling: "is assembling the video",
+      completed: "finished the video", failed: "stopped because of an error",
+    };
+    function statusText(job) {
+      if (job.request.use_case === "educational") {
+        if (job.status === "generating") return "Rendering educational scenes";
+        if (job.status === "processing") return "Processing educational scenes";
+        if (job.status === "keyframing") return "Generating illustrations / diagrams";
+      }
+      return STATUS_TEXT[job.status] || job.status;
+    }
+    function progressText(job) {
+      const educational = job.request.use_case === "educational";
+      const showing = job.status === "generating" || (educational && ["processing", "assembling"].includes(job.status));
+      return showing && job.clips_total ? `${job.clips_done}/${job.clips_total} ${educational ? "scenes" : "clips"}` : "";
+    }
+    const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", upscale: "ComfyUI", narration: "Speech", music: "ComfyUI", ffmpeg: "ffmpeg", upload: "Storage" };
+    const DETAIL_LABEL = { agent: "Result", keyframe: "Edit prompt", clip: "Prompt", narration: "Narration", music: "Caption" };
+    const HIDDEN_ATTRS = new Set(["step", "shot", "keyframe", "scene", "source", "source_urls", "artifact", "voice_artifact", "music_artifact"]);
+    const RESOLUTION_SIZES = { "720p": [1280, 720], "1080p": [1920, 1080], "4k": [3840, 2160] };
+    const RESOLUTION_TEXT = { "720p": "720p", "1080p": "1080p", "4k": "4K" };
+    const UPSCALER_TEXT = { ffmpeg: "FFmpeg", seedvr2: "SeedVR2" };
+    // Outputs panel groups, in pipeline order (the final video is the player below them).
+    const OUTPUT_GROUPS = [
+      ["education_images", "Educational illustrations / diagrams"], ["education_drawio", "Editable draw.io diagrams"],
+      ["education_processed", "Processed educational scenes"], ["education_scenes", "Educational rendered scenes"],
+      ["clips", "Generated shots"], ["processed", "Processed shots"], ["scenes", "Assembled scenes"],
+      ["mixes", "Narration and music mixes"],
+    ];
+    const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+    let maxImageMb = 50;  // replaced by the server's MAX_IMAGE_MB in loadModels()
+
+    const ICONS = {
+      succeeded: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m4.8 8.2 2.1 2.1 4.3-4.6" fill="none" stroke="#0d1117" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      failed: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5.6 5.6 4.8 4.8m0-4.8-4.8 4.8" stroke="#0d1117" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+      running: `<svg class="spin" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6" stroke-opacity=".25"/><path d="M8 2a6 6 0 0 1 6 6" stroke-linecap="round"/></svg>`,
+      queued: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.25" stroke-dasharray="2.6 2.3"/></svg>`,
+      pending: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.25"/></svg>`,
+      reused: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M5.1 8.3a2.9 2.9 0 1 0 1-2.5M5.2 3.9v2.3h2.3" fill="none" stroke="#0d1117" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      skipped: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.25"/><path d="m3.6 12.4 8.8-8.8"/></svg>`,
+      cancelled: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.25"/><rect x="5.75" y="5.75" width="4.5" height="4.5" rx=".75" fill="currentColor" stroke="none"/></svg>`,
+    };
+    const CHEVRON = `<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 4 4 4-4 4"/></svg>`;
+    const icon = (status) => `<span class="icon c-${esc(status)}" title="${esc(status)}">${ICONS[status] || ICONS.pending}</span>`;
+    const jobIcon = (s) => s === "completed" ? icon("succeeded") : s === "failed" ? icon("failed") : s === "awaiting_review" ? icon("pending") : s === "queued" ? icon("queued") : `<span class="icon c-active">${ICONS.running}</span>`;
+
+    const ACTIVE = new Set(["queued", "running"]);
+    const isFinished = (job) => job && (job.status === "completed" || job.status === "failed");
+    const isPaused = (job) => job?.status === "awaiting_review";
+    let educationConfig = null, cinematicControls = null, review = null;
+
+    function fmtDur(sec) {
+      sec = Math.max(0, Math.floor(sec));
+      if (sec < 60) return `${sec}s`;
+      if (sec < 3600) return `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, "0")}s`;
+      return `${Math.floor(sec / 3600)}h ${String(Math.floor(sec / 60) % 60).padStart(2, "0")}m`;
+    }
+    function ago(iso) {
+      const s = (Date.now() - new Date(iso)) / 1000;
+      if (s < 60) return "just now";
+      if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+      if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+      if (s < 7 * 86400) return `${Math.floor(s / 86400)}d ago`;
+      return new Date(iso).toLocaleDateString();
+    }
+    const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const seq = (op) => parseInt(op.id.split("-")[1], 10) || 0;
+    const byCreation = (a, b) => a.run - b.run || seq(a) - seq(b);
+
+    // ---------------------------------------------------------------- state
+    let jobs = [], models = [];
+    let cur = null;                 // { id, job, ops: Map }
+    let source = null, pollTimer = null, renderQueued = false, outcomeKey = "", userMsgKey = "";
+    let outputs = new Map();        // artifact name -> { card, video, src } of the Outputs panel
+    let photo = null, photoUrl = null;  // reference photo attached in the composer
+    const toggled = new Map();      // op id / run id -> open, when the user expanded or collapsed it
+
+    // ---------------------------------------------------------------- API key popover
+    $("key").value = localStorage.getItem("apiKey") || "";
+    $("keyBtn").onclick = (e) => { e.stopPropagation(); $("keyPop").hidden = !$("keyPop").hidden; if (!$("keyPop").hidden) $("key").focus(); };
+    document.addEventListener("click", (e) => { if (!e.target.closest(".key-wrap")) $("keyPop").hidden = true; });
+    $("key").onchange = () => {
+      localStorage.setItem("apiKey", key());
+      $("keyPop").hidden = true;
+      loadModels(); loadJobs(); startGpu();
+      if (cur) { const id = cur.id; cur = null; showJob(id); }
+    };
+
+    // ---------------------------------------------------------------- live GPU, CPU and RAM utilisation
+    const GPU_POLL_MS = 2000, GPU_HISTORY = 60;   // 60 samples x 2 s = last 2 minutes
+    const gpuHistory = new Map();                 // "server#index" or "server#host" -> [{ u, m }]
+    let gpuTimer = null, gpuBusy = false, gpuLast = null;
+    const pct = (v) => Math.max(0, Math.min(100, Number(v) || 0));
+    const gb = (mib) => mib == null ? "–" : (mib / 1024).toFixed(1);
+    const memPct = (g) => g.memory_total_mib ? 100 * (g.memory_used_mib || 0) / g.memory_total_mib : 0;
+    const avg = (xs) => xs.reduce((a, x) => a + x, 0) / xs.length;
+    function pushHistory(k, sample) {
+      const h = gpuHistory.get(k) || [];
+      h.push(sample);
+      if (h.length > GPU_HISTORY) h.shift();
+      gpuHistory.set(k, h);
+    }
+
+    function startGpu() {
+      clearInterval(gpuTimer);
+      gpuTimer = setInterval(pollGpu, GPU_POLL_MS);
+      pollGpu();
+    }
+    function stopGpu() { clearInterval(gpuTimer); gpuTimer = null; $("gpuWrap").hidden = true; $("gpuPop").hidden = true; }
+    async function pollGpu() {
+      if (gpuBusy || document.hidden) return;
+      gpuBusy = true;
+      try {
+        const r = await api("/api/gpu");
+        if (!r.ok) { stopGpu(); return; }     // 401: restarted when the API key changes
+        const data = await r.json();
+        if (!data.enabled) { stopGpu(); return; }
+        gpuLast = data;
+        for (const s of data.servers) {
+          for (const g of s.gpus) pushHistory(`${s.name}#${g.index}`, { u: pct(g.utilization_gpu), m: pct(memPct(g)) });
+          if (s.host) pushHistory(`${s.name}#host`, { u: pct(s.host.cpu_percent), m: pct(memPct(s.host)) });
+        }
+        renderGpu();
+      } catch { /* network blip: keep the last values */ } finally { gpuBusy = false; }
+    }
+    function renderGpu() {
+      const servers = gpuLast?.servers || [];
+      const gpus = servers.flatMap(s => s.gpus);
+      const online = servers.some(s => s.online);
+      $("gpuWrap").hidden = false;
+      $("gpuBtn").classList.toggle("online", online);
+      if (online && gpus.length) {
+        const util = avg(gpus.map(g => pct(g.utilization_gpu)));
+        const used = gpus.reduce((a, g) => a + (g.memory_used_mib || 0), 0);
+        const total = gpus.reduce((a, g) => a + (g.memory_total_mib || 0), 0);
+        const hosts = servers.filter(s => s.online && s.host).map(s => s.host);
+        const cpus = hosts.filter(h => h.cpu_percent != null);
+        const memories = hosts.filter(h => h.memory_total_mib != null);
+        const host = `${cpus.length ? ` · CPU ${Math.round(avg(cpus.map(h => pct(h.cpu_percent))))}%` : ""}${memories.length ? ` · RAM ${Math.round(avg(memories.map(h => pct(memPct(h)))))}%` : ""}`;
+        $("gpuText").textContent = `GPU ${Math.round(util)}% · ${gb(used)}/${gb(total)} GB${host}`;
+        $("gpuMeter").style.width = `${util}%`;
+      } else {
+        $("gpuText").textContent = "GPU offline";
+        $("gpuMeter").style.width = "0%";
+      }
+      if (!$("gpuPop").hidden) renderGpuPop();
+    }
+    function spark(points, colors = { u: "var(--accent)", m: "var(--done)" }) {
+      const W = 340, H = 44, n = GPU_HISTORY - 1;
+      const line = (f) => points.map((p, i) => `${((GPU_HISTORY - points.length + i) * W / n).toFixed(1)},${(H - 2 - f(p) * (H - 4) / 100).toFixed(1)}`).join(" ");
+      return `<svg class="gpu-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <polyline points="${line(p => p.m)}" fill="none" stroke="${colors.m}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+        <polyline points="${line(p => p.u)}" fill="none" stroke="${colors.u}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+      </svg>`;
+    }
+    function hostCard(s) {
+      const h = s.host, c = pct(h.cpu_percent), m = memPct(h);
+      const facts = [h.cpu_count ? `${h.cpu_count} vCPU` : null, h.load_1m == null ? null : `load ${h.load_1m.toFixed(2)}`].filter(Boolean);
+      return `<div class="gpu-card">
+        <div class="gpu-name">${h.scope === "container" ? "Container" : "Host"} · CPU and RAM</div>
+        <div class="gpu-row"><span class="muted">CPU</span><div class="gpu-bar cpu"><i style="width:${c}%"></i></div><span>${h.cpu_percent == null ? "–" : `${Math.round(c)}%`}</span></div>
+        <div class="gpu-row"><span class="muted">RAM</span><div class="gpu-bar ram"><i style="width:${m}%"></i></div><span>${h.memory_used_mib == null ? "–" : gb(h.memory_used_mib)} / ${h.memory_total_mib == null ? "unknown" : gb(h.memory_total_mib)} GB</span></div>
+        ${h.error ? `<div class="muted small">${esc(h.error)}</div>` : ""}
+        ${facts.length ? `<div class="gpu-facts">${facts.map(f => `<span>${esc(f)}</span>`).join("")}</div>` : ""}
+        ${spark(gpuHistory.get(`${s.name}#host`) || [], { u: "var(--success)", m: "var(--attention)" })}
+        <div class="gpu-legend"><span style="--c: var(--success)">CPU</span><span style="--c: var(--attention)">RAM</span><i class="grow"></i><small>last 2 min</small></div>
+      </div>`;
+    }
+    function renderGpuPop() {
+      const servers = gpuLast?.servers || [];
+      $("gpuPop").innerHTML = servers.map(s => `
+        <div class="gpu-server">
+          <div class="gpu-server-head">${s.online ? icon("succeeded") : icon("cancelled")}<span>${esc(s.name)}</span></div>
+          ${s.online ? "" : `<div class="muted small">ComfyUI is unreachable. Check the ACA revision and logs.</div>`}
+          ${s.online && s.host ? hostCard(s) : ""}
+          ${s.gpus.map(g => {
+            const u = pct(g.utilization_gpu), m = memPct(g);
+            const power = g.power_draw_w == null ? "–" : `${Math.round(g.power_draw_w)}${g.power_limit_w ? ` / ${Math.round(g.power_limit_w)}` : ""} W`;
+            return `<div class="gpu-card">
+              <div class="gpu-name">GPU ${esc(g.index)} · ${esc(g.name)}</div>
+              <div class="gpu-row"><span class="muted">Util</span><div class="gpu-bar util"><i style="width:${u}%"></i></div><span>${Math.round(u)}%</span></div>
+              <div class="gpu-row"><span class="muted">VRAM</span><div class="gpu-bar mem"><i style="width:${m}%"></i></div><span>${gb(g.memory_used_mib)} / ${gb(g.memory_total_mib)} GB</span></div>
+              <div class="gpu-facts"><span>${g.temperature_c == null ? "–" : `${Math.round(g.temperature_c)} °C`}</span><span>${power}</span></div>
+              ${spark(gpuHistory.get(`${s.name}#${g.index}`) || [])}
+              <div class="gpu-legend"><span style="--c: var(--accent)">Util</span><span style="--c: var(--done)">VRAM</span><i class="grow"></i><small>last 2 min</small></div>
+            </div>`;
+          }).join("")}
+        </div>`).join("") || `<div class="muted">No GPU server configured.</div>`;
+    }
+    $("gpuBtn").onclick = (e) => { e.stopPropagation(); $("gpuPop").hidden = !$("gpuPop").hidden; if (!$("gpuPop").hidden) renderGpuPop(); };
+    document.addEventListener("click", (e) => { if (!e.target.closest(".gpu-wrap")) $("gpuPop").hidden = true; });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && gpuTimer) pollGpu(); });
+
+    // ---------------------------------------------------------------- composer
+    async function loadModels() {
+      api("/api/config").then(r => r.ok ? r.json() : null).then(c => {
+        if (!c) return;
+        maxImageMb = c.max_image_mb;
+        educationConfig = c.education || null;
+        $("textModel").innerHTML = `<option value="">Configured default</option>` +
+          (educationConfig?.text_models || []).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+        for (const [id, flags] of [["imageProvider", educationConfig?.images], ["motionProvider", educationConfig?.motion]]) {
+          for (const option of $(id).options) {
+            option.disabled = !flags?.[option.value];
+            option.textContent = `${option.value === "comfyui" ? "ComfyUI" : "Foundry"}${option.disabled ? " (not configured)" : " (configured)"}`;
+          }
+        }
+        $("educationCapabilities").textContent = educationConfig
+          ? `Configuration only (not live provider verification): search ${educationConfig.search_configured ? "configured" : "missing"}; diagrams ${educationConfig.diagrams_configured ? "configured" : "missing"}; narration ${educationConfig.narration_configured ? "configured" : "missing"}. Foundry image/video require verified compatible modalities; text models are not image generators.`
+          : "Educational capabilities are unavailable from this server.";
+        $("attachBtn").title = $("attachBtn").title.replace(/up to \d+ MB/, `up to ${maxImageMb} MB`);
+      }).catch(() => {});
+      const r = await api("/api/models");
+      if (!r.ok) return;
+      models = await r.json();
+      $("model").innerHTML = models.map(m => `<option value="${esc(m.key)}" ${m.default ? "selected" : ""}>${esc(m.name)}</option>`).join("");
+      showLicense();
+    }
+    function showLicense() {
+      if ($("useCase").value === "educational") {
+        if ($("publicTopic").value.trim().length < 3) throw new Error("Provide a public-only search topic of at least three characters.");
+        $("license").textContent = "Educational canvas: 1080p or 4K (orientation-swapped for vertical). Source image dimensions depend on the provider; a 4K canvas is not a native-4K image claim. Music: MiniMax-Music3.";
+        return;
+      }
+      const m = models.find(m => m.key === $("model").value);
+      const vertical = $("orientation").value === "vertical";
+      const resolution = $("resolution").value || "720p";
+      let [w, h] = RESOLUTION_SIZES[resolution] || RESOLUTION_SIZES["720p"];
+      if (vertical) [w, h] = [h, w];
+      const render = m ? (vertical ? m.vertical_resolution : m.resolution) : "";
+      const output = resolution === "720p" ? `${w}x${h}` : `upscaled to ${w}x${h} with ${UPSCALER_TEXT[$("upscaler").value] || "FFmpeg"}`;
+      $("license").textContent = m ? `${render} · ${output} · ${m.clip_seconds}s clips${m.native_audio ? " · native audio" : ""} · License: ${m.license}` : "";
+    }
+    $("model").onchange = showLicense;
+    function updateFormatControls() {
+      // 720p is the models' native size: there is nothing to upscale.
+      const native = ($("resolution").value || "720p") === "720p";
+      $("upscaler").disabled = native || $("useCase").value === "educational";
+      $("upscalerPill").classList.toggle("off", native);
+      showLicense();
+    }
+    $("orientation").onchange = showLicense;
+    $("resolution").onchange = updateFormatControls;
+    $("upscaler").onchange = showLicense;
+    updateFormatControls();
+    function updateDeliveryControls() {
+      $("deliveryControls").disabled = !($("naturalistic").checked || $("useCase").value === "educational") || !$("narration").checked;
+      $("voice").disabled = !$("narration").checked;
+    }
+    $("naturalistic").onchange = updateDeliveryControls;
+    $("narration").onchange = updateDeliveryControls;
+    updateDeliveryControls();
+    function updateEducationControls() {
+      const educational = $("useCase").value === "educational";
+      if (educational && !cinematicControls) {
+        cinematicControls = { resolution: $("resolution").value, orientation: $("orientation").value,
+          narration: $("narration").checked, naturalistic: $("naturalistic").checked, music: $("music").checked };
+        $("resolution").value = "1080p"; $("orientation").value = "horizontal";
+        $("narration").checked = true; $("naturalistic").checked = false; $("music").checked = false;
+        setPhoto(null);
+      } else if (!educational && cinematicControls) {
+        for (const [id, value] of Object.entries(cinematicControls)) {
+          if (typeof value === "boolean") $(id).checked = value; else $(id).value = value;
+        }
+        cinematicControls = null;
+      }
+      $("educationControls").hidden = !educational; $("educationControls").disabled = !educational;
+      $("resolution").querySelector('[value="720p"]').disabled = educational;
+      for (const id of ["image", "naturalistic", "music", "narration"]) $(id).disabled = educational;
+      $("attachBtn").hidden = educational;
+      $("model").disabled = educational && ($("educationStyle").value !== "ai_motion" || $("motionProvider").value !== "comfyui");
+      $("motionProvider").disabled = !educational || $("educationStyle").value !== "ai_motion";
+      updateFormatControls(); updateDeliveryControls();
+    }
+    $("useCase").onchange = updateEducationControls;
+    $("educationStyle").onchange = updateEducationControls;
+    $("motionProvider").onchange = updateEducationControls;
+    $("prompt").oninput = () => { const t = $("prompt"); t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; };
+    $("prompt").onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("form").requestSubmit(); };
+    $("form").onsubmit = async (e) => {
+      e.preventDefault();
+      $("send").disabled = true;
+      try {
+        const body = { prompt: $("prompt").value, duration_minutes: parseFloat($("duration").value), video_model: $("model").value || null, narration: $("narration").checked, naturalistic: $("naturalistic").checked, music: $("music").checked, voice: $("voice").value.trim() || null };
+        body.orientation = $("orientation").value || "horizontal";
+        body.resolution = $("resolution").value || "720p";
+        body.upscaler = body.resolution === "720p" ? "ffmpeg" : ($("upscaler").value || "ffmpeg");
+        if ($("useCase").value === "educational") {
+          if (!educationConfig?.search_configured || !educationConfig?.narration_configured)
+            throw new Error("Educational planning requires configured public search and narration.");
+          if (!educationConfig.images?.[$("imageProvider").value])
+            throw new Error("Selected illustration provider is not configured.");
+          if ($("educationStyle").value === "ai_motion" && !educationConfig.motion?.[$("motionProvider").value])
+            throw new Error("Selected motion provider is not configured.");
+          body.use_case = "educational"; body.narration = true; body.naturalistic = false; body.music = false;
+          body.upscaler = "ffmpeg";
+          body.video_model = $("model").disabled ? null : body.video_model;
+          body.education = { style: $("educationStyle").value, image_provider: $("imageProvider").value,
+            motion_provider: $("motionProvider").value, text_model: $("textModel").value || null,
+            audience: $("audience").value, public_topic: $("publicTopic").value.trim(), music_mode: $("musicMode").value };
+        }
+        if ((body.naturalistic || body.use_case === "educational") && body.narration) {
+          const pronunciations = $("pronunciations").value.split(/\r?\n/).filter(line => line.trim()).map(line => {
+            const split = line.indexOf("=");
+            if (split < 1 || !line.slice(split + 1).trim()) throw new Error("Pronunciation hints must use TEXT=ALIAS.");
+            return { text: line.slice(0, split).trim(), alias: line.slice(split + 1).trim() };
+          });
+          body.delivery = { rate_percent: Number($("speechRate").value), sentence_pause_ms: Number($("sentencePause").value),
+            style: $("speechStyle").value.trim() || null, pronunciations };
+        }
+        let opts = { method: "POST", body: JSON.stringify(body) };
+        if (photo) {
+          const form = new FormData();
+          form.append("request", JSON.stringify(body));
+          form.append("image", photo, photo.name || "photo.png");
+          opts = { method: "POST", body: form };
+        }
+        const r = await api("/api/videos", opts);
+        if (r.status === 401) { $("keyPop").hidden = false; return; }
+        if (!r.ok) { alert(await errorText(r)); return; }
+        const job = await r.json();
+        $("prompt").value = ""; $("prompt").style.height = "";
+        setPhoto(null);
+        jobs = [job, ...jobs.filter(j => j.id !== job.id)];
+        location.hash = job.id;
+        loadJobs();
+      } catch (error) {
+        alert(error instanceof Error ? error.message : String(error));
+      } finally { $("send").disabled = false; }
+    };
+    async function errorText(r) {
+      const text = await r.text();
+      try {
+        const d = JSON.parse(text).detail;
+        return typeof d === "string" ? d : d.map(x => `${(x.loc || []).join(".")}: ${x.msg}`).join("\n");
+      } catch { return text; }
+    }
+
+    // Reference photo: picker, drag & drop and paste.
+    function setPhoto(file) {
+      if (file && $("useCase").value === "educational") { alert("Educational videos do not accept reference photos. Only the public topic is searched."); return; }
+      if (file && !IMAGE_TYPES.includes(file.type)) { alert("Use a PNG, JPEG or WebP photo."); file = null; }
+      else if (file && file.size > maxImageMb * 1024 * 1024) { alert(`The photo must be ${maxImageMb} MB or less.`); file = null; }
+      if (photoUrl) URL.revokeObjectURL(photoUrl);
+      photo = file; photoUrl = file ? URL.createObjectURL(file) : null;
+      $("image").value = "";
+      $("attachBtn").classList.toggle("on", !!file);
+      const size = file ? (file.size >= 1048576 ? `${(file.size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`) : "";
+      $("attachments").innerHTML = file ? `<div class="attachment">
+          <img src="${photoUrl}" alt="">
+          <span class="att-name" title="${esc(file.name)}">${esc(file.name || "Pasted photo")}<br><span class="muted">${size} · the agent builds the video around it</span></span>
+          <button class="att-remove" type="button" id="removePhoto" title="Remove photo" aria-label="Remove photo">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 8 8m0-8-8 8"/></svg>
+          </button></div>` : "";
+      if (file) $("removePhoto").onclick = () => setPhoto(null);
+    }
+    $("image").onchange = () => { if ($("image").files[0]) setPhoto($("image").files[0]); };
+    const firstImage = (items) => [...(items || [])].map(i => i.kind === "file" ? i.getAsFile() : i).find(f => f && f.type && f.type.startsWith("image/"));
+    $("form").addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); $("form").classList.add("dragging"); } });
+    $("form").addEventListener("dragleave", (e) => { if (!$("form").contains(e.relatedTarget)) $("form").classList.remove("dragging"); });
+    $("form").addEventListener("drop", (e) => {
+      $("form").classList.remove("dragging");
+      const file = firstImage(e.dataTransfer.files);
+      if (file) { e.preventDefault(); setPhoto(file); }
+    });
+    $("prompt").addEventListener("paste", (e) => { const file = firstImage(e.clipboardData && e.clipboardData.items); if (file) { e.preventDefault(); setPhoto(file); } });
+
+    // ---------------------------------------------------------------- sidebar
+    async function loadJobs() {
+      const r = await api("/api/videos");
+      if (r.status === 401) {
+        $("jobs").innerHTML = `<div class="empty">Enter the API key to see your videos.</div>`;
+        $("keyPop").hidden = false;
+        return;
+      }
+      if (!r.ok) return;
+      jobs = await r.json();
+      if (cur) {
+        const fresh = jobs.find(j => j.id === cur.id);
+        if (fresh && (!cur.job || new Date(fresh.updated_at) >= new Date(cur.job.updated_at))) { cur.job = fresh; scheduleRender(); }
+      }
+      renderSidebar();
+    }
+    function renderSidebar() {
+      $("jobs").innerHTML = jobs.map(j => {
+        const progress = progressText(j);
+        return `<a class="job-item ${cur && cur.id === j.id ? "active" : ""}" href="#${esc(j.id)}">
+          ${jobIcon(j.status)}
+          <span class="ji-main">
+            <span class="ji-title">${esc(j.title || j.request.prompt)}</span>
+            <span class="ji-meta">${esc(statusText(j))}${progress ? ` · ${esc(progress)}` : ""} · ${esc(ago(j.created_at))}</span>
+          </span>
+        </a>`;
+      }).join("") || `<div class="empty">No videos yet.</div>`;
+    }
+
+    // ---------------------------------------------------------------- routing
+    function route() {
+      const id = decodeURIComponent(location.hash.slice(1));
+      if (id) showJob(id); else showCompose();
+    }
+    function showCompose() {
+      stopWatching(); cur = null;
+      $("jobView").hidden = true; $("composeView").hidden = false;
+      $("crumb").textContent = ""; document.title = "AI Video Platform";
+      renderSidebar();
+      $("prompt").focus();
+    }
+    function showJob(id) {
+      if (cur && cur.id === id) return;
+      stopWatching();
+      cur = { id, job: jobs.find(j => j.id === id) || null, ops: new Map() };
+      review = null; $("educationReview").innerHTML = ""; $("educationReview").hidden = true;
+      delete $("educationReview").dataset.mode;
+      toggled.clear(); outcomeKey = ""; userMsgKey = "";
+      resetOutputs();
+      $("composeView").hidden = true; $("jobView").hidden = false;
+      $("main").scrollTop = 0;
+      renderSidebar(); renderJob();
+      watch(id);
+    }
+    window.addEventListener("hashchange", route);
+
+    // ---------------------------------------------------------------- live updates (SSE, polling fallback)
+    function stopWatching() {
+      if (source) { source.close(); source = null; }
+      clearTimeout(pollTimer); pollTimer = null;
+    }
+    function onState(job) {
+      if (!cur || job.id !== cur.id) return;
+      cur.job = job;
+      if (isPaused(job)) stopWatching();
+      const i = jobs.findIndex(j => j.id === job.id);
+      if (i >= 0) jobs[i] = job; else jobs.unshift(job);
+      renderSidebar(); scheduleRender();
+    }
+    function onOp(op) { cur.ops.set(op.id, op); scheduleRender(); }
+    function watch(id) {
+      if (!window.EventSource) return poll(id);
+      const es = source = new EventSource(`/api/videos/${encodeURIComponent(id)}/events?key=${encodeURIComponent(key())}`);
+      es.addEventListener("state", (e) => onState(JSON.parse(e.data)));
+      es.addEventListener("op", (e) => { if (cur && cur.id === id) onOp(JSON.parse(e.data)); });
+      es.addEventListener("end", () => { es.close(); if (source === es) source = null; loadJobs(); });
+      es.onerror = () => {
+        es.close();
+        if (source !== es) return;
+        source = null;
+        poll(id);  // stream unavailable (proxy, auth, network): fall back to polling
+      };
+    }
+    async function poll(id) {
+      if (!cur || cur.id !== id) return;
+      const enc = encodeURIComponent(id);
+      try {
+        const [rs, ro] = await Promise.all([api(`/api/videos/${enc}`), api(`/api/videos/${enc}/operations`)]);
+        if (rs.status === 401) { $("keyPop").hidden = false; return; }
+        if (rs.ok && ro.ok && cur && cur.id === id) {
+          onState(await rs.json());
+          for (const op of await ro.json()) cur.ops.set(op.id, op);
+          scheduleRender();
+          if (isFinished(cur.job) || isPaused(cur.job)) return;
+        }
+      } catch { /* network hiccup: try again */ }
+      if (cur && cur.id === id) pollTimer = setTimeout(() => poll(id), 3000);
+    }
+
+    // ---------------------------------------------------------------- session rendering
+    const educationUrl = (job, name) => `/api/videos/${encodeURIComponent(job.id)}/education/${name}?key=${encodeURIComponent(key())}`;
+    const safeSourceUrl = (url) => {
+      try { const u = new URL(url); return ["https:", "http:"].includes(u.protocol) ? u.href : ""; } catch { return ""; }
+    };
+    const isResearchStep = (op) => op.kind === "step" && op.attrs.step === "research";
+    function researchSourceUrls(op) {
+      if (cur?.job?.request.use_case !== "educational" || !isResearchStep(op)) return [];
+      if (Array.isArray(op.attrs.source_urls)) return op.attrs.source_urls;
+      const latest = [...cur.ops.values()].filter(isResearchStep).sort(byCreation).at(-1);
+      return latest?.id === op.id && review?.id === cur.id && review.draft
+        ? review.draft.research.sources.map(source => source.url) : [];
+    }
+    function renderPublicSources(urls) {
+      const sources = urls.map(value => {
+        const url = safeSourceUrl(value);
+        return `<li>${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>` : esc(value)}</li>`;
+      }).join("");
+      return `<ul class="public-sources" aria-label="Public source URLs">${sources}</ul>`;
+    }
+    function reviewField(label, name, value, multiline = false) {
+      return `<label>${esc(label)}${multiline
+        ? `<textarea class="input" data-field="${esc(name)}" required>${esc(value)}</textarea>`
+        : `<input class="input" data-field="${esc(name)}" value="${esc(value)}" required>`}</label>`;
+    }
+    function reviewError(message) { if ($("reviewError")) $("reviewError").textContent = message; }
+    function renderEducationReview(job) {
+      const panel = $("educationReview");
+      panel.hidden = job.request.use_case !== "educational" || !job.draft_revision;
+      if (panel.hidden) return;
+      if (!isPaused(job)) {
+        const mode = `${job.id}:readonly:${job.draft_revision}`;
+        if (panel.dataset.mode !== mode) {
+          panel.dataset.mode = mode;
+          review = { id: job.id, draft: null, dirty: false, stale: false, readonly: true };
+          panel.innerHTML = `<p>Loading public sources…</p><p class="review-error" id="reviewError" role="alert"></p><button class="btn" type="button" data-review="reload">Reload sources</button>`;
+          loadDraft(job.id);
+        }
+        return;
+      }
+      if (review?.readonly) review = null;
+      panel.dataset.mode = `${job.id}:review`;
+      if (review?.id === job.id) {
+        if (review.draft && review.draft.revision !== job.draft_revision) {
+          if (!review.dirty && !review.busy) {
+            review = null;
+            renderEducationReview(job);
+            return;
+          }
+          reviewError("A newer revision exists. Your edits have been retained. Copy them if needed, then reload the latest draft.");
+          review.stale = true;
+        }
+        return;
+      }
+      review = { id: job.id, draft: null, dirty: false, stale: false, readonly: false };
+      panel.innerHTML = `<p>Loading draft…</p><p class="review-error" id="reviewError" role="alert"></p><button class="btn" type="button" data-review="reload">Reload draft</button>`;
+      loadDraft(job.id);
+    }
+    async function loadDraft(id) {
+      const context = review;
+      const token = context.loadToken = Symbol();
+      for (const control of $("educationReview").querySelectorAll("fieldset, button")) control.disabled = true;
+      try {
+        const r = await api(`/api/videos/${encodeURIComponent(id)}/draft`);
+        if (!r.ok) throw new Error(await errorText(r));
+        const draft = await r.json();
+        if (review !== context || context.loadToken !== token || cur?.id !== id || context.readonly !== !isPaused(cur.job)) return;
+        context.draft = draft; context.dirty = false; context.stale = false;
+        scheduleRender();
+        const sourceDownload = `<a class="btn btn-sm" href="${educationUrl(cur.job, "sources.txt")}" download>Download sources</a>`;
+        if (context.readonly) {
+          $("educationReview").innerHTML = `<p class="muted">Editing is available only while awaiting review. Approved content is immutable; create a new job for post-approval changes.</p>${sourceDownload}`;
+          return;
+        }
+        $("educationReview").innerHTML = `<h3>Review draft · revision ${esc(draft.revision)}</h3>
+          <p>No image, video or music generation starts until approval. Save edits first; approval freezes content and provider choices.</p>
+          ${sourceDownload}
+          <form id="draftForm">
+            <fieldset id="briefFields"><legend>Enhanced brief</legend>
+              ${reviewField("Title", "title", draft.brief.title)}
+              ${reviewField("Description", "description", draft.brief.description, true)}
+              ${reviewField("Audience", "audience", draft.brief.audience)}
+              ${reviewField("Objectives (one per line)", "objectives", draft.brief.objectives.join("\n"), true)}
+              ${reviewField("Language locale (e.g. en-US)", "language", draft.brief.language)}
+              ${reviewField("Visual theme", "visual_theme", draft.brief.visual_theme, true)}
+            </fieldset>
+            ${draft.scenes.map((scene, i) => `<fieldset data-scene="${i}"><legend>Scene ${i + 1}</legend>
+              ${reviewField("Title", "title", scene.title)}
+              ${reviewField("Description", "description", scene.description, true)}
+              ${reviewField("Full narration (preserved exactly after approval)", "narration", scene.narration, true)}
+              ${reviewField("Illustration prompt", "image_prompt", scene.image_prompt, true)}
+              <label>Animation<select class="input" data-field="animation">${["zoom_in", "zoom_out", "pan", "reveal"].map(v => `<option ${scene.animation === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>Role<select class="input" data-field="role">${["intro", "content", "outro"].map(v => `<option ${scene.role === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              ${reviewField("Citation IDs (comma-separated; see Download sources for IDs)", "source_ids", scene.source_ids.join(", "))}
+              <label>Technical diagram JSON (blank for illustration; nodes: id, label, icon_query; edges: source, target, label)
+                <textarea class="input mono" data-field="diagram">${esc(scene.diagram ? JSON.stringify(scene.diagram, null, 2) : "")}</textarea></label>
+            </fieldset>`).join("")}
+            <div class="review-actions">
+              <button class="btn" type="submit">Save validated edits</button>
+              <button class="btn btn-primary" type="button" data-review="approve">Approve saved revision and render</button>
+              <button class="btn" type="button" data-review="regenerate">Regenerate plan</button>
+              <button class="btn" type="button" data-review="reload">Reload latest draft</button>
+            </div>
+          </form><p class="muted" id="reviewDirty">Saved revision ready for review.</p><p class="review-error" id="reviewError" role="alert"></p>`;
+        $("draftForm").oninput = () => { context.dirty = true; $("reviewDirty").textContent = "Unsaved edits — save before approval. Live updates will not replace these edits."; };
+        $("draftForm").onsubmit = (e) => { e.preventDefault(); mutateDraft("save"); };
+      } catch (error) {
+        if (review === context && context.loadToken === token) reviewError(error.message || String(error));
+      } finally {
+        if (review === context && context.loadToken === token && !context.busy)
+          for (const control of $("educationReview").querySelectorAll("fieldset, button")) control.disabled = false;
+      }
+    }
+    function draftUpdate() {
+      const readFields = root => Object.fromEntries([...root.querySelectorAll("[data-field]")].map(el => [el.dataset.field, el.value]));
+      const brief = readFields($("briefFields"));
+      brief.objectives = brief.objectives.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      const scenes = [...$("draftForm").querySelectorAll("[data-scene]")].map(root => {
+        const scene = readFields(root);
+        scene.source_ids = scene.source_ids.split(",").map(s => s.trim()).filter(Boolean);
+        try { scene.diagram = scene.diagram.trim() ? JSON.parse(scene.diagram) : null; }
+        catch { throw new Error(`Scene ${Number(root.dataset.scene) + 1}: diagram must be valid JSON.`); }
+        return scene;
+      });
+      return { revision: review.draft.revision, brief, scenes };
+    }
+    async function mutateDraft(action) {
+      if (!review || review.busy) return;
+      const context = review, id = context.id;
+      try {
+        if (action === "reload") {
+          if (context.dirty && !confirm("Discard unsaved edits and load the latest draft?")) return;
+          await loadDraft(id); return;
+        }
+        if (!context.draft) throw new Error("Load the draft first.");
+        if (context.stale) throw new Error("Reload the latest draft before editing or approving a stale revision.");
+        if (action === "approve" && context.dirty) throw new Error("Save and validate your edits before approving.");
+        if (action === "regenerate" && !confirm("Replace this draft with a newly researched plan? Unsaved edits will be discarded.")) return;
+        const payload = action === "save" ? draftUpdate() : { revision: context.draft.revision };
+        context.busy = true; reviewError("");
+        for (const button of $("educationReview").querySelectorAll("button")) button.disabled = true;
+        for (const fieldset of $("educationReview").querySelectorAll("fieldset")) fieldset.disabled = true;
+        const r = await api(`/api/videos/${encodeURIComponent(id)}/${action === "save" ? "draft" : action}`,
+          { method: action === "save" ? "PUT" : "POST", body: JSON.stringify(payload) });
+        if (!r.ok) {
+          if (r.status === 409) context.stale = true;
+          throw new Error(await errorText(r));
+        }
+        if (review !== context || cur?.id !== id) return;
+        if (action === "save") {
+          context.dirty = false;
+          const state = await api(`/api/videos/${encodeURIComponent(id)}`);
+          if (state.ok) onState(await state.json());
+          await loadDraft(id);
+        } else {
+          context.dirty = false;
+          const state = await api(`/api/videos/${encodeURIComponent(id)}`);
+          if (state.ok) onState(await state.json());
+          stopWatching(); watch(id);
+        }
+      } catch (error) {
+        if (review === context) reviewError(`${error.message || error}${context.stale ? "\nYour edits are retained. Copy them if needed, then reload the latest draft." : ""}`);
+      } finally {
+        context.busy = false;
+        if (review === context) {
+          for (const button of $("educationReview").querySelectorAll("button")) button.disabled = false;
+          for (const fieldset of $("educationReview").querySelectorAll("fieldset")) fieldset.disabled = false;
+        }
+      }
+    }
+    $("educationReview").onclick = (e) => {
+      const button = e.target.closest("[data-review]");
+      if (button) mutateDraft(button.dataset.review);
+    };
+    function scheduleRender() {
+      if (renderQueued) return;
+      renderQueued = true;
+      const run = () => {
+        // Don't wipe out a text selection (e.g. copying a prompt or a log line) with a live update.
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed && $("timeline").contains(sel.anchorNode)) return setTimeout(run, 1000);
+        renderQueued = false; renderJob();
+      };
+      requestAnimationFrame(run);
+    }
+    function isOpen(op) {
+      if (toggled.has(op.id)) return toggled.get(op.id);
+      return op.status === "failed" || (op.kind === "step" && op.status === "running") || researchSourceUrls(op).length > 0;
+    }
+    function duration(op) {
+      if (!op.started_at) return `<span class="dur"></span>`;
+      const title = `Started ${time(op.started_at)}${op.ended_at ? ` · ended ${time(op.ended_at)}` : ""}`;
+      if (!op.ended_at) return `<span class="dur" data-since="${esc(op.started_at)}" title="${esc(title)}">${fmtDur((Date.now() - new Date(op.started_at)) / 1000)}</span>`;
+      return `<span class="dur" title="${esc(title)}">${fmtDur((new Date(op.ended_at) - new Date(op.started_at)) / 1000)}</span>`;
+    }
+    function attrValue(k, v) {
+      if (typeof v === "string") return v.replace(/^https?:\/\//, "");
+      return typeof v === "object" ? JSON.stringify(v) : String(v);
+    }
+    function renderOp(op, children) {
+      const kids = (children.get(op.id) || []);
+      const attrs = Object.entries(op.attrs).filter(([k, v]) => !HIDDEN_ATTRS.has(k) && v !== null && v !== "");
+      const sourceUrls = researchSourceUrls(op);
+      // Keyframes (and the clips animated from them) show the keyframe image once it exists.
+      const done = op.status === "succeeded" || op.status === "reused";
+      const thumbShot = op.attrs.shot != null && ((op.kind === "keyframe" && done) || (op.kind === "clip" && op.attrs.keyframe)) ? op.attrs.shot : null;
+      const hasBody = kids.length || op.detail || op.logs.length || op.error || attrs.length || sourceUrls.length || thumbShot != null;
+      const open = hasBody && isOpen(op);
+      const progress = op.progress_total ? `
+        <span class="bar"><span style="width:${Math.round(100 * op.progress_done / op.progress_total)}%"></span></span>
+        <span class="count">${op.progress_done}/${op.progress_total}</span>` : "";
+      const tool = op.kind !== "step" && TOOL[op.kind] ? `<span class="tool">${TOOL[op.kind]}</span>` : "";
+      let body = "";
+      if (open) {
+        body = `<div class="op-body">
+          ${sourceUrls.length ? renderPublicSources(sourceUrls) : ""}
+          ${attrs.length ? `<div class="chips">${attrs.map(([k, v]) => `<span class="chip" title="${esc(attrValue(k, v))}"><span class="k">${esc(k.replace(/_/g, " "))}</span>${esc(attrValue(k, v))}</span>`).join("")}</div>` : ""}
+          ${thumbShot != null ? `<div><div class="field-label">Keyframe</div><img class="thumb${cur.job && cur.job.request.orientation === "vertical" ? " vertical" : ""}" loading="lazy" alt="Keyframe of shot ${esc(thumbShot + 1)}" src="/api/videos/${encodeURIComponent(cur.id)}/keyframes/${esc(thumbShot)}?key=${encodeURIComponent(key())}"></div>` : ""}
+          ${op.detail ? `<div><div class="field-label">${DETAIL_LABEL[op.kind] || "Details"}</div><div class="detail">${esc(op.detail)}</div></div>` : ""}
+          ${op.error ? `<div class="op-error">${esc(op.error)}</div>` : ""}
+          ${op.logs.length ? `<pre class="log">${op.logs.map(l => `<span class="ts">${esc(time(l.at))}</span> <span class="lvl-${esc(l.level)}">${esc(l.level.padEnd(7))}</span> ${esc(l.message)}`).join("\n")}</pre>` : ""}
+          ${kids.length ? `<div class="op-children">${kids.map(k => renderOp(k, children)).join("")}</div>` : ""}
+        </div>`;
+      }
+      return `<div class="op ${open ? "open" : ""}">
+        <div class="op-row ${hasBody ? "" : "static"}" ${hasBody ? `data-toggle="${esc(op.id)}" role="button" tabindex="0" aria-expanded="${open}"` : ""}>
+          ${hasBody ? CHEVRON : CHEVRON.replace('class="chev"', 'class="chev none"')}
+          ${icon(op.status)}
+          <span class="op-title">${esc(op.title)}</span>
+          ${tool}
+          <span class="op-summary">${esc(op.summary || "")}</span>
+          <span class="grow"></span>
+          ${progress}
+          ${duration(op)}
+        </div>
+        ${body}
+      </div>`;
+    }
+    function runResult(ops) {
+      if (ops.some(o => o.status === "failed")) return "failed";
+      if (ops.some(o => o.status === "cancelled")) return "cancelled";
+      if (ops.some(o => ACTIVE.has(o.status))) return "running";
+      return "succeeded";
+    }
+    function renderRun(steps, children, placeholders) {
+      const rows = steps.map(op => renderOp(op, children));
+      for (const [, title] of placeholders) {
+        rows.push(`<div class="op pending"><div class="op-row">${CHEVRON.replace('class="chev"', 'class="chev none"')}${icon("pending")}<span class="op-title">${esc(title)}</span></div></div>`);
+      }
+      return `<div class="timeline">${rows.join("")}</div>`;
+    }
+    // ---------------------------------------------------------------- outputs panel
+    function formatText(request) {
+      const resolution = request.resolution || "720p";
+      const text = `${RESOLUTION_TEXT[resolution] || resolution} ${request.orientation === "vertical" ? "vertical" : "horizontal"}`;
+      if (request.use_case === "educational") return `${text} canvas`;
+      return resolution === "720p" ? text : `${text} · ${UPSCALER_TEXT[request.upscaler] || request.upscaler}`;
+    }
+    // Videos only start loading when they scroll into view: a 10 min video has ~120 shots per group.
+    const lazyVideos = typeof IntersectionObserver === "function" ? new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { loadVideo(e.target); lazyVideos.unobserve(e.target); }
+    }, { rootMargin: "300px" }) : null;
+    function loadVideo(video) { if (video.dataset.src && video.getAttribute("src") !== video.dataset.src) video.src = video.dataset.src; }
+    function resetOutputs() {
+      for (const item of outputs.values()) if (lazyVideos) lazyVideos.unobserve(item.video);
+      outputs = new Map();
+      $("outputs").innerHTML = "";
+    }
+    function outputItems(ops) {
+      // An operation records the file it produced once it is stored; for files re-rendered by a later run, the
+      // latest operation wins (ops are in creation order).
+      const items = new Map();
+      for (const op of ops) {
+        for (const [attr, mix, rank] of [["artifact", "", 0], ["voice_artifact", "narration", 1], ["music_artifact", "music", 2]]) {
+          const name = op.attrs[attr];
+          if (typeof name !== "string" || name === "final.mp4") continue;
+          const educational = name.match(/^education\/render\/[a-f0-9]{64}\/(images|processed|scenes)\/scene_(\d{3})\.(png|drawio|mp4)$/);
+          if (educational) {
+            const [, folder, number, extension] = educational;
+            const group = extension === "drawio" ? "education_drawio" : `education_${folder}`;
+            items.set(name, { name, group, type: extension, label: `Scene ${Number(number) + 1}`,
+              title: op.summary || "", version: op.id, order: Number(number) });
+            continue;
+          }
+          const group = mix ? "mixes" : name.split("/")[0];
+          if (!OUTPUT_GROUPS.some(([g]) => g === group)) continue;
+          const n = parseInt((name.match(/_(\d{3})/) || [])[1], 10) || 0;
+          const shot = group === "clips" || group === "processed";
+          items.set(name, { name, group, label: shot ? `Shot ${n + 1}` : `Scene ${n + 1}${mix ? ` · ${mix}` : ""}`,
+            title: op.summary || "", version: op.id, order: n * 3 + rank });
+        }
+      }
+      return items;
+    }
+    function outputGroup(job, key) {
+      const root = $("outputs");
+      let group = root.querySelector(`[data-group="${key}"]`);
+      if (group) return group;
+      group = document.createElement("details");
+      group.className = "output-group";
+      group.dataset.group = key;
+      // Long videos have many shots: their groups start collapsed so the scenes and the final video stay close.
+      group.open = !((key === "clips" || key === "processed") && (job.clips_total || 0) > 12);
+      const label = OUTPUT_GROUPS.find(([g]) => g === key)[1];
+      group.innerHTML = `<summary>${esc(label)} <span class="count muted"></span></summary><div class="media-grid"></div>`;
+      const index = OUTPUT_GROUPS.findIndex(([g]) => g === key);
+      const after = [...root.children].find(c => OUTPUT_GROUPS.findIndex(([g]) => g === c.dataset.group) > index);
+      root.insertBefore(group, after || null);
+      return group;
+    }
+    // Reconciled by file name, never re-rendered with innerHTML: a video that is playing keeps playing while the
+    // timeline above it updates live.
+    function renderOutputs(job, ops) {
+      $("outputs").classList.toggle("vertical", job.request.orientation === "vertical");
+      const enc = encodeURIComponent(job.id);
+      for (const item of outputItems(ops).values()) {
+        const src = item.name.startsWith("education/")
+          ? `${educationUrl(job, item.name.slice("education/".length))}&v=${encodeURIComponent(item.version)}`
+          : `/api/videos/${enc}/media/${item.name}?v=${encodeURIComponent(item.version)}&key=${encodeURIComponent(key())}`;
+        const existing = outputs.get(item.name);
+        if (existing) {
+          // Re-rendered by a later run: switch to the new file, but never under a viewer who is watching it.
+          if (existing.src !== src && existing.video.paused) {
+            existing.src = existing.video.dataset.src = src;
+            if (existing.video.getAttribute("src")) existing.video.src = src;
+          }
+          continue;
+        }
+        const group = outputGroup(job, item.group);
+        const grid = group.querySelector(".media-grid");
+        const card = document.createElement("figure");
+        card.className = "media-card";
+        card.dataset.name = item.name;
+        card.dataset.order = item.order;
+        const video = document.createElement(item.type === "png" ? "img" : item.type === "drawio" ? "a" : "video");
+        if (item.type === "png") { video.src = src; video.alt = item.label; video.loading = "lazy"; video.style.width = "100%"; }
+        else if (item.type === "drawio") { video.href = src; video.download = ""; video.textContent = "Download editable draw.io"; }
+        else {
+          video.controls = true; video.preload = "metadata"; video.playsInline = true;
+          video.dataset.src = src;
+        }
+        video.setAttribute("aria-label", `${item.label}${item.title ? ` · ${item.title}` : ""}`);
+        const caption = document.createElement("figcaption");
+        caption.title = `${item.label}${item.title ? ` · ${item.title}` : ""} (${item.name})`;
+        caption.innerHTML = `${esc(item.label)}${item.title ? ` <span class="muted">· ${esc(item.title)}</span>` : ""}`;
+        card.append(video, caption);
+        // Shots finish out of order: keep the cards in shot / scene order.
+        const next = [...grid.children].find(c => Number(c.dataset.order) > item.order);
+        grid.insertBefore(card, next || null);
+        group.querySelector(".count").textContent = grid.children.length;
+        outputs.set(item.name, { card, video, src });
+        if (video.tagName === "VIDEO") { if (lazyVideos) lazyVideos.observe(video); else loadVideo(video); }
+      }
+    }
+
+    function renderJob() {
+      if (!cur) return;
+      const job = cur.job;
+      const ops = [...cur.ops.values()].sort(byCreation);
+      document.title = `${job?.title || "Video"} · AI Video Platform`;
+      $("crumb").textContent = job ? (job.title || job.request.prompt.slice(0, 60)) : cur.id;
+
+      if (!job) {
+        $("jobHead").innerHTML = `<h2>Loading…</h2>`;
+        $("userMsg").innerHTML = ""; userMsgKey = ""; $("agentTitle").innerHTML = ""; $("timeline").innerHTML = ""; $("outcome").innerHTML = "";
+        resetOutputs();
+        return;
+      }
+      renderEducationReview(job);
+      const statusClass = job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "queued" || isPaused(job) ? "queued" : "active";
+      const model = models.find(m => m.key === job.request.video_model);
+      $("jobHead").innerHTML = `
+        <h2>${esc(job.title || "Untitled video")}</h2>
+        <div class="job-meta">
+          <span class="label ${statusClass}">${statusClass === "active" ? `<span class="icon">${ICONS.running}</span>` : ""}${esc(statusText(job))}</span>
+          ${job.request.use_case === "educational" && progressText(job) ? `<span>${esc(progressText(job))}</span>` : ""}
+          <span>${esc(job.request.use_case === "educational" ? `Educational · ${job.request.education.style} · ${job.request.education.image_provider}` : model ? model.name : job.request.video_model)}</span>
+          <span>·</span><span>${esc(formatText(job.request))}</span>
+          <span>·</span><span>${esc(job.request.duration_minutes)} min</span>
+          ${job.duration_seconds ? `<span>·</span><span>${esc(fmtDur(job.duration_seconds))} rendered</span>` : ""}
+          <span>·</span><span title="${esc(new Date(job.created_at).toLocaleString())}">${esc(ago(job.created_at))}</span>
+          <span>·</span><code>${esc(job.id)}</code>
+        </div>`;
+      // Re-rendered only when it changes, so the reference photo isn't fetched again on every live update.
+      const userKey = `${job.id}|${key()}|${JSON.stringify(job.request)}`;
+      if (userKey !== userMsgKey) {
+        userMsgKey = userKey;
+        $("userMsg").innerHTML = `
+        <div class="msg-title"><b>You</b><span class="muted small">${esc(new Date(job.created_at).toLocaleString())}</span></div>
+        <div class="bubble">${esc(job.request.prompt)}</div>
+        ${job.request.reference_image ? `<img class="ref-photo" alt="Reference photo" src="/api/videos/${encodeURIComponent(job.id)}/image?key=${encodeURIComponent(key())}">` : ""}
+        <div class="chips">
+          ${job.request.reference_image ? `<span class="chip"><span class="k">mode</span>photo to video</span>` : ""}
+          ${job.request.naturalistic ? `<span class="chip"><span class="k">direction</span>naturalistic</span>` : ""}
+          <span class="chip"><span class="k">${job.request.education ? "style" : "model"}</span>${esc(job.request.education ? job.request.education.style : job.request.video_model)}</span>
+          <span class="chip"><span class="k">format</span>${esc(formatText(job.request))}</span>
+          <span class="chip"><span class="k">duration</span>${esc(job.request.duration_minutes)} min</span>
+          <span class="chip"><span class="k">narration</span>${job.request.narration ? "on" : "off"}</span>
+          ${job.request.music ? `<span class="chip"><span class="k">music</span>MiniMax-Music3</span>` : ""}
+          ${job.request.education ? `<span class="chip"><span class="k">music</span>${esc(job.request.education.music_mode)} · MiniMax-Music3</span>` : ""}
+          ${job.request.voice ? `<span class="chip"><span class="k">voice</span>${esc(job.request.voice)}</span>` : ""}
+          ${job.request.seed != null ? `<span class="chip"><span class="k">seed</span>${esc(job.request.seed)}</span>` : ""}
+        </div>`;
+      }
+      const elapsed = isFinished(job) ? ` in ${fmtDur((new Date(job.updated_at) - new Date(job.created_at)) / 1000)}` : "";
+      const agentText = job.request.use_case === "educational" && ["generating", "processing", "keyframing"].includes(job.status)
+        ? job.status === "keyframing" ? "is generating illustrations and diagrams" : "is rendering the educational scenes"
+        : AGENT_TEXT[job.status] || job.status;
+      $("agentTitle").innerHTML = `<b>Video agent</b><span class="muted">${esc(agentText)}${esc(elapsed)}</span>`;
+
+      // Timeline: latest run in full, earlier runs collapsed above it.
+      const children = new Map();
+      for (const op of ops) if (op.parent_id) { if (!children.has(op.parent_id)) children.set(op.parent_id, []); children.get(op.parent_id).push(op); }
+      const runs = [...new Set(ops.map(o => o.run))].sort((a, b) => a - b);
+      const latest = runs[runs.length - 1];
+      const latestResearch = ops.filter(isResearchStep).at(-1);
+      let html = "";
+      for (const run of runs.slice(0, -1)) {
+        const runOps = ops.filter(o => o.run === run);
+        const id = `run-${run}`, open = toggled.get(id) ?? (latestResearch?.run === run && researchSourceUrls(latestResearch).length > 0), result = runResult(runOps);
+        const starts = runOps.map(o => o.started_at).filter(Boolean).map(t => new Date(t));
+        const ends = runOps.map(o => o.ended_at).filter(Boolean).map(t => new Date(t));
+        const span = starts.length && ends.length ? fmtDur((Math.max(...ends) - Math.min(...starts)) / 1000) : "";
+        html += `<div class="run-group op ${open ? "open" : ""}">
+          <div class="op-row" data-toggle="${id}" role="button" tabindex="0" aria-expanded="${open}">${CHEVRON}${icon(result)}
+            <span class="op-title">Run ${run}</span><span class="op-summary">${esc(result === "cancelled" ? "interrupted" : result)}</span><span class="grow"></span><span class="dur">${span}</span></div>
+          ${open ? `<div class="op-body">${renderRun(runOps.filter(o => !o.parent_id), children, [])}</div>` : ""}
+        </div>`;
+      }
+      const steps = ops.filter(o => o.run === latest && !o.parent_id);
+      const started = new Set(steps.map(o => o.attrs.step));
+      // Naturalistic jobs write the narration before the keyframes (prepare_narration) instead of after the clips.
+      const plannedSteps = job.request.use_case === "educational"
+        ? []
+        : job.request.naturalistic
+        ? STEPS.flatMap(s => s[0] === "narrate" ? [] : s[0] === "generate_keyframes" ? [["prepare_narration", "Prepare narration"], s] : [s])
+        : STEPS;
+      const placeholders = isFinished(job) || isPaused(job) ? [] : plannedSteps.filter(([k]) => !started.has(k));
+      if (runs.length > 1) html += `<div class="run-label">Run ${latest}</div>`;
+      html += renderRun(steps, children, placeholders);
+      $("timeline").innerHTML = html;
+      renderOutputs(job, ops);
+
+      // Outcome is only re-rendered when it changes, so the video player keeps playing.
+      const k = `${job.id}|${job.status}|${job.error || ""}`;
+      if (k !== outcomeKey) {
+        outcomeKey = k;
+        const enc = encodeURIComponent(job.id), q = `key=${encodeURIComponent(key())}`;
+        if (job.status === "completed") {
+          $("outcome").innerHTML = `<div class="player">
+            <video controls preload="metadata" src="/api/videos/${enc}/download?${q}"></video>
+            <div class="player-bar">
+              <a class="btn btn-sm" href="/api/videos/${enc}/download?${q}" download="${esc(job.id)}.mp4">Download MP4</a>
+              <a class="btn btn-sm" href="/api/videos/${enc}/${job.request.use_case === "educational" ? "draft" : "storyboard"}?${q}" target="_blank" rel="noopener">${job.request.use_case === "educational" ? "Approved draft JSON" : "Storyboard JSON"}</a>
+            </div></div>`;
+        } else if (job.status === "failed") {
+          $("outcome").innerHTML = `<div class="flash flash-error">${icon("failed")}
+            <div class="flash-text">${esc(job.error || "The job failed.")}</div>
+            <button class="btn btn-sm" type="button" data-retry="${esc(job.id)}">Retry</button></div>`;
+        } else {
+          $("outcome").innerHTML = "";
+        }
+      }
+    }
+
+    // Expand / collapse (pointer or keyboard) and retry. Toggling on pointerdown keeps clicks reliable while
+    // live updates re-render the timeline.
+    function toggle(row, refocus) {
+      const id = row.dataset.toggle;
+      toggled.set(id, row.getAttribute("aria-expanded") !== "true");
+      renderJob();
+      if (refocus) document.querySelector(`[data-toggle="${CSS.escape(id)}"]`)?.focus();
+    }
+    $("jobView").addEventListener("pointerdown", (e) => {
+      const row = e.button === 0 && e.target.closest("[data-toggle]");
+      if (row) { e.preventDefault(); toggle(row, false); }
+    });
+    $("jobView").addEventListener("click", async (e) => {
+      const retry = e.target.closest("[data-retry]");
+      if (retry) {
+        retry.disabled = true;
+        const r = await api(`/api/videos/${encodeURIComponent(retry.dataset.retry)}/retry`, { method: "POST" });
+        if (!r.ok) { alert(await r.text()); retry.disabled = false; return; }
+        onState(await r.json());
+        stopWatching(); watch(cur.id);
+      }
+    });
+    $("jobView").addEventListener("keydown", (e) => {
+      const row = e.target.closest("[data-toggle]");
+      if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(row, true); }
+    });
+
+    // Live durations of running operations.
+    setInterval(() => {
+      for (const el of document.querySelectorAll(".dur[data-since]")) el.textContent = fmtDur((Date.now() - new Date(el.dataset.since)) / 1000);
+    }, 1000);
+
+    loadModels();
+    loadJobs().then(route);
+    setInterval(loadJobs, 10000);
+    startGpu();
+  </script>
+</body>
+</html>

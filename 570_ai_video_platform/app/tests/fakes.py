@@ -239,7 +239,7 @@ class FakeNarrator:
         pass
 
     async def synthesize(self, text: str, dest: Path, voice: str | None = None, language: str = "en-US",
-                          delivery=None) -> Path:
+                          delivery=None, transport="sdk") -> Path:
         self.texts.append(text)
         self.deliveries.append(delivery)
         dest.parent.mkdir(parents=True, exist_ok=True)

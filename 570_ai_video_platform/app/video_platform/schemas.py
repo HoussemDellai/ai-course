@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .education_schemas import EducationOptions
+
 # ---------------------------------------------------------------------------
 # Structured outputs produced by the LLM agents (all fields required for strict JSON schema).
 # ---------------------------------------------------------------------------
@@ -159,6 +161,8 @@ class Storyboard(BaseModel):
 
 
 class VideoRequest(BaseModel):
+    use_case: Literal["cinematic", "educational"] = "cinematic"
+    education: EducationOptions | None = None
     prompt: str = Field(min_length=3, max_length=4000)
     duration_minutes: float = Field(default=5.0, ge=0.25, le=10.0)
     video_model: str | None = Field(default=None, description="wan22, ltx2, ltx25 or hunyuan15")
@@ -185,8 +189,26 @@ class VideoRequest(BaseModel):
 
     @model_validator(mode="after")
     def delivery_requires_narration(self) -> VideoRequest:
-        if self.delivery is not None and not (self.naturalistic and self.narration):
+        if self.delivery is not None and not ((self.naturalistic or self.use_case == "educational") and self.narration):
             raise ValueError("Delivery controls require naturalistic mode and narration")
+        return self
+
+    @model_validator(mode="after")
+    def educational_defaults(self) -> VideoRequest:
+        if self.use_case == "cinematic":
+            if self.education is not None:
+                raise ValueError("Education options require the educational use case")
+            return self
+        if self.education is None:
+            raise ValueError("Educational videos require education options and a public_topic")
+        if not self.narration:
+            raise ValueError("Educational videos require narration")
+        if self.naturalistic or self.reference_image:
+            raise ValueError("Educational videos do not support naturalistic mode or reference photos")
+        if "resolution" not in self.model_fields_set:
+            self.resolution = "1080p"
+        if self.resolution == "720p":
+            raise ValueError("Educational videos require 1080p or 4k")
         return self
 
     @model_validator(mode="after")
@@ -199,6 +221,8 @@ class VideoRequest(BaseModel):
 
 class JobStatus(str, Enum):
     queued = "queued"
+    researching = "researching"
+    awaiting_review = "awaiting_review"
     enhancing = "enhancing"
     planning = "planning"
     keyframing = "keyframing"
@@ -224,6 +248,7 @@ class JobState(BaseModel):
     clips_done: int = 0
     duration_seconds: float | None = None
     error: str | None = None
+    draft_revision: int | None = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

@@ -37,6 +37,16 @@ class Settings:
     music_fade_seconds: float = 1.0
     output_fps: int = 24
     max_image_mb: int = 50
+    education_text_models: list[str] = field(default_factory=list)
+    education_search_model: str = ""
+    foundry_image_endpoint: str = ""
+    foundry_image_model: str = ""
+    foundry_video_endpoint: str = ""
+    foundry_video_model: str = ""
+    drawio_mcp_url: str = ""
+    drawio_export_command: str = ""
+    comfy_image_workflow: str = ""
+    education_font: str = ""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -62,6 +72,16 @@ class Settings:
             music_volume=float(e("MUSIC_VOLUME", "0.3")),
             music_fade_seconds=float(e("MUSIC_FADE_SECONDS", "1.0")),
             max_image_mb=int(e("MAX_IMAGE_MB", "50")),
+            education_text_models=_list(e("EDUCATION_TEXT_MODELS", "")),
+            education_search_model=e("EDUCATION_SEARCH_MODEL", ""),
+            foundry_image_endpoint=e("FOUNDRY_IMAGE_ENDPOINT", ""),
+            foundry_image_model=e("FOUNDRY_IMAGE_MODEL", ""),
+            foundry_video_endpoint=e("FOUNDRY_VIDEO_ENDPOINT", ""),
+            foundry_video_model=e("FOUNDRY_VIDEO_MODEL", ""),
+            drawio_mcp_url=e("DRAWIO_MCP_URL", ""),
+            drawio_export_command=e("DRAWIO_EXPORT_COMMAND", ""),
+            comfy_image_workflow=e("COMFY_IMAGE_WORKFLOW", ""),
+            education_font=e("EDUCATION_FONT", ""),
         )
 
     @property

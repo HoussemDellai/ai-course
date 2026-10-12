@@ -110,7 +110,8 @@ def naturalistic_manifest(job: VideoJob, settings: Settings) -> dict:
         # Music is mixed last and doesn't change the visual or narration artifacts. The output format is in
         # "output", so jobs created before it was selectable (1280x720) keep the same fingerprint.
         "version": 1,
-        "request": job.request.model_dump(exclude={"music", "orientation", "resolution", "upscaler"}),
+        "request": job.request.model_dump(exclude={"music", "orientation", "resolution", "upscaler",
+                                                  "use_case", "education"}),
         "model": vars(job.model), "voice": settings.tts_voice,
         "output": [*job.output_size, settings.output_fps],
         "ambient_volume": settings.ambient_audio_volume,

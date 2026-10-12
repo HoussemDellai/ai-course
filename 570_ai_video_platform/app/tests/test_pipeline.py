@@ -414,7 +414,9 @@ def test_api_reference_photo(settings, tmp_path, monkeypatch):
     photo = make_png(640, 480, fmt="JPEG")
     with TestClient(app) as client:
         post = lambda **kw: client.post("/api/videos", headers=h, **kw)
-        assert client.get("/api/config", headers=h).json() == {"max_image_mb": 1}
+        config = client.get("/api/config", headers=h).json()
+        assert config["max_image_mb"] == 1
+        assert config["education"]["search_configured"] is False
         # JSON clients can't flag a photo that was never uploaded.
         r = post(json={"prompt": "a lighthouse", "duration_minutes": 0.25, "reference_image": True})
         assert r.status_code == 202 and r.json()["request"]["reference_image"] is False

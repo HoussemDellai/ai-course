@@ -7,9 +7,12 @@ import random
 import shutil
 import uuid
 from collections.abc import Callable
+from typing import Protocol
 
-from agent_framework import Workflow
+from agent_framework import WorkflowRunResult
 
+from .education import APPROVAL, DRAFT, draft_fingerprint, validate_education_request
+from .education_schemas import DraftUpdate, EducationalDraft, ReviewResult
 from .config import Settings
 from .operations import Operation, OperationRecorder, install_log_capture, load_operations
 from .schemas import JobState, JobStatus, VideoRequest, utcnow
@@ -19,6 +22,14 @@ from .workflow import REFERENCE_IMAGE, VideoResult, new_video_job
 log = logging.getLogger(__name__)
 
 
+class WorkflowRunner(Protocol):
+    async def run(self, job) -> WorkflowRunResult: ...
+
+
+class ReviewConflict(ValueError):
+    pass
+
+
 class JobManager:
     """Runs video workflows as background tasks and persists their state in the artifact store.
 
@@ -26,7 +37,8 @@ class JobManager:
     replicas (e.g. during a revision rollout) a job is never executed twice.
     """
 
-    def __init__(self, settings: Settings, store: ArtifactStore, workflow_factory: Callable[[JobManager], Workflow]):
+    def __init__(self, settings: Settings, store: ArtifactStore,
+                 workflow_factory: Callable[[JobManager], WorkflowRunner]):
         self.settings = settings
         self.store = store
         self._workflow_factory = workflow_factory
@@ -41,6 +53,9 @@ class JobManager:
     async def create(self, request: VideoRequest, image: bytes | None = None) -> JobState:
         """Starts a job. image is an already sanitized PNG (see images.sanitize_image), saved before the job state
         so a job never exists without its reference photo."""
+        if request.use_case == "educational" and image is not None:
+            raise ValueError("Educational videos do not accept reference photos")
+        validate_education_request(request, self.settings)
         if request.seed is None:
             request = request.model_copy(update={"seed": random.randint(0, 2**40)})
         request = request.model_copy(update={"reference_image": image is not None})
@@ -108,8 +123,81 @@ class JobManager:
 
     async def resume_unfinished(self) -> None:
         for state in await self.list():
+            if state.status == JobStatus.awaiting_review and not await self.store.exists(state.id, APPROVAL):
+                continue
             if not state.is_finished and state.id not in self._tasks:
                 self._start(state.id)
+
+    async def draft(self, job_id: str) -> EducationalDraft | None:
+        state = await self.get(job_id)
+        if state is None or state.request.use_case != "educational":
+            return None
+        data = await read_json(self.store, job_id, DRAFT)
+        return EducationalDraft.model_validate(data) if data is not None else None
+
+    async def review(self, job_id: str, revision: int, *, update: DraftUpdate | None = None,
+                     action: str = "approve") -> JobState:
+        async with self._state_lock:
+            if job_id in self._tasks:
+                approved = await read_json(self.store, job_id, APPROVAL)
+                if action == "approve" and update is None and approved is not None:
+                    if approved["draft"]["revision"] == revision:
+                        state = await self.get(job_id)
+                        assert state is not None
+                        return state
+                raise ReviewConflict("The job is still running; wait for the review step to finish")
+            lock = await self.store.try_lock(job_id)
+            if lock is None:
+                raise ReviewConflict("The job is being updated by another worker; retry")
+            start = False
+            try:
+                data = await read_json(self.store, job_id, "state.json")
+                if data is None:
+                    raise ReviewConflict("Unknown video job")
+                state = JobState.model_validate(data)
+                draft = await self.draft(job_id)
+                if draft is None or draft.revision != revision:
+                    raise ReviewConflict("Draft revision changed; reload the review before editing or approving")
+                approved = await read_json(self.store, job_id, APPROVAL)
+                if approved is not None:
+                    if action != "approve" or update is not None or approved["draft"]["revision"] != revision:
+                        raise ReviewConflict("Approved content is immutable; create a new job to change it")
+                    return state
+                if state.status != JobStatus.awaiting_review:
+                    raise ReviewConflict(f"Job is not awaiting review (status: {state.status.value})")
+                if update is not None:
+                    draft = EducationalDraft(
+                        revision=revision + 1, brief=update.brief, scenes=update.scenes, research=draft.research,
+                    )
+                    await write_json(self.store, job_id, DRAFT, draft.model_dump(mode="json"))
+                    state = state.model_copy(update={"draft_revision": draft.revision, "title": draft.brief.title,
+                                                     "updated_at": utcnow()})
+                elif action == "regenerate":
+                    state = state.model_copy(update={"draft_revision": revision + 1, "status": JobStatus.queued,
+                                                     "updated_at": utcnow()})
+                    start = True
+                elif action == "approve":
+                    validate_education_request(state.request, self.settings)
+                    if any(scene.diagram is not None for scene in draft.scenes) and not (
+                        self.settings.drawio_mcp_url and self.settings.drawio_export_command
+                    ):
+                        raise ValueError("This storyboard contains technical diagrams. Configure DRAWIO_MCP_URL "
+                                         "and DRAWIO_EXPORT_COMMAND before approval.")
+                    job = new_video_job(job_id, state.request, self.settings)
+                    await write_json(self.store, job_id, APPROVAL, {
+                        "draft": draft.model_dump(mode="json"), "fingerprint": draft_fingerprint(draft, job),
+                    })
+                    state = state.model_copy(update={"status": JobStatus.queued, "updated_at": utcnow()})
+                    start = True
+                else:
+                    raise ValueError(f"Unknown review action: {action}")
+                await self._save(state)
+            finally:
+                await lock.release()
+            self._publish(job_id, "state", state.model_dump(mode="json"))
+            if start:
+                self._start(job_id)
+            return state
 
     async def resume_forever(self, interval: float = 60.0) -> None:
         """Picks up unfinished jobs whose owner died (its lease expires after LEASE_SECONDS)."""
@@ -186,7 +274,8 @@ class JobManager:
             return
         state = JobState.model_validate(data)
         self._states[job_id] = state
-        if state.status == JobStatus.completed or (state.status == JobStatus.failed and not from_failed):
+        if (state.status == JobStatus.completed or (state.status == JobStatus.failed and not from_failed)
+                or (state.status == JobStatus.awaiting_review and not await self.store.exists(job_id, APPROVAL))):
             return
         recorder = await OperationRecorder.load(self.store, job_id,
                                                 publish=lambda event, data: self._publish(job_id, event, data))
@@ -199,7 +288,7 @@ class JobManager:
                 await recorder.close()
             finally:
                 del self._recorders[job_id]
-                if self._states[job_id].is_finished:
+                if self._states[job_id].is_finished or self._states[job_id].status == JobStatus.awaiting_review:
                     self._publish(job_id, "end", None)
 
     async def _execute_run(self, job_id: str, state: JobState, from_failed: bool) -> None:
@@ -210,6 +299,10 @@ class JobManager:
             workflow = self._workflow_factory(self)
             result = await workflow.run(job)
             outputs = [o for o in result.get_outputs() if isinstance(o, VideoResult)]
+            reviews = [o for o in result.get_outputs() if isinstance(o, ReviewResult)]
+            if reviews:
+                await self._recorders[job_id].safe_flush()
+                return
             if not outputs:
                 raise RuntimeError(f"Workflow ended without a video (state: {result.get_final_state()})")
             # Operations are persisted before the final status, so readers on other replicas see them complete.

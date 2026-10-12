@@ -1,0 +1,17 @@
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/tfplan
+infra/*.tfplan
+infra/state-571/
+infra/inherited-state/
+infra/*.tfvars
+!infra/education.tfvars
+
+# Python
+app/.venv/
+app/output/
+app/.env
+__pycache__/
+.pytest_cache/

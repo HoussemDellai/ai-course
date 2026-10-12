@@ -1,5 +1,5 @@
 resource "azurerm_storage_account" "storage_comfyui" {
-  name                       = "storage4comfyui4aca"
+  name                       = "storage4comfy"
   resource_group_name        = azurerm_resource_group.rg.name
   location                   = azurerm_resource_group.rg.location
   account_tier               = "Premium"     # For BlockBlobStorage and FileStorage accounts only Premium is valid.

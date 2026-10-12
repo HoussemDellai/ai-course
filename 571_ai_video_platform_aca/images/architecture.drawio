@@ -1,0 +1,29 @@
+<mxfile host="drawio">
+  <diagram id="aca571" name="ACA GPU architecture">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1200" pageHeight="800" background="#FFFFFF">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="AI Video Platform 571 - Azure Container Apps with A100 GPU" style="text;html=1;fontSize=22;fontStyle=1;align=left;" vertex="1" parent="1"><mxGeometry x="40" y="20" width="1100" height="40" as="geometry"/></mxCell>
+        <mxCell id="rg" value="Independent rg-aivideo571 - Terraform / separate state" style="rounded=1;fillColor=#FAFAFA;strokeColor=#666666;dashed=1;verticalAlign=top;spacingTop=10;" vertex="1" parent="1"><mxGeometry x="30" y="80" width="1140" height="640" as="geometry"/></mxCell>
+        <mxCell id="env" value="Italy North VNet - ACA environment: Consumption + Consumption-GPU-NC24-A100" style="rounded=1;fillColor=#F3F8FD;strokeColor=#0078D4;verticalAlign=top;spacingTop=10;" vertex="1" parent="1"><mxGeometry x="220" y="140" width="620" height="490" as="geometry"/></mxCell>
+        <mxCell id="user" value="Users&#xa;Public HTTPS" style="ellipse;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="1"><mxGeometry x="50" y="250" width="120" height="90" as="geometry"/></mxCell>
+        <mxCell id="app" value="CPU Container App&#xa;UI/API + Agent Framework + ffmpeg&#xa;API key / managed identity&#xa;One always-on replica&#xa;Optional private draw.io sidecar" style="rounded=1;fillColor=#DAE8FC;strokeColor=#0078D4;" vertex="1" parent="1"><mxGeometry x="250" y="210" width="240" height="150" as="geometry"/></mxCell>
+        <mxCell id="gpu" value="ComfyUI GPU Container App&#xa;One always-on A100 replica&#xa;Pinned yanwk boot + ComfyUI release&#xa;Public HTTPS / no auth&#xa;/prompt /history /view /gpu_stats&#xa;CPU/RAM selected after profiling" style="rounded=1;fillColor=#FFE6CC;strokeColor=#D79B00;" vertex="1" parent="1"><mxGeometry x="540" y="210" width="270" height="170" as="geometry"/></mxCell>
+        <mxCell id="job" value="Consumption model job&#xa;571-owned bootstrap + full model set&#xa;Explicit completion check&#xa;Optional Key Vault HF token" style="rounded=1;fillColor=#E1D5E7;strokeColor=#9673A6;" vertex="1" parent="1"><mxGeometry x="250" y="450" width="240" height="130" as="geometry"/></mxCell>
+        <mxCell id="nfs" value="Premium Azure Files NFS&#xa;Private endpoint + DNS&#xa;Persistent source / models / media&#xa;Same Italy North VNet" style="shape=cylinder3;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1"><mxGeometry x="550" y="460" width="240" height="130" as="geometry"/></mxCell>
+        <mxCell id="foundry" value="Foundry + Speech&#xa;Configured region/model&#xa;Managed identity" style="rounded=1;fillColor=#E1D5E7;strokeColor=#9673A6;" vertex="1" parent="1"><mxGeometry x="900" y="180" width="230" height="110" as="geometry"/></mxCell>
+        <mxCell id="blob" value="Blob jobs / artifacts&#xa;Entra ID + delegation SAS&#xa;No shared keys" style="shape=cylinder3;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1"><mxGeometry x="900" y="340" width="230" height="100" as="geometry"/></mxCell>
+        <mxCell id="acr" value="ACR immutable app releases&#xa;Managed-identity image pull&#xa;Log Analytics: ACA logs" style="rounded=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="1"><mxGeometry x="900" y="500" width="230" height="90" as="geometry"/></mxCell>
+        <mxCell id="warning" value="No GPU VM or SSH. Queue/history remain in memory: restart only between jobs.&#xa;Public unauthenticated ComfyUI permits billable submissions and exposed-file access." style="text;html=1;fontColor=#A00000;align=left;fontSize=13;" vertex="1" parent="1"><mxGeometry x="70" y="655" width="1060" height="50" as="geometry"/></mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="user" target="app"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="app" target="gpu"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="job" target="nfs"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="gpu" target="nfs"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="app" target="foundry"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="app" target="blob"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;dashed=1;" edge="1" parent="1" source="acr" target="app"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

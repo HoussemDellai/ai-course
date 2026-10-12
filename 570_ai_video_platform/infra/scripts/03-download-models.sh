@@ -104,6 +104,28 @@ dl diffusion_models $QIE/diffusion_models/qwen_image_edit_2511_fp8mixed.safetens
 dl vae              https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors
 dl loras            https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
 
+# Optional text-to-image model for educational illustrations; shares the installed Qwen encoder and VAE.
+if [[ "${DOWNLOAD_EDUCATION_IMAGES:-0}" == "1" ]]; then
+  EDUCATION_MODEL="$M/diffusion_models/qwen_image_fp8_e4m3fn.safetensors"
+  EDUCATION_SHA=98763a127701eb6fb59096f7742cb3aa7d64ed510b9f4e882d8351f8176e3ce3
+  if [[ -f "$EDUCATION_MODEL" ]]; then
+    if ! printf '%s  %s\n' "$EDUCATION_SHA" "$EDUCATION_MODEL" | sha256sum --check --status; then
+      echo "ERROR: existing educational Qwen-Image weights do not match the pinned checksum." >&2
+      exit 1
+    fi
+  else
+    curl --fail --location --silent --show-error --retry 3 --connect-timeout 30 \
+      --proto '=https' --proto-redir '=https' --continue-at - --output "$EDUCATION_MODEL.part" \
+      https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/1f12b17be14c89b026c51a91d67c32f84bb047bc/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors
+    if ! printf '%s  %s\n' "$EDUCATION_SHA" "$EDUCATION_MODEL.part" | sha256sum --check --status; then
+      echo "ERROR: educational Qwen-Image download checksum mismatch; weights were not published." >&2
+      exit 1
+    fi
+    mv "$EDUCATION_MODEL.part" "$EDUCATION_MODEL"
+  fi
+  echo "OK educational Qwen-Image text-to-image weights"
+fi
+
 ########################################################
 # MiniMax Music 3 (MiniMax-Music3 Community License): instrumental background music per scene (opt-in 'music').
 # ComfyUI repack: fp16 DiT, pruned int8 text encoder (8B global LLM + local LLM) and DAV audio VAE, about 13.4 GB.

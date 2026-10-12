@@ -63,11 +63,44 @@ resource "azurerm_container_app" "app" {
     min_replicas = 1
     max_replicas = 1
 
+    dynamic "container" {
+      for_each = var.education_drawio_image == "" ? [] : [var.education_drawio_image]
+      content {
+        name   = "drawio-mcp"
+        image  = container.value
+        cpu    = 0.5
+        memory = "1Gi"
+
+        env {
+          name  = "LISTEN"
+          value = "0.0.0.0"
+        }
+        env {
+          name  = "PORT"
+          value = "3001"
+        }
+        env {
+          name  = "ALLOWED_HOSTS"
+          value = "localhost,127.0.0.1"
+        }
+        env {
+          name  = "DRAWIO_ICON_SERVICE_URL"
+          value = "off"
+        }
+
+        liveness_probe {
+          transport = "HTTP"
+          port      = 3001
+          path      = "/health"
+        }
+      }
+    }
+
     container {
       name   = "video-platform"
       image  = local.app_image
-      cpu    = 4
-      memory = "8Gi"
+      cpu    = var.education_drawio_image == "" ? 4 : 3.5
+      memory = var.education_drawio_image == "" ? "8Gi" : "7Gi"
 
       env {
         name  = "AZURE_CLIENT_ID"
@@ -112,6 +145,14 @@ resource "azurerm_container_app" "app" {
       env {
         name        = "API_KEY"
         secret_name = "api-key"
+      }
+
+      dynamic "env" {
+        for_each = var.education_environment
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
 
       liveness_probe {

@@ -2,6 +2,154 @@
 
 > **Status:** Deployed
 
+## Release: reviewed educational presentations (2026-10-09)
+
+- Mode: MODIFY the existing deployment; deploy the current educational workflow and
+  preserve cinematic behavior, existing jobs, identities, storage and GPU VM.
+- Recipe: Terraform and ACR/Container Apps, reusing the existing infrastructure.
+- Azure target: user confirmed subscription `ME-MngEnvMCAP784683-hodellai-1`
+  (`dcef7009-6b94-4382-afdc-17eb160d709a`), resource group `rg-aivideo570`,
+  Container Apps in Italy North and existing supporting services in Germany West Central.
+- Scope: native educational app runtime, private draw.io MCP sidecar, and configured
+  existing text/search and ComfyUI providers. No new Foundry deployments or GPU resizing.
+- Execution: verify current resources and active jobs, review a fresh Terraform plan,
+  build an immutable release image, deploy the approved changes, verify live endpoints
+  and an educational review/render workflow, retain rollback information.
+- Validation proof: pending current-release validation. Prior local implementation
+  evidence is recorded below only after it is checked.
+- Deployment results: healthy revision `video-platform--0000001` serves 100% traffic.
+  Cloud educational workflow and artifact validation passed for job `8bb049c17a84`.
+
+### 1. Project overview and requirements
+
+Deploy the tested current working tree to the existing development/course app.
+Keep one always-on replica, existing Blob jobs, the user-assigned identity and API-key
+secret. Do not create model deployments, resize/restart the GPU VM, or alter network/RBAC.
+
+### 2. Components and architecture
+
+| Component | Technology | Existing Azure target |
+|---|---|---|
+| UI/API/background workflow | Python/FastAPI/Agent Framework | `video-platform`, Consumption workload profile |
+| Native diagram exporter | Pinned draw.io/Xvfb/fonts in educational image | Same application container |
+| Private diagram MCP | `jgraph/drawio-mcp:1.0.6` with pinned SHA256 | Same-app sidecar, loopback port 3001 only |
+| Research and text planning | Existing `gpt-6-astra` | Existing Foundry project |
+| Images/motion/music | ComfyUI/Qwen/Wan/MiniMax | Existing running H100 VM |
+| Narration | Speech REST | Existing Foundry multi-service endpoint |
+| Durable jobs and artifacts | Azure Blob Storage | Existing `videos` container |
+
+Recipe: retain Terraform; use a saved targeted Container App plan to exclude unrelated
+pre-existing drift. ACR builds the current runtime files, including uncommitted educational
+changes, with the opt-in native Dockerfile and a content-hash release tag. Do not retag
+the legacy `1.0.0` image.
+
+### 3. Provisioning limits and cost
+
+| Resource | New Azure resources | Capacity/result | Source |
+|---|---|---|---|
+| Container Apps environment | 0 | Existing; regional count 3 / 50 | Azure quota CLI, 2026-10-09 |
+| Container App | 0 | Total stays 4 vCPU / 8 GiB, one replica | Live app + official Consumption container limits |
+| Private sidecar | 0 separate ARM resources | Allocate 0.5 vCPU / 1 GiB from existing total | Same-app template |
+| Main app container | 0 | Allocate 3.5 vCPU / 7 GiB with sidecar; retain 4 / 8 without it | Deployment preparation change |
+| GPU/Foundry/storage/ACR | 0 | No new quotas or scaling; reuse existing services | Live resource inventory |
+
+ACR build charges and normal research/render inference costs apply. Aggregate always-on
+Container App allocation does not increase. Native images consume registry storage.
+Foundry image/video adapters stay disabled because no compatible deployments were configured.
+
+### 4. Scope safeguards
+
+- Full exploratory plan also proposed an SSH rule, VM patch setting and model-download
+  run-command update. Exclude all three from this app rollout.
+- Fresh targeted plan must change only the Container App and its local image-build
+  Terraform tracking resource. Stop for approval if another Azure resource changes.
+- Twenty existing jobs were observed; none active. Recheck immediately before rollout.
+- Keep current API-key secret, ingress, identity roles and storage.
+- Rollback: previous app image digest
+  `sha256:4fa45c4e2ebebb99488749c2b0a4004deb5d5c888d53531a8b498ce80e64a6dd`,
+  previous revision `video-platform--res-71b9c22`, no sidecar, 4 vCPU / 8 GiB.
+
+### 5. Execution checklist
+
+- [x] Inspect current source, live resources, identity permissions and running GPU.
+- [x] Confirm subscription and existing locations with user.
+- [x] Verify quotas; preserve total Container App allocation.
+- [x] Approve the scoped rollout and main/sidecar resource split.
+- [x] Prepare persistent educational Terraform variable file and safe resource allocation.
+- [x] Validate image/runtime, targeted Terraform plan and provider readiness.
+- [x] Build immutable image in ACR; apply the approved saved targeted plan.
+- [x] Verify healthy revision, public UI and authenticated API.
+- [x] Run live cloud educational planning, review/approval, diagram export and rendering.
+- [x] Record rollout and rollback details; retain existing jobs.
+
+### 6. Preparation evidence
+
+- Current deployed app: `video-platform--res-71b9c22`, Italy North, one replica.
+- User-assigned identity already has AcrPull, Foundry User, Cognitive Services Speech User
+  and Storage Blob Data Contributor at the correct existing resource scopes.
+- Local educational integration: real approved Full HD video `2627adee11c4`,
+  18.083 seconds, 24 fps, four sources, native diagrams/reveals, exact narration,
+  audible intro/outro music, authenticated artifact routes.
+- Latest full regression result: 223 passed, one Git Bash subprocess timeout.
+  Isolated download suite rerun: 4 passed. Visual suite: 36 passed.
+
+### 7. Validation proof
+
+Validation performed through azure-validate on 2026-10-09, 17:55-18:05 +02:00.
+
+| Check | Command/evidence | Result |
+|---|---|---|
+| Authentication and target | `az account show`, live resource inventory, user confirmations | Confirmed existing subscription, resource group and regions |
+| Capacity | `azure-quotas/scripts/check-quota.ps1 -ResourceProvider Microsoft.App -Region italynorth` | Managed environments 3 / 50; app total remains 4 CPU / 8 GiB |
+| Terraform | `terraform init -input=false`, `fmt -check`, `validate`, `state list` | All passed; 40 resources tracked |
+| Targeted plan | `terraform plan -target=azurerm_container_app.app -var-file=education.tfvars -out=<session>/education-deploy.tfplan` | Only app update + local build-tracking replacement; no VM/network/RBAC/model changes |
+| Azure policy | `az policy assignment list --scope <existing-rg>` | No resource-group policy assignments returned |
+| Source checks | Python compileall, git diff --check, template-variable scan | Passed |
+| Build | `az acr build --registry acraivideo570 --image video-platform:education-1c3a494f3dc6 --file drawio_runtime/Dockerfile.education .` from app | ACR run `dng` Succeeded, linux/amd64; pinned native exporter installed |
+| Image | `az acr repository show` | Digest `sha256:b006bdab2a2864a0641339243f1f3b2958a8a12908a4e849c23c1323ecfdd101` |
+| Static roles | Review of `infra/identity.tf` vs app operations | AcrPull, Foundry User, Speech User, Blob Data Contributor; correct identity/resource scopes |
+| Provider readiness | Existing GPU instance view + prior real search/image/narration/diagram/motion/music smoke | GPU running; existing configured providers verified, no new Foundry visuals claimed |
+| Existing jobs | Authenticated production `GET /api/videos` | 20 jobs, no active jobs |
+
+The packaged Terraform preflight helper incorrectly invoked Terraform with no subcommand
+under this PowerShell runtime (its `Args` parameter collides with automatic argument handling).
+Every affected step was executed directly and passed; the deployment uses the inspected
+saved targeted plan, not the helper's historical `infra/tfplan`.
+Docker Desktop was unavailable; ACR performed the successful native image build instead.
+
+### Deployment results (2026-10-09, 18:05-18:15 +02:00)
+
+- Applied only the inspected saved targeted plan. Terraform reported one app update
+  and one local `terraform_data.build_app_image` replacement. No Azure resources were deleted.
+- Image `video-platform:education-1c3a494f3dc6`, ACR run `dng`, digest
+  `sha256:b006bdab2a2864a0641339243f1f3b2958a8a12908a4e849c23c1323ecfdd101`.
+- Revision `video-platform--0000001`: Healthy, RunningAtMaxScale, 100% traffic.
+  The prior revision finished deprovisioning; aggregate allocation remains 4 CPU / 8 GiB.
+- Public endpoint:
+  `https://video-platform.politemushroom-4a66513f.italynorth.azurecontainerapps.io`.
+  `/healthz` returned 200; UI includes the educational controls. Unauthenticated
+  `/api/config` returned 401; authenticated config reports enabled search/ComfyUI and
+  disabled unconfigured Foundry visual providers.
+- Cloud smoke job `8bb049c17a84` performed real grounded research and planning,
+  paused for review, accepted a brief edit (revision 2), rejected stale revision 1
+  approval with 409, accepted idempotent revision 2 approval, and rendered successfully.
+- Downloaded and probed the real output: 1920x1080, 24 fps, 16.583333 seconds,
+  48 kHz narration, five cited public sources, native diagrams and editable XML.
+  Exact timeline checks passed. Intro/content/outro tail RMS:
+  `0.00235854 / 0 / 0.00174695`, confirming music only in intro/outro.
+- Existing 20 jobs remain available; only one smoke job was added. No secrets,
+  roles, networking, GPU size, model deployments or GPU service restarts changed.
+- Live role verification: existing application identity retains correctly scoped
+  AcrPull, Foundry User, Cognitive Services Speech User and Storage Blob Data Contributor.
+- Follow-up targeted plan with `education.tfvars`: no changes.
+  Previously identified full-plan VM/network/model-download drift is intentionally excluded.
+- `terraform fmt -check` and `git diff --check` passed.
+- Rollback remains the prior `video-platform:1.0.0` image/digest noted above. Restore
+  the previous app-only template (no sidecar and 4 CPU / 8 GiB) in a fresh revision
+  after reviewing and approving the rollback plan. Existing Blob artifacts remain intact.
+- Persistent educational inputs: `infra/education.tfvars`; use this variable file
+  on subsequent Terraform plans to avoid accidentally removing the educational runtime.
+
 ## Release: orientation, 720p/1080p/4K output and SeedVR2 upscaling (2026-10-07)
 
 - User requested: merge `feature/video-resolution` into `main` (done locally: merge commit `71b9c22`,

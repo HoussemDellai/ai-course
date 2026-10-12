@@ -1,4 +1,238 @@
-# AI Video Platform on Azure: prompt (and photo) in, 5-10 minute narrated video out
+# AI Video Platform on Azure: cinematic and reviewed educational videos
+
+## Educational / presentation videos
+
+Select **Educational / presentation** in the web UI or pass `--use-case educational` to the CLI.
+This opt-in path does not change cinematic defaults. Educational defaults are horizontal 16:9,
+1080p, full narration and intro/outro-only **MiniMax-Music3** music. Choose 4K, vertical 9:16,
+music off or full-background music, and either deterministic animated presentation scenes or
+AI-motion illustrations with deterministic technical diagrams. A 4K output canvas does **not**
+guarantee native-4K source images; source dimensions and enhancement depend on the configured provider.
+
+Provide a separate, explicit **public-only search topic**. Only `education.public_topic` is sent
+to web search, not the private creative prompt or photos. Do not include sensitive information in
+the search topic. Educational requests do not accept reference photos or cinematic naturalistic mode.
+Planning must obtain real sources; there is no silent ungrounded fallback.
+
+Creation researches the topic and saves a versioned brief/script/storyboard, then pauses at
+`awaiting_review`. **No images, video or music are generated before explicit approval.**
+Review the research and source links; edit the title, description, audience, learning objectives,
+language locale (for example `en-US`, not bare `en`), theme, scene narration, visual prompts,
+animation, roles, citation IDs and diagram graph.
+The diagram editor accepts JSON `nodes` (`id`, `label`, `icon_query`) and `edges`
+(`source`, `target`, optional `label`), not arbitrary SVG/HTML. This is a storyboard editor,
+not a full timeline editor. Research and citations are immutable; regenerate to research again.
+Save edits, inspect the resulting revision, then approve that exact revision.
+Validation errors (422) and stale revisions (409) are shown; reload after a conflict rather than
+approving stale content. Reload/regenerate discards unsaved edits only after confirmation.
+
+Approval freezes content and provider/output choices; content changes after approval require a new job.
+The approved narration is preserved in full. Measured narration can extend the requested
+15-second–10-minute timeline, but never beyond 10 minutes; an overlong script fails explicitly
+instead of being silently rewritten, accelerated or truncated. Sources are downloadable as
+`/api/videos/{id}/education/sources.txt`; rendered PNG/video previews and editable `.drawio`
+artifacts appear as operations finish. The UI never injects raw generated SVG.
+Educational progress counts completed **scenes**, not individual five-second AI-motion clips;
+cinematic progress retains its clip units.
+
+Educational narration explicitly uses Azure Speech **REST over HTTPS**, through the configured
+Speech custom endpoint (`/tts/cognitiveservices/v1`), rather than requiring a Speech SDK WebSocket
+connection from the application server. Browser clients do not call Speech directly.
+The workflow selects `Narrator.synthesize(transport="rest")` and preserves the same approved
+SSML, voice and delivery controls. The legacy cinematic workflow keeps its SDK transport default;
+there is **no silent fallback** between transports. REST output is 48 kHz mono PCM WAV.
+The REST service permits at most 10 minutes of audio per synthesis request (one scene).
+After measuring every scene, the timeline adds a combined one-second speech lead/tail allowance,
+rounds up to whole frames, and rejects any total above 600 seconds **before images, video or music
+are generated**. A REST response truncated at the approximately 600-second service ceiling
+therefore fails closed through the timeline limit; it is not accepted as a complete scene.
+Create a new job with a shorter script and review it again. The full-video ceiling remains 10 minutes.
+
+### CLI plan, review, edit and approve
+
+Run from `app` using the existing virtual environment. Creation runs locally and does **not**
+auto-approve. Review commands use the running API, which must point to the **same storage**
+as the creation process (`VIDEO_API_URL` defaults to `http://localhost:8000`; `API_KEY` is read
+from the environment / `.env`). Do not put secrets on the command line.
+
+```powershell
+python generate.py "Explain how public IP routing works" --use-case educational --public-topic "Public IP routing fundamentals" --minutes 2 --style presentation --audience "New network engineers" --music-mode intro_outro
+python generate.py draft JOB_ID --output draft.json
+# Edit brief and scenes in draft.json; do not edit the research/source manifest.
+python generate.py update JOB_ID --revision 1 --file draft.json
+python generate.py draft JOB_ID --output draft.json
+# Use the current revision from the saved draft, not the old revision:
+python generate.py approve JOB_ID --revision 2
+# Alternatively, replace an unapproved draft with a freshly researched plan:
+python generate.py regenerate JOB_ID --revision 2
+```
+
+Additional creation selectors: `--image-provider comfyui|foundry`,
+`--motion-provider comfyui|foundry` (used by `--style ai_motion`),
+`--text-model <configured-deployment>`, `--music-mode off|intro_outro|background`,
+`--resolution 1080p|4k`, `--orientation horizontal|vertical`. Existing cinematic
+`--model`, `--music`, reference-photo and naturalistic flags retain their behavior.
+Every CLI mutation requires an explicit positive `--revision`; it does not automatically retry
+conflicts or approve a newer draft. `draft` prints JSON or writes it using `--output`;
+`update` sends only the mutable `brief` and `scenes` plus the explicit revision.
+
+### Educational configuration and capability limits
+
+See `app\.env.sample`: `EDUCATION_TEXT_MODELS` lists additional compatible text deployments;
+`EDUCATION_SEARCH_MODEL` selects the supported public-search deployment.
+`COMFY_IMAGE_WORKFLOW` points to a compatible text-to-image workflow, separate from photo editing.
+It must be ComfyUI API node JSON with input placeholders `{{prompt}}`, `{{width}}`, `{{height}}`,
+`{{seed}}` and `{{filename_prefix}}`, and without an `{{image}}` input.
+The supplied graph is `app\video_platform\comfy_workflows\qwen_image_t2i.json`, using
+Apache-2.0 Qwen-Image FP8 with 20 sampling steps and CFG 4. It requires
+`qwen_image_fp8_e4m3fn.safetensors` in ComfyUI's diffusion-model directory and reuses the installed
+`qwen_2.5_vl_7b_fp8_scaled.safetensors` text encoder and `qwen_image_vae.safetensors` VAE.
+The existing Qwen **Image-Edit** weights are not a substitute for the text-to-image diffusion weights.
+
+The diffusion download is explicitly opt-in in `infra\scripts\03-download-models.sh`.
+On the Linux GPU VM, from the directory containing that uploaded script, run:
+
+```bash
+sudo env DOWNLOAD_EDUCATION_IMAGES=1 bash 03-download-models.sh
+```
+
+This runs the existing model-download script, with the additional Qwen-Image diffusion download
+pinned to a repository revision and SHA-256-checked before publishing it. It does not create
+model deployments or cloud resources, and the optional download is not enabled by default.
+Set `COMFY_IMAGE_WORKFLOW` to the graph's local path when running outside the container;
+the production-container path is `/app/video_platform/comfy_workflows/qwen_image_t2i.json`.
+For this graph the renderer rounds dimensions to the required multiple (1080 becomes 1088),
+then crops to the exact requested canvas. Backend PNG `.metadata.json` artifacts record verified
+source and canvas dimensions; this is not a claim that any arbitrary replacement graph generates
+native output at those dimensions, nor that a configured provider has been live-tested.
+
+Optional `FOUNDRY_IMAGE_ENDPOINT` / `FOUNDRY_IMAGE_MODEL` and
+`FOUNDRY_VIDEO_ENDPOINT` / `FOUNDRY_VIDEO_MODEL` enable the respective modality adapters
+**only when configured for a verified compatible image/video deployment**.
+GPT, Claude and Microsoft MAI text families are not interchangeable image/video generators.
+No provider fallback, deployment provisioning or billing authorization is implied.
+
+`DRAWIO_MCP_URL` (a private Streamable HTTP `/mcp` endpoint) and `DRAWIO_EXPORT_COMMAND` wire
+the self-hosted draw.io MCP and headless exporter; `EDUCATION_FONT` selects a local, licensed,
+readable TrueType/OpenType label font. These must actually
+be available to the backend runtime for diagrams to work. Technical diagrams use native draw.io
+shape searches and deterministic rendering rather than asking an AI video model to spell labels.
+
+For production, use the opt-in orchestrator image with the **native** draw.io exporter.
+From the `570_ai_video_platform` directory, build with `app` as the context:
+
+```powershell
+docker build --platform linux/amd64 -f app\drawio_runtime\Dockerfile.education -t education-video-platform app
+```
+
+This image includes the pinned draw.io desktop runtime, headless display dependencies and a local
+font. Its defaults are:
+
+```dotenv
+DRAWIO_EXPORT_COMMAND=["python","/app/drawio_runtime/export_native.py"]
+COMFY_IMAGE_WORKFLOW=/app/video_platform/comfy_workflows/qwen_image_t2i.json
+EDUCATION_FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+```
+
+The exporter runs inside the application container: **no Docker daemon or Docker socket is
+required in production**. Azure Container Apps cannot use a host-Docker export wrapper.
+The MCP remains a **separate, private self-hosted service**; configure its reachable Streamable HTTP
+`/mcp` URL in `DRAWIO_MCP_URL`. The optional local service definition is
+`app\drawio_runtime\compose.yaml`; its loopback binding is for local use, not a URL reachable from
+another production container. Building the orchestrator image does not launch or provision MCP.
+
+### Opt-in Azure Container Apps runtime configuration
+
+The production infrastructure supports a native-export orchestrator image and a private MCP
+sidecar in the same Container App environment. The educational configuration was deployed to
+the existing Azure app on 2026-10-09, using the existing GPU, Foundry and storage resources.
+For another environment, review the plan and explicitly deploy it before expecting these
+services to be available.
+
+Add the following settings to your existing local `infra\terraform.tfvars` configuration.
+The MCP image and digest below are copied from `app\drawio_runtime\compose.yaml`, not an
+unpinned catalog tag:
+
+```hcl
+educational_runtime = true
+education_drawio_image = "jgraph/drawio-mcp:1.0.6@sha256:4ad6be7215bec6d266337fe7037cfdaa250a01db11c9783708b885b395350828"
+
+education_environment = {
+  EDUCATION_TEXT_MODELS  = "gpt-6-astra"
+  EDUCATION_SEARCH_MODEL = "gpt-6-astra"
+  DRAWIO_MCP_URL         = "http://localhost:3001/mcp"
+  DRAWIO_EXPORT_COMMAND = "[\"python\",\"/app/drawio_runtime/export_native.py\"]"
+  COMFY_IMAGE_WORKFLOW   = "/app/video_platform/comfy_workflows/qwen_image_t2i.json"
+  EDUCATION_FONT         = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+}
+```
+
+- `educational_runtime` defaults to `false`. Enabling it builds
+  `app\drawio_runtime\Dockerfile.education` with the `app` context and selects the
+  content-hash image tag `video-platform:education-${app_hash}`. The existing cinematic default
+  tag (`video-platform:1.0.0`) and build remain unchanged when it is disabled.
+- `education_drawio_image` defaults to an empty string (no sidecar). With the pinned image set,
+  the private MCP sidecar uses 0.5 CPU and 1 GiB memory, port 3001, a health probe and
+  `ALLOWED_HOSTS=localhost,127.0.0.1`. It is not exposed through public ingress.
+  The main app uses 3.5 CPU and 7 GiB with this sidecar, retaining a total of 4 CPU / 8 GiB
+  within the Consumption workload profile limit. Without it, the app retains 4 CPU / 8 GiB.
+  External icon-service requests are disabled; native shape lookup stays inside the MCP runtime.
+  The orchestrator reaches this **same-app sidecar** through `http://localhost:3001/mcp`;
+  this is distinct from a separately deployed container or the standalone local Compose service.
+- `education_environment` accepts only the ten documented educational environment variables.
+  The example uses the existing verified text/search deployment and ComfyUI illustration
+  workflow. Set optional `FOUNDRY_IMAGE_ENDPOINT` / `FOUNDRY_IMAGE_MODEL` and
+  `FOUNDRY_VIDEO_ENDPOINT` / `FOUNDRY_VIDEO_MODEL` only for actual compatible deployments;
+  they are not provisioned by this map. Do not put secrets in it; use managed identity.
+- The native application image does not need host Docker. MCP runs as the separate private
+  sidecar rather than inside the exporter process. Provider access, GPU availability, installed
+  Qwen-Image weights and configured ComfyUI connectivity remain prerequisites.
+
+`infra\education.tfvars` provides the non-secret educational settings for this deployment.
+Pass `-var-file=education.tfvars` when running Terraform from `infra`, including subsequent
+plans, to retain the educational runtime and sidecar. Inspect the plan before applying;
+unrelated VM/network/model-download changes are not part of an application-only rollout.
+
+After updating your variables, run `terraform validate` before `terraform plan` from `infra`.
+Review changes and costs before an explicitly authorized apply. Setting variables alone does
+not deploy resources, install GPU models or verify provider health.
+
+`GET /api/config` exposes configuration flags and configured text deployment names, **not**
+live health, verified model compatibility, quota availability or successful provider smoke tests.
+Unconfigured illustration/motion providers are disabled in the UI with an explanation.
+CLI and API creation share provider preflight validation in `JobManager.create`.
+Before approval, storyboards containing technical diagrams also require configured private MCP
+and exporter settings; otherwise approval returns a visible 422 validation error.
+
+### Validation and deployment scope
+
+Component validation has exercised real grounded search and structured planning with
+`gpt-6-astra`, checksum-verified Qwen-Image weights, a 1920×1088 illustration with Full HD
+animation, a 3840×2160 illustration with 4K animation, Wan 2.2 image-to-video at 1280×720
+(5.0625 seconds), Speech REST returning a real 48 kHz WAV, and a real instrumental
+MiniMax-Music3 cue returned as FLAC (5.990748 seconds). These results apply to those
+specific configurations; they do not establish that all configured deployments are compatible.
+The REST check used the configured custom endpoint explicitly, not a silent SDK fallback.
+
+Native Docker/draw.io export, private MCP shape lookup, progressive diagram reveals and the
+opt-in educational runtime image have also passed live validation. Windows export tests cover
+deep render paths beyond MAX_PATH. Presentation animations may contain no source audio;
+narration adds an explicit silent bed, preserves its lead-in and uses frame-aligned audio mixing
+so music remains audible through padded intro/outro tails.
+An approved three-scene Kubernetes presentation has completed end-to-end at 1920x1080,
+24 fps and 18.083 seconds, including the exact approved narration, four cited public sources,
+native Kubernetes architecture icons, progressive reveals, and audible intro/outro music.
+The 15-second requested duration extended to fit narration; authenticated video, source,
+image, timing and editable draw.io downloads were verified against that completed job.
+The existing Azure deployment has also passed a cloud end-to-end check: a real researched,
+edited and approved three-scene presentation completed at 1920x1080, 24 fps and 16.583 seconds,
+with five cited sources, native diagrams, narration, audible intro/outro music and authenticated
+artifact downloads. The 20 pre-existing jobs were preserved. This result applies to that
+deployment and its configured providers, not to unconfigured Foundry image/video models.
+The implementation does not automatically provision new paid resources or model deployments.
+Paid Foundry submissions do not imply exactly-once billing: synchronous image generation cannot
+reattach to a submitted job after an interrupted response; failures are surfaced rather than silently
+switching providers or resubmitting paid requests.
 
 You type a prompt and, optionally, attach a photo of a person or a scene. The platform writes a story, turns it into dozens of shots, renders every shot with an open-weight video model on your own GPU VM, adds a voice-over and assembles the final video. With a photo, every shot starts from a keyframe redrawn from your photo, so the person or the place stays recognizable for the whole film.
 

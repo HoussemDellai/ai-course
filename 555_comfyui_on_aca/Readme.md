@@ -35,6 +35,100 @@ The ComfyUI application is deployed as a containerized workload on Azure Contain
 
 2. The `download-models-comfyui.sh` script contains the commands to download the models from Hugging Face and save them to the appropriate directory in the ComfyUI application.
 
+## CUDA 13 verification
+
+The separate `comfyui-cu130-a100` app is defined in
+[`aca_comfyui_cu130_a100.tf`](./aca_comfyui_cu130_a100.tf). It uses the Linux amd64
+manifest of `yanwk/comfyui-boot:cu130-slim`, pinned to
+`sha256:94ddc8f1b14d1b6b25b0db18ec2faf6ab5ba9acbc5bd943291caf43981a81605`.
+Application code comes from the image, not the existing CUDA 12.6 application
+directory. Existing models are mounted read-only at `/mnt/model-source` through
+ComfyUI's extra-model-paths configuration. Outputs are replica-local: download
+them before the app scales down.
+
+The test app uses the A100 workload profile, 8 vCPU, 56 GiB host memory, and
+zero to one replica. GPU memory is separate from host memory. Live requests
+incur GPU charges. Review a fresh Terraform plan before applying; do not apply
+unrelated changes or replace the existing CUDA 12.6 app.
+
+After deployment, run the repeatable API verification from this directory:
+
+```powershell
+$fqdn = terraform output -raw aca_comfyui_cu130_a100_fqdn
+python .\verify_comfyui_cuda13.py --endpoint "https://$fqdn" --output-dir "$env:TEMP\comfyui-cu130-verification"
+python -m unittest -v test_verify_comfyui_cuda13
+```
+
+The verifier requires PyTorch's `cu130` build and an A100 CUDA device in
+`/system_stats`, checks workflow node/model availability, and submits two
+different fixed seeds using eight steps at 1024x1024. It requires successful
+history and decodes each downloaded PNG. HTTP errors, execution failures,
+missing models, invalid images, and timeouts fail explicitly. Each run stores
+images and a JSON evidence report in a unique output subdirectory.
+
+The Terraform startup command runs
+[`verify_cuda13_runtime.py`](./verify_cuda13_runtime.py) **inside the actual ACA
+replica** before starting ComfyUI. It verifies `torch.version.cuda`, synchronized
+BF16 matrix and attention operations, `nvidia-smi`, and the ComfyUI commit,
+and fails startup if the checks fail. Read the proof in the container console
+logs. The CUDA version
+shown by `nvidia-smi` is the driver's compatibility ceiling, not proof of the
+runtime used by PyTorch. Neither a container tag nor a successful HTTP probe
+alone proves CUDA 13 inference works.
+
+For interactive testing, select `aca_comfyui_cu130_a100_fqdn` in
+[`comfyui_api_test.ipynb`](./comfyui_api_test.ipynb). Its default remains CUDA
+12.6. UI developer mode is needed for API workflow export, not for calling the
+HTTP API itself.
+
+### Observed result: PASS
+
+Verified on October 11, 2026 in Sweden Central:
+
+| Component | Observed value |
+| --- | --- |
+| Revision | `comfyui-cu130-a100--0000003` |
+| GPU | NVIDIA A100 80GB PCIe |
+| NVIDIA driver | `580.159.04` |
+| PyTorch / CUDA runtime | `2.14.1+cu130` / `13.0` |
+| Python | `3.13.15` |
+| ComfyUI | `0.38.2` |
+| ComfyUI commit | `daeb5e53681e2b10a3f0727d9ec5bc90784bee10` |
+| Synchronized BF16 matrix and attention checks | PASS |
+| Two different-seed Z-Image-Turbo generations | PASS: decoded 1024x1024 PNGs with different pixel hashes |
+| Local verification tests | 11 passed |
+| Terraform validation | Passed |
+
+Runtime proof was captured from the replica's startup logs. Inference was also
+tested through the **exact revision URL**, so successful requests to a previous
+revision during an ACA rollout were not mistaken for verification of the new one:
+
+```powershell
+python .\verify_comfyui_cuda13.py `
+  --endpoint "https://comfyui-cu130-a100--0000003.kindbeach-59c96b47.swedencentral.azurecontainerapps.io" `
+  --output-dir "$env:TEMP\comfyui-cu130-verification"
+```
+
+Exact-revision prompt IDs: `6078f00e-3b3d-41cc-ba28-b74e591af327` and
+`a36dcbca-f570-4c04-bb30-b4d238296044`.
+The original CUDA 12.6 app's revision, template and ingress matched the captured
+baseline after deployment; its shared application and model files were not
+modified by the CUDA 13 app.
+
+The tested app endpoint is
+<https://comfyui-cu130-a100.kindbeach-59c96b47.swedencentral.azurecontainerapps.io>.
+It remains configured for zero minimum replicas and one maximum replica.
+
+This proves the tested A100/image/workflow combination, not all custom nodes,
+T4 GPUs, or video workflows. Initial startup encountered Windows CRLF in a
+Bash argument; the Terraform command now explicitly joins lines with LF.
+Azure CLI exec/logstream and HTTPS requests intermittently timed out or returned
+404/reset errors. Runtime proof was therefore captured at startup; read-only
+HTTP requests use bounded, logged transport retries, and POST submissions are
+never automatically retried. Cold starts can take longer than warm inference.
+
+Platform reference: [ACA serverless GPU software stack](https://learn.microsoft.com/en-us/azure/container-apps/gpu-serverless-overview#gpu-software-stack).
+
 ## Monitoring and Analytics
 
 The Azure Log Analytics workspace is set up to collect logs and metrics from the container app environment. You can use Azure Monitor to view and analyze the logs and metrics for your ComfyUI deployment.

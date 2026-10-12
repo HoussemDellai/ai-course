@@ -21,7 +21,9 @@ from starlette.datastructures import UploadFile
 from .config import Settings
 from .gpu import GpuMonitor
 from .images import ImageError, sanitize_image
-from .jobs import JobManager
+from .jobs import JobManager, ReviewConflict
+from .education import build_educational_workflow, validate_education_request
+from .education_schemas import DraftRevision, DraftUpdate, EducationalDraft
 from .operations import Operation
 from .schemas import JobState, VideoRequest
 from .storage import LocalArtifactStore, read_json
@@ -36,6 +38,10 @@ MULTIPART_OVERHEAD_BYTES = 1024 * 1024  # room for the 'request' JSON field and 
 # The only job files /media serves: generated, upscaled and processed shots, assembled scenes and their mixes, and
 # the final video. A strict allowlist, so a name can never reach state.json, the reference photo or another job.
 MEDIA_NAME = re.compile(r"(?:(?:clips|upscaled|processed)/shot_\d{3}|scenes/scene_\d{3}(?:_voice|_music)?|final)\.mp4")
+EDUCATION_ARTIFACT = re.compile(
+    r"(?:sources\.txt|render/[a-f0-9]{64}/(?:images/scene_\d{3}\.(?:png|png\.metadata\.json|drawio)|"
+    r"(?:processed|scenes)/scene_\d{3}\.mp4|timing\.json))"
+)
 
 CREATE_VIDEO_OPENAPI = {
     "requestBody": {
@@ -94,7 +100,7 @@ async def job_events(manager: JobManager, job_id: str, poll_seconds: float = SSE
 
         while True:
             # A queued local task (e.g. a retry or a resume waiting for a slot) keeps the stream open.
-            if state.is_finished and not manager.is_active(job_id):
+            if (state.is_finished or state.status == "awaiting_review") and not manager.is_active(job_id):
                 for event in await changed_ops():
                     yield event
                 yield sse("end", None)
@@ -137,6 +143,8 @@ def create_services(settings: Settings):
     from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
 
     from .agents import FoundryCreativeTeam
+    from .education_agents import FoundryEducationTeam
+    from .education_visuals import EducationalVisuals
     from .comfyui import ComfyUIPool
     from .speech import Narrator
     from .storage import BlobArtifactStore
@@ -159,13 +167,33 @@ def create_services(settings: Settings):
     )
     comfy = ComfyUIPool.from_urls(settings.comfyui_urls)
     team = FoundryCreativeTeam(chat_client)
+    clients = {settings.foundry_model: chat_client}
+
+    def education_client(model: str) -> FoundryChatClient:
+        if model not in clients:
+            clients[model] = FoundryChatClient(
+                project_endpoint=settings.foundry_project_endpoint, model=model, credential=async_credential,
+            )
+        return clients[model]
+
+    education_team = FoundryEducationTeam(settings, education_client)
+    visuals = EducationalVisuals(settings, comfy, async_credential)
 
     def workflow_factory(manager: JobManager):
         deps = PipelineDeps(settings=settings, team=team, comfy=comfy, narrator=narrator, store=store,
                             progress=manager.progress, ops=manager.recorder)
-        return build_video_workflow(deps)
+        cinematic = build_video_workflow(deps)
+        educational = build_educational_workflow(deps, education_team, visuals)
+
+        class UseCaseWorkflow:
+            async def run(self, job):
+                workflow = educational if job.request.use_case == "educational" else cinematic
+                return await workflow.run(job)
+
+        return UseCaseWorkflow()
 
     async def close():
+        await visuals.aclose()
         await comfy.aclose()
         await store.aclose()
         await async_credential.close()
@@ -223,7 +251,16 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
 
     @app.get("/api/config", dependencies=[Depends(require_api_key)])
     async def get_config():
-        return {"max_image_mb": settings.max_image_mb}
+        return {"max_image_mb": settings.max_image_mb, "education": {
+            "text_models": list(dict.fromkeys([settings.foundry_model, *settings.education_text_models])),
+            "search_configured": bool(settings.education_search_model),
+            "images": {"comfyui": bool(settings.comfy_image_workflow),
+                       "foundry": bool(settings.foundry_image_endpoint and settings.foundry_image_model)},
+            "motion": {"comfyui": True,
+                       "foundry": bool(settings.foundry_video_endpoint and settings.foundry_video_model)},
+            "diagrams_configured": bool(settings.drawio_mcp_url and settings.drawio_export_command),
+            "narration_configured": bool(settings.speech_endpoint),
+        }}
 
     @app.get("/api/gpu", dependencies=[Depends(require_api_key)])
     async def gpu_stats(request: Request):
@@ -242,6 +279,13 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
                 body = VideoRequest.model_validate_json(await request.body())
         except ValidationError as e:
             raise RequestValidationError(e.errors(include_url=False)) from None
+        if body.use_case == "educational":
+            if image is not None:
+                raise HTTPException(422, "Educational videos do not accept reference photos")
+            try:
+                validate_education_request(body, settings)
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from None
         key = body.video_model or settings.default_video_model
         if key not in VIDEO_MODELS:
             raise HTTPException(422,
@@ -292,12 +336,60 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
 
     @app.get("/api/videos/{job_id}/storyboard", dependencies=[Depends(require_api_key)])
     async def get_storyboard(job_id: str, request: Request):
+        draft = await jobs(request).draft(job_id)
+        if draft is not None:
+            return draft.model_dump(mode="json")
         storyboard = await read_json(request.app.state.store, job_id, "storyboard.narrated.json")
         if storyboard is None:
             storyboard = await read_json(request.app.state.store, job_id, "storyboard.json")
         if storyboard is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Storyboard not ready yet")
         return storyboard
+
+    @app.get("/api/videos/{job_id}/draft", response_model=EducationalDraft,
+             dependencies=[Depends(require_api_key)])
+    async def get_draft(job_id: str, request: Request):
+        draft = await jobs(request).draft(job_id)
+        if draft is None:
+            raise HTTPException(404, "Educational draft not ready")
+        return draft
+
+    async def review_action(job_id: str, request: Request, revision: int, action: str,
+                            update: DraftUpdate | None = None):
+        if await jobs(request).get(job_id) is None:
+            raise HTTPException(404, "Unknown video job")
+        try:
+            return await jobs(request).review(job_id, revision, action=action, update=update)
+        except ReviewConflict as e:
+            raise HTTPException(409, str(e)) from None
+        except ValidationError as e:
+            raise RequestValidationError(e.errors(include_url=False)) from None
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.put("/api/videos/{job_id}/draft", response_model=JobState, dependencies=[Depends(require_api_key)])
+    async def update_draft(job_id: str, body: DraftUpdate, request: Request):
+        return await review_action(job_id, request, body.revision, "update", body)
+
+    @app.post("/api/videos/{job_id}/approve", response_model=JobState, dependencies=[Depends(require_api_key)])
+    async def approve_draft(job_id: str, body: DraftRevision, request: Request):
+        return await review_action(job_id, request, body.revision, "approve")
+
+    @app.post("/api/videos/{job_id}/regenerate", response_model=JobState, dependencies=[Depends(require_api_key)])
+    async def regenerate_draft(job_id: str, body: DraftRevision, request: Request):
+        return await review_action(job_id, request, body.revision, "regenerate")
+
+    @app.get("/api/videos/{job_id}/education/{name:path}", dependencies=[Depends(require_api_key)])
+    async def education_artifact(job_id: str, name: str, request: Request):
+        state = await jobs(request).get(job_id)
+        if state is None or state.request.use_case != "educational" or not EDUCATION_ARTIFACT.fullmatch(name):
+            raise HTTPException(404, "Unknown educational artifact")
+        content_type = {
+            ".png": "image/png", ".mp4": "video/mp4", ".drawio": "application/xml",
+            ".txt": "text/plain", ".json": "application/json",
+        }[Path(name).suffix]
+        return await serve_artifact(request, job_id, f"education/{name}", content_type,
+                                    filename=Path(name).name if name.endswith((".drawio", ".txt")) else None)
 
     @app.get("/api/videos/{job_id}/operations", response_model=list[Operation],
              dependencies=[Depends(require_api_key)])

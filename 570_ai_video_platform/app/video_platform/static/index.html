@@ -26,6 +26,12 @@
     .muted { color: var(--muted); }
     .small { font-size: 12px; }
     .grow { flex: 1; }
+    .education-controls, .review-panel { padding: 16px; border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; }
+    .education-controls label, .review-panel label { display: block; margin-top: 10px; }
+    .review-panel textarea.input { height: auto; min-height: 80px; padding: 8px 12px; }
+    .review-panel fieldset { border: 1px solid var(--border); margin: 16px 0; }
+    .review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .review-error { color: var(--danger); white-space: pre-wrap; }
 
     /* Top bar */
     .topbar { height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: var(--bg-inset); border-bottom: 1px solid var(--border); }
@@ -275,6 +281,29 @@
           <div class="muted">Prompt (and optionally a photo of a person or a scene) &rarr; creative brief, storyboard &amp; shot prompts &rarr; keyframes &rarr; ComfyUI clips &rarr; Azure AI Speech narration &rarr; ffmpeg</div>
         </div>
         <form class="composer" id="form">
+          <label class="pill">Use case
+            <select id="useCase" aria-label="Use case">
+              <option value="cinematic">Cinematic</option><option value="educational">Educational / presentation</option>
+            </select>
+          </label>
+          <fieldset class="education-controls" id="educationControls" hidden disabled>
+            <legend>Educational plan — review before rendering</legend>
+            <p class="muted">Only the explicit public topic below is sent to web search. Never include private information.
+              Creation plans only; images, video and music wait for approval. Exact narration may extend the requested duration up to 10 minutes.</p>
+            <label for="publicTopic">Public-only search topic (required)</label>
+            <input class="input" id="publicTopic" minlength="3" maxlength="1000" required>
+            <label for="educationStyle">Visual style</label>
+            <select class="input" id="educationStyle"><option value="presentation">Animated presentation</option><option value="ai_motion">AI motion with illustrations / diagrams</option></select>
+            <label for="imageProvider">Illustration provider</label>
+            <select class="input" id="imageProvider"><option value="comfyui">ComfyUI</option><option value="foundry">Foundry</option></select>
+            <label for="motionProvider">Motion provider (AI-motion style only)</label>
+            <select class="input" id="motionProvider"><option value="comfyui">ComfyUI</option><option value="foundry">Foundry</option></select>
+            <label for="textModel">Text deployment</label><select class="input" id="textModel"><option value="">Configured default</option></select>
+            <label for="audience">Audience</label><input class="input" id="audience" value="General audience" required maxlength="300">
+            <label for="musicMode">Music placement (MiniMax-Music3)</label>
+            <select class="input" id="musicMode"><option value="intro_outro">Intro / outro only</option><option value="off">Off</option><option value="background">Full background</option></select>
+            <p class="muted small" id="educationCapabilities">Loading configuration; provider availability is not verified live.</p>
+          </fieldset>
           <div class="attachments" id="attachments"></div>
           <textarea id="prompt" required minlength="3" maxlength="4000" placeholder="Describe your video, e.g. A documentary about a lighthouse keeper's last winter on a remote Breton island. Attach a photo to build the video around a person or a scene."></textarea>
           <div class="composer-bar">
@@ -358,6 +387,7 @@
             <div class="msg-col">
               <div class="msg-title" id="agentTitle"></div>
               <div id="timeline"></div>
+              <section class="review-panel" id="educationReview" hidden aria-label="Educational draft review"></section>
               <div class="outputs" id="outputs"></div>
               <div id="outcome"></div>
             </div>
@@ -381,11 +411,13 @@
       ["generate_music", "Generate music"], ["assemble", "Assemble video"],
     ];
     const STATUS_TEXT = {
+      researching: "Researching public topic", awaiting_review: "Awaiting your review",
       queued: "Queued", enhancing: "Enhancing prompt", planning: "Planning storyboard", keyframing: "Generating keyframes",
       generating: "Generating clips", processing: "Processing shots", narrating: "Narrating", scoring: "Composing music",
       assembling: "Assembling", completed: "Completed", failed: "Failed",
     };
     const AGENT_TEXT = {
+      researching: "is researching the public topic", awaiting_review: "is paused — review and explicitly approve the draft",
       queued: "is waiting for a free worker", enhancing: "is writing the creative brief", planning: "is planning the storyboard",
       keyframing: "is drawing the keyframes from your photo",
       generating: "is generating the clips", processing: "is bringing the shots to the output resolution",
@@ -393,6 +425,19 @@
       scoring: "is composing the background music", assembling: "is assembling the video",
       completed: "finished the video", failed: "stopped because of an error",
     };
+    function statusText(job) {
+      if (job.request.use_case === "educational") {
+        if (job.status === "generating") return "Rendering educational scenes";
+        if (job.status === "processing") return "Processing educational scenes";
+        if (job.status === "keyframing") return "Generating illustrations / diagrams";
+      }
+      return STATUS_TEXT[job.status] || job.status;
+    }
+    function progressText(job) {
+      const educational = job.request.use_case === "educational";
+      const showing = job.status === "generating" || (educational && ["processing", "assembling"].includes(job.status));
+      return showing && job.clips_total ? `${job.clips_done}/${job.clips_total} ${educational ? "scenes" : "clips"}` : "";
+    }
     const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", upscale: "ComfyUI", narration: "Speech", music: "ComfyUI", ffmpeg: "ffmpeg", upload: "Storage" };
     const DETAIL_LABEL = { agent: "Result", keyframe: "Edit prompt", clip: "Prompt", narration: "Narration", music: "Caption" };
     const HIDDEN_ATTRS = new Set(["step", "shot", "keyframe", "scene", "source", "artifact", "voice_artifact", "music_artifact"]);
@@ -401,6 +446,8 @@
     const UPSCALER_TEXT = { ffmpeg: "FFmpeg", seedvr2: "SeedVR2" };
     // Outputs panel groups, in pipeline order (the final video is the player below them).
     const OUTPUT_GROUPS = [
+      ["education_images", "Educational illustrations / diagrams"], ["education_drawio", "Editable draw.io diagrams"],
+      ["education_processed", "Processed educational scenes"], ["education_scenes", "Educational rendered scenes"],
       ["clips", "Generated shots"], ["processed", "Processed shots"], ["scenes", "Assembled scenes"],
       ["mixes", "Narration and music mixes"],
     ];
@@ -419,10 +466,12 @@
     };
     const CHEVRON = `<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 4 4 4-4 4"/></svg>`;
     const icon = (status) => `<span class="icon c-${esc(status)}" title="${esc(status)}">${ICONS[status] || ICONS.pending}</span>`;
-    const jobIcon = (s) => s === "completed" ? icon("succeeded") : s === "failed" ? icon("failed") : s === "queued" ? icon("queued") : `<span class="icon c-active">${ICONS.running}</span>`;
+    const jobIcon = (s) => s === "completed" ? icon("succeeded") : s === "failed" ? icon("failed") : s === "awaiting_review" ? icon("pending") : s === "queued" ? icon("queued") : `<span class="icon c-active">${ICONS.running}</span>`;
 
     const ACTIVE = new Set(["queued", "running"]);
     const isFinished = (job) => job && (job.status === "completed" || job.status === "failed");
+    const isPaused = (job) => job?.status === "awaiting_review";
+    let educationConfig = null, cinematicControls = null, review = null;
 
     function fmtDur(sec) {
       sec = Math.max(0, Math.floor(sec));
@@ -568,6 +617,18 @@
       api("/api/config").then(r => r.ok ? r.json() : null).then(c => {
         if (!c) return;
         maxImageMb = c.max_image_mb;
+        educationConfig = c.education || null;
+        $("textModel").innerHTML = `<option value="">Configured default</option>` +
+          (educationConfig?.text_models || []).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+        for (const [id, flags] of [["imageProvider", educationConfig?.images], ["motionProvider", educationConfig?.motion]]) {
+          for (const option of $(id).options) {
+            option.disabled = !flags?.[option.value];
+            option.textContent = `${option.value === "comfyui" ? "ComfyUI" : "Foundry"}${option.disabled ? " (not configured)" : " (configured)"}`;
+          }
+        }
+        $("educationCapabilities").textContent = educationConfig
+          ? `Configuration only (not live provider verification): search ${educationConfig.search_configured ? "configured" : "missing"}; diagrams ${educationConfig.diagrams_configured ? "configured" : "missing"}; narration ${educationConfig.narration_configured ? "configured" : "missing"}. Foundry image/video require verified compatible modalities; text models are not image generators.`
+          : "Educational capabilities are unavailable from this server.";
         $("attachBtn").title = $("attachBtn").title.replace(/up to \d+ MB/, `up to ${maxImageMb} MB`);
       }).catch(() => {});
       const r = await api("/api/models");
@@ -577,6 +638,11 @@
       showLicense();
     }
     function showLicense() {
+      if ($("useCase").value === "educational") {
+        if ($("publicTopic").value.trim().length < 3) throw new Error("Provide a public-only search topic of at least three characters.");
+        $("license").textContent = "Educational canvas: 1080p or 4K (orientation-swapped for vertical). Source image dimensions depend on the provider; a 4K canvas is not a native-4K image claim. Music: MiniMax-Music3.";
+        return;
+      }
       const m = models.find(m => m.key === $("model").value);
       const vertical = $("orientation").value === "vertical";
       const resolution = $("resolution").value || "720p";
@@ -590,7 +656,7 @@
     function updateFormatControls() {
       // 720p is the models' native size: there is nothing to upscale.
       const native = ($("resolution").value || "720p") === "720p";
-      $("upscaler").disabled = native;
+      $("upscaler").disabled = native || $("useCase").value === "educational";
       $("upscalerPill").classList.toggle("off", native);
       showLicense();
     }
@@ -599,12 +665,37 @@
     $("upscaler").onchange = showLicense;
     updateFormatControls();
     function updateDeliveryControls() {
-      $("deliveryControls").disabled = !$("naturalistic").checked || !$("narration").checked;
+      $("deliveryControls").disabled = !($("naturalistic").checked || $("useCase").value === "educational") || !$("narration").checked;
       $("voice").disabled = !$("narration").checked;
     }
     $("naturalistic").onchange = updateDeliveryControls;
     $("narration").onchange = updateDeliveryControls;
     updateDeliveryControls();
+    function updateEducationControls() {
+      const educational = $("useCase").value === "educational";
+      if (educational && !cinematicControls) {
+        cinematicControls = { resolution: $("resolution").value, orientation: $("orientation").value,
+          narration: $("narration").checked, naturalistic: $("naturalistic").checked, music: $("music").checked };
+        $("resolution").value = "1080p"; $("orientation").value = "horizontal";
+        $("narration").checked = true; $("naturalistic").checked = false; $("music").checked = false;
+        setPhoto(null);
+      } else if (!educational && cinematicControls) {
+        for (const [id, value] of Object.entries(cinematicControls)) {
+          if (typeof value === "boolean") $(id).checked = value; else $(id).value = value;
+        }
+        cinematicControls = null;
+      }
+      $("educationControls").hidden = !educational; $("educationControls").disabled = !educational;
+      $("resolution").querySelector('[value="720p"]').disabled = educational;
+      for (const id of ["image", "naturalistic", "music", "narration"]) $(id).disabled = educational;
+      $("attachBtn").hidden = educational;
+      $("model").disabled = educational && ($("educationStyle").value !== "ai_motion" || $("motionProvider").value !== "comfyui");
+      $("motionProvider").disabled = !educational || $("educationStyle").value !== "ai_motion";
+      updateFormatControls(); updateDeliveryControls();
+    }
+    $("useCase").onchange = updateEducationControls;
+    $("educationStyle").onchange = updateEducationControls;
+    $("motionProvider").onchange = updateEducationControls;
     $("prompt").oninput = () => { const t = $("prompt"); t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; };
     $("prompt").onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("form").requestSubmit(); };
     $("form").onsubmit = async (e) => {
@@ -615,7 +706,21 @@
         body.orientation = $("orientation").value || "horizontal";
         body.resolution = $("resolution").value || "720p";
         body.upscaler = body.resolution === "720p" ? "ffmpeg" : ($("upscaler").value || "ffmpeg");
-        if (body.naturalistic && body.narration) {
+        if ($("useCase").value === "educational") {
+          if (!educationConfig?.search_configured || !educationConfig?.narration_configured)
+            throw new Error("Educational planning requires configured public search and narration.");
+          if (!educationConfig.images?.[$("imageProvider").value])
+            throw new Error("Selected illustration provider is not configured.");
+          if ($("educationStyle").value === "ai_motion" && !educationConfig.motion?.[$("motionProvider").value])
+            throw new Error("Selected motion provider is not configured.");
+          body.use_case = "educational"; body.narration = true; body.naturalistic = false; body.music = false;
+          body.upscaler = "ffmpeg";
+          body.video_model = $("model").disabled ? null : body.video_model;
+          body.education = { style: $("educationStyle").value, image_provider: $("imageProvider").value,
+            motion_provider: $("motionProvider").value, text_model: $("textModel").value || null,
+            audience: $("audience").value, public_topic: $("publicTopic").value.trim(), music_mode: $("musicMode").value };
+        }
+        if ((body.naturalistic || body.use_case === "educational") && body.narration) {
           const pronunciations = $("pronunciations").value.split(/\r?\n/).filter(line => line.trim()).map(line => {
             const split = line.indexOf("=");
             if (split < 1 || !line.slice(split + 1).trim()) throw new Error("Pronunciation hints must use TEXT=ALIAS.");
@@ -654,6 +759,7 @@
 
     // Reference photo: picker, drag & drop and paste.
     function setPhoto(file) {
+      if (file && $("useCase").value === "educational") { alert("Educational videos do not accept reference photos. Only the public topic is searched."); return; }
       if (file && !IMAGE_TYPES.includes(file.type)) { alert("Use a PNG, JPEG or WebP photo."); file = null; }
       else if (file && file.size > maxImageMb * 1024 * 1024) { alert(`The photo must be ${maxImageMb} MB or less.`); file = null; }
       if (photoUrl) URL.revokeObjectURL(photoUrl);
@@ -698,12 +804,12 @@
     }
     function renderSidebar() {
       $("jobs").innerHTML = jobs.map(j => {
-        const progress = j.status === "generating" && j.clips_total ? ` · ${j.clips_done}/${j.clips_total} clips` : "";
+        const progress = progressText(j);
         return `<a class="job-item ${cur && cur.id === j.id ? "active" : ""}" href="#${esc(j.id)}">
           ${jobIcon(j.status)}
           <span class="ji-main">
             <span class="ji-title">${esc(j.title || j.request.prompt)}</span>
-            <span class="ji-meta">${esc(STATUS_TEXT[j.status] || j.status)}${progress} · ${esc(ago(j.created_at))}</span>
+            <span class="ji-meta">${esc(statusText(j))}${progress ? ` · ${esc(progress)}` : ""} · ${esc(ago(j.created_at))}</span>
           </span>
         </a>`;
       }).join("") || `<div class="empty">No videos yet.</div>`;
@@ -725,6 +831,7 @@
       if (cur && cur.id === id) return;
       stopWatching();
       cur = { id, job: jobs.find(j => j.id === id) || null, ops: new Map() };
+      review = null; $("educationReview").innerHTML = ""; $("educationReview").hidden = true;
       toggled.clear(); outcomeKey = ""; userMsgKey = "";
       resetOutputs();
       $("composeView").hidden = true; $("jobView").hidden = false;
@@ -742,6 +849,7 @@
     function onState(job) {
       if (!cur || job.id !== cur.id) return;
       cur.job = job;
+      if (isPaused(job)) stopWatching();
       const i = jobs.findIndex(j => j.id === job.id);
       if (i >= 0) jobs[i] = job; else jobs.unshift(job);
       renderSidebar(); scheduleRender();
@@ -770,13 +878,167 @@
           onState(await rs.json());
           for (const op of await ro.json()) cur.ops.set(op.id, op);
           scheduleRender();
-          if (isFinished(cur.job)) return;
+          if (isFinished(cur.job) || isPaused(cur.job)) return;
         }
       } catch { /* network hiccup: try again */ }
       if (cur && cur.id === id) pollTimer = setTimeout(() => poll(id), 3000);
     }
 
     // ---------------------------------------------------------------- session rendering
+    const educationUrl = (job, name) => `/api/videos/${encodeURIComponent(job.id)}/education/${name}?key=${encodeURIComponent(key())}`;
+    const safeSourceUrl = (url) => {
+      try { const u = new URL(url); return ["https:", "http:"].includes(u.protocol) ? u.href : ""; } catch { return ""; }
+    };
+    function reviewField(label, name, value, multiline = false) {
+      return `<label>${esc(label)}${multiline
+        ? `<textarea class="input" data-field="${esc(name)}" required>${esc(value)}</textarea>`
+        : `<input class="input" data-field="${esc(name)}" value="${esc(value)}" required>`}</label>`;
+    }
+    function reviewError(message) { if ($("reviewError")) $("reviewError").textContent = message; }
+    function renderEducationReview(job) {
+      const panel = $("educationReview");
+      panel.hidden = job.request.use_case !== "educational" || !job.draft_revision;
+      if (panel.hidden) return;
+      if (!isPaused(job)) {
+        if (panel.dataset.mode !== `${job.id}:readonly`) {
+          panel.dataset.mode = `${job.id}:readonly`;
+          panel.innerHTML = `<p>Editing is available only while awaiting review. Approved content is immutable; create a new job for post-approval changes.</p><a class="btn" href="${educationUrl(job, "sources.txt")}" download>Download sources</a>`;
+        }
+        return;
+      }
+      if (panel.dataset.mode === `${job.id}:readonly`) review = null;
+      panel.dataset.mode = `${job.id}:review`;
+      if (review?.id === job.id) {
+        if (review.draft && review.draft.revision !== job.draft_revision) {
+          if (!review.dirty && !review.busy) {
+            review = null;
+            renderEducationReview(job);
+            return;
+          }
+          reviewError("A newer revision exists. Your edits have been retained. Copy them if needed, then reload the latest draft.");
+          review.stale = true;
+        }
+        return;
+      }
+      review = { id: job.id, draft: null, dirty: false, stale: false };
+      panel.innerHTML = `<p>Loading draft…</p><p class="review-error" id="reviewError" role="alert"></p><button class="btn" type="button" data-review="reload">Reload draft</button>`;
+      loadDraft(job.id);
+    }
+    async function loadDraft(id) {
+      const context = review;
+      const token = context.loadToken = Symbol();
+      for (const control of $("educationReview").querySelectorAll("fieldset, button")) control.disabled = true;
+      try {
+        const r = await api(`/api/videos/${encodeURIComponent(id)}/draft`);
+        if (!r.ok) throw new Error(await errorText(r));
+        const draft = await r.json();
+        if (review !== context || context.loadToken !== token || cur?.id !== id || !isPaused(cur.job)) return;
+        context.draft = draft; context.dirty = false; context.stale = false;
+        const sources = draft.research.sources.map(s => {
+          const url = safeSourceUrl(s.url);
+          return `<li>${esc(s.id)}: ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>` : esc(s.title)}</li>`;
+        }).join("");
+        $("educationReview").innerHTML = `<h3>Review draft · revision ${esc(draft.revision)}</h3>
+          <p>No image, video or music generation starts until approval. Save edits first; approval freezes content and provider choices.</p>
+          <p>${esc(draft.research.summary)}</p><ul>${sources}</ul>
+          <a class="btn btn-sm" href="${educationUrl(cur.job, "sources.txt")}" download>Download sources</a>
+          <form id="draftForm">
+            <fieldset id="briefFields"><legend>Enhanced brief</legend>
+              ${reviewField("Title", "title", draft.brief.title)}
+              ${reviewField("Description", "description", draft.brief.description, true)}
+              ${reviewField("Audience", "audience", draft.brief.audience)}
+              ${reviewField("Objectives (one per line)", "objectives", draft.brief.objectives.join("\n"), true)}
+              ${reviewField("Language locale (e.g. en-US)", "language", draft.brief.language)}
+              ${reviewField("Visual theme", "visual_theme", draft.brief.visual_theme, true)}
+            </fieldset>
+            ${draft.scenes.map((scene, i) => `<fieldset data-scene="${i}"><legend>Scene ${i + 1}</legend>
+              ${reviewField("Title", "title", scene.title)}
+              ${reviewField("Description", "description", scene.description, true)}
+              ${reviewField("Full narration (preserved exactly after approval)", "narration", scene.narration, true)}
+              ${reviewField("Illustration prompt", "image_prompt", scene.image_prompt, true)}
+              <label>Animation<select class="input" data-field="animation">${["zoom_in", "zoom_out", "pan", "reveal"].map(v => `<option ${scene.animation === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              <label>Role<select class="input" data-field="role">${["intro", "content", "outro"].map(v => `<option ${scene.role === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+              ${reviewField("Citation IDs (comma-separated, from the sources above)", "source_ids", scene.source_ids.join(", "))}
+              <label>Technical diagram JSON (blank for illustration; nodes: id, label, icon_query; edges: source, target, label)
+                <textarea class="input mono" data-field="diagram">${esc(scene.diagram ? JSON.stringify(scene.diagram, null, 2) : "")}</textarea></label>
+            </fieldset>`).join("")}
+            <div class="review-actions">
+              <button class="btn" type="submit">Save validated edits</button>
+              <button class="btn btn-primary" type="button" data-review="approve">Approve saved revision and render</button>
+              <button class="btn" type="button" data-review="regenerate">Regenerate plan</button>
+              <button class="btn" type="button" data-review="reload">Reload latest draft</button>
+            </div>
+          </form><p class="muted" id="reviewDirty">Saved revision ready for review.</p><p class="review-error" id="reviewError" role="alert"></p>`;
+        $("draftForm").oninput = () => { context.dirty = true; $("reviewDirty").textContent = "Unsaved edits — save before approval. Live updates will not replace these edits."; };
+        $("draftForm").onsubmit = (e) => { e.preventDefault(); mutateDraft("save"); };
+      } catch (error) {
+        if (review === context && context.loadToken === token) reviewError(error.message || String(error));
+      } finally {
+        if (review === context && context.loadToken === token && !context.busy)
+          for (const control of $("educationReview").querySelectorAll("fieldset, button")) control.disabled = false;
+      }
+    }
+    function draftUpdate() {
+      const readFields = root => Object.fromEntries([...root.querySelectorAll("[data-field]")].map(el => [el.dataset.field, el.value]));
+      const brief = readFields($("briefFields"));
+      brief.objectives = brief.objectives.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      const scenes = [...$("draftForm").querySelectorAll("[data-scene]")].map(root => {
+        const scene = readFields(root);
+        scene.source_ids = scene.source_ids.split(",").map(s => s.trim()).filter(Boolean);
+        try { scene.diagram = scene.diagram.trim() ? JSON.parse(scene.diagram) : null; }
+        catch { throw new Error(`Scene ${Number(root.dataset.scene) + 1}: diagram must be valid JSON.`); }
+        return scene;
+      });
+      return { revision: review.draft.revision, brief, scenes };
+    }
+    async function mutateDraft(action) {
+      if (!review || review.busy) return;
+      const context = review, id = context.id;
+      try {
+        if (action === "reload") {
+          if (context.dirty && !confirm("Discard unsaved edits and load the latest draft?")) return;
+          await loadDraft(id); return;
+        }
+        if (!context.draft) throw new Error("Load the draft first.");
+        if (context.stale) throw new Error("Reload the latest draft before editing or approving a stale revision.");
+        if (action === "approve" && context.dirty) throw new Error("Save and validate your edits before approving.");
+        if (action === "regenerate" && !confirm("Replace this draft with a newly researched plan? Unsaved edits will be discarded.")) return;
+        const payload = action === "save" ? draftUpdate() : { revision: context.draft.revision };
+        context.busy = true; reviewError("");
+        for (const button of $("educationReview").querySelectorAll("button")) button.disabled = true;
+        for (const fieldset of $("educationReview").querySelectorAll("fieldset")) fieldset.disabled = true;
+        const r = await api(`/api/videos/${encodeURIComponent(id)}/${action === "save" ? "draft" : action}`,
+          { method: action === "save" ? "PUT" : "POST", body: JSON.stringify(payload) });
+        if (!r.ok) {
+          if (r.status === 409) context.stale = true;
+          throw new Error(await errorText(r));
+        }
+        if (review !== context || cur?.id !== id) return;
+        if (action === "save") {
+          context.dirty = false;
+          const state = await api(`/api/videos/${encodeURIComponent(id)}`);
+          if (state.ok) onState(await state.json());
+          await loadDraft(id);
+        } else {
+          context.dirty = false;
+          const state = await api(`/api/videos/${encodeURIComponent(id)}`);
+          if (state.ok) onState(await state.json());
+          stopWatching(); watch(id);
+        }
+      } catch (error) {
+        if (review === context) reviewError(`${error.message || error}${context.stale ? "\nYour edits are retained. Copy them if needed, then reload the latest draft." : ""}`);
+      } finally {
+        context.busy = false;
+        if (review === context) {
+          for (const button of $("educationReview").querySelectorAll("button")) button.disabled = false;
+          for (const fieldset of $("educationReview").querySelectorAll("fieldset")) fieldset.disabled = false;
+        }
+      }
+    }
+    $("educationReview").onclick = (e) => {
+      const button = e.target.closest("[data-review]");
+      if (button) mutateDraft(button.dataset.review);
+    };
     function scheduleRender() {
       if (renderQueued) return;
       renderQueued = true;
@@ -856,6 +1118,7 @@
     function formatText(request) {
       const resolution = request.resolution || "720p";
       const text = `${RESOLUTION_TEXT[resolution] || resolution} ${request.orientation === "vertical" ? "vertical" : "horizontal"}`;
+      if (request.use_case === "educational") return `${text} canvas`;
       return resolution === "720p" ? text : `${text} · ${UPSCALER_TEXT[request.upscaler] || request.upscaler}`;
     }
     // Videos only start loading when they scroll into view: a 10 min video has ~120 shots per group.
@@ -876,6 +1139,14 @@
         for (const [attr, mix, rank] of [["artifact", "", 0], ["voice_artifact", "narration", 1], ["music_artifact", "music", 2]]) {
           const name = op.attrs[attr];
           if (typeof name !== "string" || name === "final.mp4") continue;
+          const educational = name.match(/^education\/render\/[a-f0-9]{64}\/(images|processed|scenes)\/scene_(\d{3})\.(png|drawio|mp4)$/);
+          if (educational) {
+            const [, folder, number, extension] = educational;
+            const group = extension === "drawio" ? "education_drawio" : `education_${folder}`;
+            items.set(name, { name, group, type: extension, label: `Scene ${Number(number) + 1}`,
+              title: op.summary || "", version: op.id, order: Number(number) });
+            continue;
+          }
           const group = mix ? "mixes" : name.split("/")[0];
           if (!OUTPUT_GROUPS.some(([g]) => g === group)) continue;
           const n = parseInt((name.match(/_(\d{3})/) || [])[1], 10) || 0;
@@ -908,7 +1179,9 @@
       $("outputs").classList.toggle("vertical", job.request.orientation === "vertical");
       const enc = encodeURIComponent(job.id);
       for (const item of outputItems(ops).values()) {
-        const src = `/api/videos/${enc}/media/${item.name}?v=${encodeURIComponent(item.version)}&key=${encodeURIComponent(key())}`;
+        const src = item.name.startsWith("education/")
+          ? `${educationUrl(job, item.name.slice("education/".length))}&v=${encodeURIComponent(item.version)}`
+          : `/api/videos/${enc}/media/${item.name}?v=${encodeURIComponent(item.version)}&key=${encodeURIComponent(key())}`;
         const existing = outputs.get(item.name);
         if (existing) {
           // Re-rendered by a later run: switch to the new file, but never under a viewer who is watching it.
@@ -924,9 +1197,13 @@
         card.className = "media-card";
         card.dataset.name = item.name;
         card.dataset.order = item.order;
-        const video = document.createElement("video");
-        video.controls = true; video.preload = "metadata"; video.playsInline = true;
-        video.dataset.src = src;
+        const video = document.createElement(item.type === "png" ? "img" : item.type === "drawio" ? "a" : "video");
+        if (item.type === "png") { video.src = src; video.alt = item.label; video.loading = "lazy"; video.style.width = "100%"; }
+        else if (item.type === "drawio") { video.href = src; video.download = ""; video.textContent = "Download editable draw.io"; }
+        else {
+          video.controls = true; video.preload = "metadata"; video.playsInline = true;
+          video.dataset.src = src;
+        }
         video.setAttribute("aria-label", `${item.label}${item.title ? ` · ${item.title}` : ""}`);
         const caption = document.createElement("figcaption");
         caption.title = `${item.label}${item.title ? ` · ${item.title}` : ""} (${item.name})`;
@@ -937,7 +1214,7 @@
         grid.insertBefore(card, next || null);
         group.querySelector(".count").textContent = grid.children.length;
         outputs.set(item.name, { card, video, src });
-        if (lazyVideos) lazyVideos.observe(video); else loadVideo(video);
+        if (video.tagName === "VIDEO") { if (lazyVideos) lazyVideos.observe(video); else loadVideo(video); }
       }
     }
 
@@ -954,13 +1231,15 @@
         resetOutputs();
         return;
       }
-      const statusClass = job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "queued" ? "queued" : "active";
+      renderEducationReview(job);
+      const statusClass = job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "queued" || isPaused(job) ? "queued" : "active";
       const model = models.find(m => m.key === job.request.video_model);
       $("jobHead").innerHTML = `
         <h2>${esc(job.title || "Untitled video")}</h2>
         <div class="job-meta">
-          <span class="label ${statusClass}">${statusClass === "active" ? `<span class="icon">${ICONS.running}</span>` : ""}${esc(STATUS_TEXT[job.status] || job.status)}</span>
-          <span>${esc(model ? model.name : job.request.video_model)}</span>
+          <span class="label ${statusClass}">${statusClass === "active" ? `<span class="icon">${ICONS.running}</span>` : ""}${esc(statusText(job))}</span>
+          ${job.request.use_case === "educational" && progressText(job) ? `<span>${esc(progressText(job))}</span>` : ""}
+          <span>${esc(job.request.use_case === "educational" ? `Educational · ${job.request.education.style} · ${job.request.education.image_provider}` : model ? model.name : job.request.video_model)}</span>
           <span>·</span><span>${esc(formatText(job.request))}</span>
           <span>·</span><span>${esc(job.request.duration_minutes)} min</span>
           ${job.duration_seconds ? `<span>·</span><span>${esc(fmtDur(job.duration_seconds))} rendered</span>` : ""}
@@ -978,17 +1257,21 @@
         <div class="chips">
           ${job.request.reference_image ? `<span class="chip"><span class="k">mode</span>photo to video</span>` : ""}
           ${job.request.naturalistic ? `<span class="chip"><span class="k">direction</span>naturalistic</span>` : ""}
-          <span class="chip"><span class="k">model</span>${esc(job.request.video_model)}</span>
+          <span class="chip"><span class="k">${job.request.education ? "style" : "model"}</span>${esc(job.request.education ? job.request.education.style : job.request.video_model)}</span>
           <span class="chip"><span class="k">format</span>${esc(formatText(job.request))}</span>
           <span class="chip"><span class="k">duration</span>${esc(job.request.duration_minutes)} min</span>
           <span class="chip"><span class="k">narration</span>${job.request.narration ? "on" : "off"}</span>
           ${job.request.music ? `<span class="chip"><span class="k">music</span>MiniMax-Music3</span>` : ""}
+          ${job.request.education ? `<span class="chip"><span class="k">music</span>${esc(job.request.education.music_mode)} · MiniMax-Music3</span>` : ""}
           ${job.request.voice ? `<span class="chip"><span class="k">voice</span>${esc(job.request.voice)}</span>` : ""}
           ${job.request.seed != null ? `<span class="chip"><span class="k">seed</span>${esc(job.request.seed)}</span>` : ""}
         </div>`;
       }
       const elapsed = isFinished(job) ? ` in ${fmtDur((new Date(job.updated_at) - new Date(job.created_at)) / 1000)}` : "";
-      $("agentTitle").innerHTML = `<b>Video agent</b><span class="muted">${esc(AGENT_TEXT[job.status] || job.status)}${esc(elapsed)}</span>`;
+      const agentText = job.request.use_case === "educational" && ["generating", "processing", "keyframing"].includes(job.status)
+        ? job.status === "keyframing" ? "is generating illustrations and diagrams" : "is rendering the educational scenes"
+        : AGENT_TEXT[job.status] || job.status;
+      $("agentTitle").innerHTML = `<b>Video agent</b><span class="muted">${esc(agentText)}${esc(elapsed)}</span>`;
 
       // Timeline: latest run in full, earlier runs collapsed above it.
       const children = new Map();
@@ -1011,10 +1294,12 @@
       const steps = ops.filter(o => o.run === latest && !o.parent_id);
       const started = new Set(steps.map(o => o.attrs.step));
       // Naturalistic jobs write the narration before the keyframes (prepare_narration) instead of after the clips.
-      const plannedSteps = job.request.naturalistic
+      const plannedSteps = job.request.use_case === "educational"
+        ? []
+        : job.request.naturalistic
         ? STEPS.flatMap(s => s[0] === "narrate" ? [] : s[0] === "generate_keyframes" ? [["prepare_narration", "Prepare narration"], s] : [s])
         : STEPS;
-      const placeholders = isFinished(job) ? [] : plannedSteps.filter(([k]) => !started.has(k));
+      const placeholders = isFinished(job) || isPaused(job) ? [] : plannedSteps.filter(([k]) => !started.has(k));
       if (runs.length > 1) html += `<div class="run-label">Run ${latest}</div>`;
       html += renderRun(steps, children, placeholders);
       $("timeline").innerHTML = html;
@@ -1030,7 +1315,7 @@
             <video controls preload="metadata" src="/api/videos/${enc}/download?${q}"></video>
             <div class="player-bar">
               <a class="btn btn-sm" href="/api/videos/${enc}/download?${q}" download="${esc(job.id)}.mp4">Download MP4</a>
-              <a class="btn btn-sm" href="/api/videos/${enc}/storyboard?${q}" target="_blank" rel="noopener">Storyboard JSON</a>
+              <a class="btn btn-sm" href="/api/videos/${enc}/${job.request.use_case === "educational" ? "draft" : "storyboard"}?${q}" target="_blank" rel="noopener">${job.request.use_case === "educational" ? "Approved draft JSON" : "Storyboard JSON"}</a>
             </div></div>`;
         } else if (job.status === "failed") {
           $("outcome").innerHTML = `<div class="flash flash-error">${icon("failed")}

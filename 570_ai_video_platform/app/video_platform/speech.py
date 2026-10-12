@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from pathlib import Path
+from typing import Literal
 from xml.sax.saxutils import escape, quoteattr
 
 import httpx
@@ -118,6 +119,33 @@ class Narrator:
 
     async def synthesize(
         self, text: str, dest: Path, voice: str | None = None, language: str = "en-US",
-        delivery: NarrationDelivery | None = None,
+        delivery: NarrationDelivery | None = None, transport: Literal["sdk", "rest"] = "sdk",
     ) -> Path:
+        if transport == "rest":
+            return await asyncio.to_thread(self._synthesize_rest, text, dest, voice or self.voice, language, delivery)
+        if transport != "sdk":
+            raise SpeechError(f"Unsupported Speech transport: {transport}")
         return await asyncio.to_thread(self._synthesize, text, dest, voice or self.voice, language, delivery)
+
+    def _synthesize_rest(
+        self, text: str, dest: Path, voice: str, language: str, delivery: NarrationDelivery | None,
+    ) -> Path:
+        self._validate(voice, language, delivery or NarrationDelivery())
+        token = self.credential.get_token("https://cognitiveservices.azure.com/.default")
+        try:
+            response = httpx.post(
+                self.endpoint.rstrip("/") + "/tts/cognitiveservices/v1",
+                headers={
+                    "Authorization": f"Bearer {token.token}", "Content-Type": "application/ssml+xml",
+                    "X-Microsoft-OutputFormat": "riff-48khz-16bit-mono-pcm", "User-Agent": "AI-Video-Platform",
+                },
+                content=build_ssml(text, voice, language, delivery).encode("utf-8"), timeout=120,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise SpeechError(f"Speech REST synthesis failed: {exc}") from exc
+        if not response.content.startswith(b"RIFF") or response.content[8:12] != b"WAVE":
+            raise SpeechError("Speech REST synthesis returned no valid WAV audio")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(response.content)
+        return dest

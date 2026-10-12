@@ -328,6 +328,45 @@ async def test_naturalistic_resume_and_incompatible_manifest(settings, tmp_path,
 
 
 @requires_ffmpeg
+@pytest.mark.parametrize("naturalistic", [False, True])
+async def test_narration_over_video_without_audio(tmp_path, naturalistic):
+    video = make_clip(tmp_path / "silent.mp4", 3, 24, 160, 96, audio=False)
+    narration = make_wav(tmp_path / "voice.wav", 1)
+    output = await media.mix_narration(video, narration, tmp_path / "mixed.mp4",
+                                      naturalistic=naturalistic)
+    duration, has_audio = await media.probe(output)
+    assert has_audio
+    assert duration == pytest.approx(3, abs=1 / 24)
+    assert await media.video_size(output) == (160, 96)
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(output), "-vn", "-ac", "1",
+                          "-ar", "48000", "-f", "f32le", "-"], check=True, capture_output=True).stdout
+    samples = struct.unpack(f"<{len(raw) // 4}f", raw)
+    assert len(samples) / 48000 == pytest.approx(3, abs=1 / 24)
+    lead = samples[:14400]
+    assert math.sqrt(sum(value * value for value in lead) / len(lead)) < 0.0001
+    voice = samples[24000:48000]
+    assert math.sqrt(sum(value * value for value in voice) / len(voice)) > 0.01
+
+
+@requires_ffmpeg
+async def test_music_remains_audible_during_padded_narration_tail(tmp_path):
+    video = make_clip(tmp_path / "silent.mp4", 5.125, 24, 160, 96, audio=False)
+    narration = make_wav(tmp_path / "voice.wav", 4.1125)
+    voice = await media.mix_narration(video, narration, tmp_path / "voice.mp4", naturalistic=True)
+    music = tmp_path / "music.flac"
+    await media.run("ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=440:sample_rate=44100:duration=6.118", "-ac", "2", str(music))
+    for index in range(3):
+        output = await media.mix_music(voice, music, tmp_path / f"mix{index}.mp4", 0.3, 1)
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "4.675", "-i", str(output),
+                              "-t", "0.25", "-vn", "-ac", "1", "-ar", "48000",
+                              "-f", "f32le", "-"], check=True, capture_output=True).stdout
+        samples = struct.unpack(f"<{len(raw) // 4}f", raw)
+        assert math.sqrt(sum(value * value for value in samples) / len(samples)) > 0.001
+        assert await media.video_duration(output) == pytest.approx(5.125, abs=1 / 24)
+
+
+@requires_ffmpeg
 async def test_naturalistic_mixing_ducks_audio_and_preserves_frames(tmp_path):
     source = make_clip(tmp_path / "input.mp4", 5, 24, 160, 96, audio=True)
     video = await media.normalize_clip(source, tmp_path / "video.mp4", 160, 96, 24, True, 1,

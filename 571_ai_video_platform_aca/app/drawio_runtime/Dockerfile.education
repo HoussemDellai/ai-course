@@ -1,0 +1,33 @@
+# Opt-in orchestrator image with a local exporter; no Docker daemon/socket needed.
+# Build context is app/, not the repository root or this directory.
+FROM python:3.12-slim-bookworm AS native-runtime
+ARG DRAWIO_VERSION=32.4.1
+ARG DRAWIO_SHA256=f4455b3bba3d3b539c3cd069218fc64f0462b1b01610fe8d11acc3ca8566f32b
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl libssl3 libasound2 \
+       xvfb xauth fonts-dejavu-core libgbm1 libgtk-3-0 libnss3 libxss1 libxtst6 \
+    && curl --fail --location --retry 2 --connect-timeout 20 --max-time 300 --output /drawio.deb \
+       "https://github.com/jgraph/drawio-desktop/releases/download/v${DRAWIO_VERSION}/drawio-amd64-${DRAWIO_VERSION}.deb" \
+    && echo "${DRAWIO_SHA256}  /drawio.deb" | sha256sum --check - \
+    && apt-get install -y --no-install-recommends /drawio.deb \
+    && rm /drawio.deb && rm -rf /var/lib/apt/lists/*
+
+FROM native-runtime AS education
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY main.py generate.py ./
+COPY video_platform ./video_platform
+COPY drawio_runtime/export_native.py ./drawio_runtime/export_native.py
+
+# Chromium profiles/mmap must stay on Linux-local storage, not mounted shares.
+ENV PYTHONUNBUFFERED=1 \
+    WORK_DIR=/app/work \
+    DRAWIO_RUNTIME_DIR=/app/drawio-runtime-work \
+    EDUCATION_FONT=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+    DRAWIO_EXPORT_COMMAND="[\"python\",\"/app/drawio_runtime/export_native.py\"]" \
+    COMFY_IMAGE_WORKFLOW=/app/video_platform/comfy_workflows/qwen_image_t2i.json
+
+EXPOSE 8000
+CMD ["python", "main.py"]

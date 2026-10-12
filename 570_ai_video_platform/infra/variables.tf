@@ -56,3 +56,38 @@ variable "tts_voice" {
   type        = string
   default     = "en-US-AndrewMultilingualNeural"
 }
+
+variable "education_environment" {
+  description = "Optional educational provider configuration. Does not create model deployments or start the GPU VM. Secrets must use managed identity, not this map."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.education_environment) : contains([
+        "EDUCATION_TEXT_MODELS", "EDUCATION_SEARCH_MODEL", "FOUNDRY_IMAGE_ENDPOINT",
+        "FOUNDRY_IMAGE_MODEL", "FOUNDRY_VIDEO_ENDPOINT", "FOUNDRY_VIDEO_MODEL",
+        "DRAWIO_MCP_URL", "DRAWIO_EXPORT_COMMAND", "COMFY_IMAGE_WORKFLOW", "EDUCATION_FONT"
+      ], key)
+    ])
+    error_message = "Only educational provider environment variables may be supplied."
+  }
+
+}
+
+variable "education_drawio_image" {
+  description = "Optional pinned self-hosted draw.io MCP image. Runs privately beside the orchestrator on port 3001; set DRAWIO_MCP_URL to http://localhost:3001/mcp. Requires the educational orchestrator image for native export."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.education_drawio_image == "" || (can(regex("(?::[^/:]+|@sha256:[0-9a-f]{64})$", var.education_drawio_image)) && !endswith(var.education_drawio_image, ":latest"))
+    error_message = "Use a pinned image tag/digest, not an unversioned image or latest."
+  }
+}
+
+variable "educational_runtime" {
+  description = "Build the opt-in orchestrator image with pinned native draw.io, Xvfb, and fonts. No resources are deployed until Terraform is applied."
+  type        = bool
+  default     = false
+}

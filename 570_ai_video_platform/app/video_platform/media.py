@@ -127,24 +127,27 @@ async def mix_narration(
     video: Path, narration: Path | None, dest: Path, lead_in: float = 0.4, tail: float = 0.6,
     naturalistic: bool = False,
 ) -> Path:
-    """Lays the voice-over on top of the scene audio. Freezes the last frame if the narration is longer."""
-    video_len, _ = await probe(video)
+    """Lays voice-over on scene audio or silence. Freezes the last frame if narration is longer."""
+    video_len, has_audio = await probe(video)
     if narration is None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         await run("ffmpeg", "-y", "-i", str(video), "-c", "copy", "-movflags", "+faststart", str(dest))
         return dest
     narration_len, _ = await probe(narration)
+    background = "[0:a]" if has_audio else "anullsrc=channel_layout=stereo:sample_rate=48000,"
     if naturalistic:
         video_len = await video_duration(video)
         if lead_in + narration_len + tail > video_len + 0.000001:
             raise MediaError("Narration exceeds the measured scene budget; naturalistic mode never freezes frames")
         delay_ms = int(lead_in * 1000)
         fc = (
-            f"[0:a]apad=whole_dur={video_len:.9f},atrim=0:{video_len:.9f}[bg];"
+            f"{background}apad=whole_dur={video_len:.9f},atrim=0:{video_len:.9f},"
+            "asetnsamples=n=1024:p=1,asetpts=N/SR/TB[bg];"
             "[1:a]aresample=48000,aformat=channel_layouts=stereo,"
             "loudnorm=I=-18:TP=-3:LRA=7,aresample=48000,"
-            f"adelay={delay_ms}|{delay_ms},apad=whole_dur={video_len:.9f},"
-            f"atrim=0:{video_len:.9f},asplit=2[voice][control];"
+            f"adelay={delay_ms}|{delay_ms},asetpts=N/SR/TB,apad=whole_dur={video_len:.9f},"
+            f"atrim=0:{video_len:.9f},asetnsamples=n=1024:p=1,asetpts=N/SR/TB,"
+            "asplit=2[voice][control];"
             "[bg][control]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=300[ducked];"
             "[ducked][voice]amix=inputs=2:duration=first:normalize=0,"
             f"alimiter=limit=0.85:level=false:latency=true,atrim=0:{video_len:.9f}[a]"
@@ -159,8 +162,8 @@ async def mix_narration(
     delay_ms = int(lead_in * 1000)
     fc = (
         f"[0:v]tpad=stop_mode=clone:stop_duration={pad:.3f}[v];"
-        f"[0:a]apad=whole_dur={total:.3f}[bg];"
-        f"[1:a]aresample=48000,aformat=channel_layouts=stereo,adelay={delay_ms}|{delay_ms},"
+        f"{background}apad=whole_dur={total:.3f}[bg];"
+        f"[1:a]aresample=48000,aformat=channel_layouts=stereo,adelay={delay_ms}|{delay_ms},asetpts=N/SR/TB,"
         f"apad=whole_dur={total:.3f}[nar];"
         f"[bg][nar]amix=inputs=2:duration=longest:normalize=0,atrim=0:{total:.3f}[a]"
     )
@@ -176,11 +179,13 @@ async def mix_music(video: Path, music: Path, dest: Path, volume: float, fade: f
     (narration, ambience), trimmed or padded to the exact scene length. The video stream is copied."""
     length = await video_duration(video)
     fade = max(0.0, min(fade, length / 3))
+    # Align sidechain frames so padded silence cannot consume an unmatched music tail.
     fc = (
         f"[1:a]aresample=48000,aformat=channel_layouts=stereo,volume={volume},atrim=0:{length:.9f},"
         f"asetpts=PTS-STARTPTS,afade=t=in:d={fade:.6f},afade=t=out:st={length - fade:.6f}:d={fade:.6f},"
-        f"apad=whole_dur={length:.9f}[music];"
-        f"[0:a]apad=whole_dur={length:.9f},atrim=0:{length:.9f},asplit=2[scene][control];"
+        f"apad=whole_dur={length:.9f},asetnsamples=n=1024:p=1,asetpts=N/SR/TB[music];"
+        f"[0:a]apad=whole_dur={length:.9f},atrim=0:{length:.9f},"
+        "asetnsamples=n=1024:p=1,asetpts=N/SR/TB,asplit=2[scene][control];"
         "[music][control]sidechaincompress=threshold=0.02:ratio=6:attack=20:release=400[ducked];"
         "[scene][ducked]amix=inputs=2:duration=first:normalize=0,"
         f"alimiter=limit=0.85:level=false:latency=true,atrim=0:{length:.9f}[a]"

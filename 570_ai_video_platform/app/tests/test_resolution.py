@@ -71,7 +71,7 @@ def test_naturalistic_fingerprint_of_existing_jobs_is_unchanged():
     legacy = {
         "version": 1,
         "request": {k: v for k, v in request.model_dump(exclude={"music"}).items()
-                    if k not in ("orientation", "resolution", "upscaler")},
+                    if k not in ("orientation", "resolution", "upscaler", "use_case", "education")},
         "model": vars(job.model), "voice": s.tts_voice, "output": [1280, 720, 24],
         "ambient_volume": s.ambient_audio_volume,
     }
