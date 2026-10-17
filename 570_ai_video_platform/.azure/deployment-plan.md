@@ -1,6 +1,19 @@
 # Azure Deployment Plan
 
-> **Status:** Deployed
+> **Status:** Planning
+
+## Release: deployment to requested subscription (2026-10-13)
+
+- Target subscription: `2524a5e1-00d7-43c2-a7cf-a87b79df2415`
+  (`ME-MngEnvMCAP752444-hodellai-1`).
+- Recipe: Terraform, existing application Dockerfiles and ACR build.
+- Scope: deploy the current solution without modifying or deleting the previous
+  subscription's resources or overwriting its Terraform state.
+- Preparation: inspect target resources, globally unique names, regions, GPU/model
+  capacity, permissions and costs; obtain approval before provisioning.
+- Validation proof: pending validation for this target. Historical proof below
+  applies only to the previous subscription.
+- Execution and verification: pending.
 
 ## Release: reviewed educational presentations (2026-10-09)
 

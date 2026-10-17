@@ -19,6 +19,7 @@ terraform {
 }
 
 provider "azurerm" {
+  subscription_id     = "2524a5e1-00d7-43c2-a7cf-a87b79df2415"
   use_cli             = true
   storage_use_azuread = true
 

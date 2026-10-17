@@ -1,5 +1,5 @@
-resource "azurerm_cognitive_deployment" "gpt_52" {
-  name                 = "gpt-5.2"
+resource "azurerm_cognitive_deployment" "gpt_61_sol" {
+  name                 = "gpt-6.1-sol"
   cognitive_account_id = azurerm_cognitive_account.foundry.id
 
   sku {
@@ -9,60 +9,76 @@ resource "azurerm_cognitive_deployment" "gpt_52" {
 
   model {
     format  = "OpenAI"
-    name    = "gpt-5.2"
-    version = "2025-12-11"
+    name    = "gpt-6.1-sol"
+    version = "2026-09-29"
   }
 }
 
-resource "azurerm_cognitive_deployment" "gpt_4o_mini" {
-  name                 = "gpt-4o-mini"
-  cognitive_account_id = azurerm_cognitive_account.foundry.id
+# resource "azurerm_cognitive_deployment" "gpt_52" {
+#   name                 = "gpt-5.2"
+#   cognitive_account_id = azurerm_cognitive_account.foundry.id
 
-  sku {
-    name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
-    capacity = 20
-  }
+#   sku {
+#     name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
+#     capacity = 1000
+#   }
 
-  model {
-    format  = "OpenAI"
-    name    = "gpt-4o-mini"
-    version = "2024-07-18"
-  }
-}
+#   model {
+#     format  = "OpenAI"
+#     name    = "gpt-5.2"
+#     version = "2025-12-11"
+#   }
+# }
 
-# Mistral Large 3 (25.12)
-resource "azurerm_cognitive_deployment" "mistral_large" {
-  name                 = "mistral-large"
-  cognitive_account_id = azurerm_cognitive_account.foundry.id
+# resource "azurerm_cognitive_deployment" "gpt_4o_mini" {
+#   name                 = "gpt-4o-mini"
+#   cognitive_account_id = azurerm_cognitive_account.foundry.id
 
-  sku {
-    name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
-    capacity = 250
-  }
+#   sku {
+#     name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
+#     capacity = 20
+#   }
 
-  model {
-    format  = "Mistral AI"
-    name    = "Mistral-Large-3"
-    version = "1"
-  }
-}
+#   model {
+#     format  = "OpenAI"
+#     name    = "gpt-4o-mini"
+#     version = "2024-07-18"
+#   }
+# }
 
-resource "azurerm_cognitive_deployment" "mistral_document_ai" {
-  name                 = "mistral-document-ai-2505"
-  cognitive_account_id = azurerm_cognitive_account.foundry.id
+# # Mistral Large 3 (25.12)
+# resource "azurerm_cognitive_deployment" "mistral_large" {
+#   name                 = "mistral-large"
+#   cognitive_account_id = azurerm_cognitive_account.foundry.id
 
-  sku {
-    name     = "DataZoneStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
-    capacity = 60
-  }
+#   sku {
+#     name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
+#     capacity = 250
+#   }
 
-  model {
-    format  = "Mistral AI"
-    name    = "mistral-document-ai-2505"
-    version = "1"
-  }
-}
+#   model {
+#     format  = "Mistral AI"
+#     name    = "Mistral-Large-3"
+#     version = "1"
+#   }
+# }
+
+# resource "azurerm_cognitive_deployment" "mistral_document_ai" {
+#   name                 = "mistral-document-ai-2505"
+#   cognitive_account_id = azurerm_cognitive_account.foundry.id
+
+#   sku {
+#     name     = "DataZoneStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
+#     capacity = 60
+#   }
+
+#   model {
+#     format  = "Mistral AI"
+#     name    = "mistral-document-ai-2505"
+#     version = "1"
+#   }
+# }
 
 output "llm_model_deployment_name" {
-  value = azurerm_cognitive_deployment.gpt_52.name
+  value = azurerm_cognitive_deployment.gpt_61_sol.name
 }

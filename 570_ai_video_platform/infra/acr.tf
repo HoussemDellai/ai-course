@@ -1,5 +1,5 @@
 resource "azurerm_container_registry" "acr" {
-  name                = "acr${var.prefix}"
+  name                = "acr4${var.prefix}"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   sku                 = "Basic"
@@ -26,6 +26,6 @@ resource "terraform_data" "build_app_image" {
 
   provisioner "local-exec" {
     working_dir = local.app_dir
-    command     = "az acr repository show --name ${azurerm_container_registry.acr.name} --image ${local.app_image_tag} --output none || az acr build --registry ${azurerm_container_registry.acr.name} --image ${local.app_image_tag} --file ${local.app_dockerfile} ."
+    command     = "az acr repository show --name ${azurerm_container_registry.acr.name} --image ${local.app_image_tag} --output none || az acr build --registry ${azurerm_container_registry.acr.name} --image ${local.app_image_tag} --file ${local.app_dockerfile} . --no-logs"
   }
 }

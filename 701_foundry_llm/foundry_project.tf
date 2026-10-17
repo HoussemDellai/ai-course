@@ -1,0 +1,26 @@
+resource "azurerm_cognitive_account_project" "project" {
+  name                 = "foundry-project-${var.prefix}"
+  cognitive_account_id = azurerm_cognitive_account.foundry.id
+  location             = azurerm_cognitive_account.foundry.location
+  description          = "Foundry project"
+  display_name         = "Foundry Project"
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+# Assign the Azure AI User role on your Foundry resource to your project's managed identity.
+resource "azurerm_role_assignment" "role_azure_ai_user_foundry" {
+  scope                = azurerm_cognitive_account.foundry.id
+  role_definition_name = "Foundry User"
+  principal_id         = azurerm_cognitive_account_project.project.identity.0.principal_id
+}
+
+output "foundry_project_name" {
+  value = azurerm_cognitive_account_project.project.name
+}
+
+output "foundry_project_endpoint" {
+  value = azurerm_cognitive_account_project.project.endpoints["AI Foundry API"]
+}
