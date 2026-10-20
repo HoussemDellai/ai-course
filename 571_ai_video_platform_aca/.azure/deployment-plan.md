@@ -1,6 +1,393 @@
 # Azure deployment plan: AI Video Platform 571
 
-Status: Deployed and runtime verified (32 GiB memory rollout, 2026-10-12; render validation deferred by user).
+Status: Deployed and verified (two-worker ComfyUI rollout, 2026-10-20).
+
+## Current update: two-worker ComfyUI rollout
+
+- User approved Terraform deployment to the existing subscription
+  `2524a5e1-00d7-43c2-a7cf-a87b79df2415` (ME-MngEnvMCAP752444-hodellai-1),
+  resource group `rg-aivideo571`, environment `aca-env-aivideo571` in Italy North.
+  Supporting resources remain Germany West Central.
+- Recipe: Terraform, existing default workspace/local backend, education.tfvars.
+  Preserve the primary GPU app, current 2-vCPU/32-GiB sizing per worker, model
+  weights, identities, permissions, networking, storage and existing HF secret.
+- Add one always-on A100 worker with its own URL; user approved its ongoing cost.
+  Wire both workers into the updated educational orchestrator and GPU monitoring.
+  Isolate secondary writable media/user directories and local runtime temp.
+- Source/scripts changed: expect local build/provisioning markers to rerun,
+  the model job configuration and primary runtime revision to update, and a
+  content-addressed educational application image build. Model inventory is
+  unchanged; provisioning reuses existing completed downloads.
+- Deploy only after inspecting a fresh full saved plan. Reject unrelated changes,
+  primary replacement, Azure resource deletion and new permissions.
+- All validation checks pass:
+  - Confirm subscription/regions/cost, backend and CLI authentication.
+  - Verify no active platform job and empty existing worker queues.
+  - Verify environment-specific A100 quota, workload profile and subnet capacity.
+  - Initialize locked providers; run format/schema and mocked Terraform tests.
+  - Retain locally verified Python parallel-rendering regressions.
+  - Generate a new private plan preserving the state-managed HF secret in memory.
+  - Inspect the exact resource/field scope and existing live identity roles.
+  - Apply only that inspected saved plan, then verify healthy revisions, both
+    ComfyUI endpoints, CUDA/A100 telemetry, models and application URL wiring.
+  - Verify the new application code and two-server GPU API without starting work.
+  - Generate a fresh post-deployment plan and require no remaining changes.
+- No generation, approval, retry or paid benchmark jobs may be started.
+  Existing completed/awaiting-review jobs remain untouched.
+
+### Section 7: Two-worker validation proof
+
+- Target/cost explicitly confirmed by user on 2026-10-20.
+- Azure CLI authentication and existing group/environment confirmed; environment
+  provisioning state Succeeded.
+- Managed-environment A100 quota: current 1, limit 2. Generic quota MCP could not
+  retrieve this service's quota; the authoritative environment usage API succeeded.
+- Platform jobs: two completed, one awaiting review; no active job. Existing
+  primary ComfyUI queue: running 0, pending 0.
+- Existing default workspace/backend initialized with locked providers; recursive
+  formatting and Terraform schema validation passed. Mocked tests: 8 passed.
+- Python implementation validation: 206 impacted cases passed across local runs.
+  One unchanged legacy T4-profile assertion conflicts with the existing environment
+  in HEAD; it is unrelated to this deployment and was not used as readiness proof.
+- `terraform plan -input=false -no-color -detailed-exitcode
+  -var-file=education.tfvars -var=comfyui_worker_count=2` saved a new private plan;
+  exact scope: primary update with preserved ID/moved address, secondary creation,
+  orchestrator/model-job updates, and two local Terraform marker replacements.
+  No Azure deletion/replacement, credential change, new RBAC or unrelated change.
+- Container field inspection confirms preserved CPU, RAM, image (GPU/model job),
+  mounts and executable commands. Changes are the intended startup/provisioning
+  arguments, worker identity/version, and application image.
+- Source build verification: Python compilation passed; runtime dependencies and
+  Dockerfile remain unchanged. Content-addressed image
+  `video-platform:education-e951b4fee6f6` will be built by Terraform's existing
+  ACR helper during apply. Registry Succeeded with admin credentials disabled.
+- Live application identity roles verified at their existing resource scopes:
+  AcrPull, Foundry User, Speech User and Storage Blob Data Contributor.
+- Existing delegated ACA subnet is 10.11.0.0/23; the extra worker fits the address
+  space. Current primary revision is Healthy with one active replica.
+- Quota-safe rollout uses two fresh full Terraform plans rather than concurrent
+  primary update/secondary creation: first apply count=1 to roll the primary and
+  application; verify it healthy, then plan/apply count=2 to add the secondary.
+  The first-phase saved plan contains exactly the five expected changes with no
+  secondary deletion. This avoids a possible third-GPU revision overlap at quota 2.
+- The stock validation helper was not used: it hardcodes an existing tfplan name
+  and omits education.tfvars. Equivalent initialization, format/schema, state,
+  authentication and fresh-plan checks were run explicitly without overwriting
+  existing plans or printing state secrets. This project is plain Terraform, not
+  AZD: no new AZD environment, placeholder infrastructure or redundant RBAC created.
+
+### Two-worker rollout progress
+
+- Primary-phase inspected Terraform apply succeeded. Model provisioning execution
+  `download-models-aivideo571-d2blbrf` succeeded, reusing installed model inventory.
+- ACR build `dn7` succeeded for `video-platform:education-e951b4fee6f6`.
+- Primary revision `comfyui-aivideo571--0000002` became Healthy; prior revision
+  deprovisioned. Environment A100 use returned to 1/2 before phase two.
+- Live primary verification: one CUDA A100, expected input/output/user/temp paths,
+  empty queue, all 66 required workflow node types and 33 model filenames available.
+- Application revision `video-platform--0000003` is ready with the new image.
+  Authenticated GPU API reports the one primary; original two completed jobs and
+  one awaiting-review job are unchanged.
+- Fresh secondary-phase Terraform plan inspected: exactly secondary creation and
+  orchestrator update for both URL lists. No primary/model job/build/RBAC changes.
+
+### Two-worker final verification (2026-10-20)
+
+- Both inspected Terraform applies succeeded. Phase two created one GPU app and
+  updated only the orchestrator's ComfyUI/telemetry URL lists.
+- Active healthy GPU revisions, each with exactly one replica:
+  - Primary: `comfyui-aivideo571--0000002`.
+  - Secondary: `comfyui-aivideo571-2--hvamsp5`.
+- Managed-environment A100 usage is 2/2. Primary rollout overlap was allowed to
+  finish and release its old GPU before secondary creation.
+- Both live `/system_stats` endpoints report one CUDA A100. Runtime argv confirms
+  primary legacy input/output/user paths, separate secondary paths, and local
+  worker-specific temp paths. Both queues are empty.
+- Each `/object_info` exposes all 66 required node types and 33 required model
+  filenames. This checks runtime inventory, not generated-output quality or speed.
+- Application revision `video-platform--0000004` is ready with
+  `video-platform:education-e951b4fee6f6`, built by Terraform/ACR run `dn7`.
+  Manifest digest:
+  `sha256:3b4996cee4f8f593353108e6f64f21774b95434dedc61f905b078f8265febdde`.
+- Application UI returns HTTP 200, health is ok, and authenticated `/api/gpu`
+  reports exactly two online servers with no errors. Live application environment
+  variables match both Terraform URL outputs in primary/secondary order.
+- Existing application identity roles rechecked live and unchanged: AcrPull,
+  Foundry User, Speech User and Storage Blob Data Contributor.
+- Original jobs remain two completed and one awaiting review; no job was started,
+  approved, retried or benchmarked.
+- Fresh full default two-worker Terraform plan returned exit 0, no changes.
+  One concurrent read-only verification initially encountered that plan's local
+  state lock; it was rerun successfully after the plan finished, without unlocking
+  or modifying state.
+- Temporary private saved plans containing sensitive values were removed after
+  inspection/apply/drift verification. Existing plans, Terraform state/backups and
+  unrelated local work were preserved.
+- Application:
+  https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+- Primary:
+  https://comfyui-aivideo571.orangeground-c268819f.italynorth.azurecontainerapps.io
+- Secondary:
+  https://comfyui-aivideo571-2.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Previous update: hybrid educational style rollout
+
+- User confirmed the existing subscription `2524a5e1-00d7-43c2-a7cf-a87b79df2415`,
+  resource group `rg-aivideo571`, ACA Italy North and supporting resources Germany
+  West Central. Recipe: Terraform using `infra/education.tfvars` and the existing
+  local backend. PR #12 is merged; source commit `deffbcb` is on remote main.
+- Deploy only the content-hash educational app image and its local build marker.
+  Preserve current GPU allocation, model inventory/provisioning marker, inline
+  state-managed HF secret, storage, networking and role assignments.
+- Existing jobs `c77e66e01e48` and `d69b5f44dbd2` are completed; `bce07698216c`
+  awaits review. No actively rendering job was returned by the preflight API check.
+  Do not approve, retry or submit any paid generation jobs during verification.
+- Keep unrelated local changes untouched. Do not reuse or overwrite existing saved
+  Terraform plans. Read sensitive state only into process memory and never print it.
+- All validation checks pass:
+  - Verify CLI authentication, subscription, existing environment and backend.
+  - Initialize without provider upgrades; check Terraform formatting/schema.
+  - Run Terraform tests and retain the recent 100 passing educational regressions.
+  - Generate a fresh full plan with the existing sensitive variable preserved.
+  - Assert the plan changes only the app image and local image-build marker.
+  - Verify existing identity/ACR pull roles and successful image build.
+  - Apply the reviewed saved plan, then verify healthy revision, endpoint, UI and
+    deployed hybrid request schema without starting a render.
+  - Verify a fresh post-deploy plan has no remaining changes and remove new plans.
+
+### Section 7: Hybrid rollout validation proof
+
+- `terraform init -input=false -lockfile=readonly -no-color`: passed using the
+  existing local backend and locked providers; no upgrades.
+- `terraform fmt -check -recursive` and `terraform validate -no-color`: passed.
+- `terraform test -no-color`: 4 passed, including inline/key-vault secret paths.
+- Hybrid application validation before PR #12 merged: 100 educational tests passed;
+  broader cinematic/audio/resolution regressions passed; Python compilation passed.
+- Fresh full `terraform plan -input=false -no-color -detailed-exitcode
+  -var-file=education.tfvars -out=<private-session-plan>`: exit 2, expected changes.
+  Existing inline HF secret supplied only from state to the process environment,
+  then cleared. No secret values were printed.
+- JSON scope assertions passed: only `terraform_data.build_app_image` replacement
+  (a local marker) and `azurerm_container_app.app` in-place image update.
+  Nested app-template comparison confirmed no changes beyond the app image.
+  Identity, registry, secrets, ingress, profile and environment remain unchanged.
+- Planned image: `acr4aivideo571.azurecr.io/video-platform:education-53181fcfa709`.
+  App remains 3.5 CPU/7 GiB plus unchanged draw.io sidecar 0.5 CPU/1 GiB.
+- Live existing managed identity roles verified: AcrPull on the registry, Foundry
+  User, Speech User and Blob Data Contributor on their existing scopes.
+- Authenticated active-job recheck: two completed jobs and one awaiting review,
+  no active generation. No new rendering/provider requests submitted.
+- Preflight runner was not used because it overwrites existing `infra/tfplan`
+  and omits the required education variable file. Equivalent checks above used
+  the correct variables and a new private saved plan without overwriting user files.
+- Registry is Succeeded, admin access disabled; existing ACA environment is
+  Succeeded in Italy North. Image build is performed by Terraform's existing
+  ACR local-exec provisioner during the reviewed apply, before the app update.
+
+### Hybrid rollout verification (2026-10-20, 06:58 UTC)
+
+- Reviewed Terraform apply started at 06:54 UTC and succeeded: one local build
+  marker replaced and one existing app updated in place. No other resources changed.
+- ACR build `dn6` succeeded; image `education-53181fcfa709` pushed with digest
+  `sha256:38998e49316794f65312d0594aa0b0538d638a011b2090fa07731eb36b7c0957`.
+- Revision `video-platform--0000002`: Healthy, RunningAtMaxScale, one replica,
+  latest ready revision and 100% ingress traffic.
+- Public `/healthz`: HTTP 200. Public HTML and a refreshed browser contain
+  `Hybrid: one AI clip, then animated illustration`. The deployed OpenAPI
+  EducationOptions schema accepts presentation, ai_motion and hybrid.
+- Fresh full Terraform plan with the state-managed HF secret preserved returned
+  exit 0: no changes. Live existing identity permissions verified again.
+- Existing completed jobs remain completed; the review-pending job remains
+  awaiting_review. GPU telemetry reports the existing ComfyUI server online.
+  No job was created, approved or retried; no paid render was submitted.
+- New secret-bearing saved plan removed from the private session directory.
+  Existing saved plans and unrelated workspace edits were left untouched.
+- Platform: https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Current update: UML Component native shape fix
+
+- Failed educational job `c77e66e01e48` reports no safe native shape for UML Component.
+- Live private MCP search returns title Module with `shape=module`. The existing
+  explicit built-in allowlist rejects that legitimate bundled draw.io primitive.
+- Add only `module` to the allowlist. Preserve asset-path restrictions, style-value
+  validation and rejection of unsupported primitives. Reveal restoration uses the
+  same validation path and must retain the native module shape.
+- Regression tests using exact live metadata reproduce the original failures:
+  2 failed, 8 passed before the fix. Validate normalization, diagram export/reveal
+  restoration and the existing visual safety suite after the fix.
+- Deploy a new content-hash educational image through Terraform. Preserve the
+  existing inline HF secret by supplying its state-managed value in process memory.
+  Do not rebuild models or update ComfyUI, permissions, networking or resource sizes.
+- Verify the exact stored failed diagram through real private MCP and native export,
+  without retrying the full paid video job. User approved this app-only rollout and
+  explicitly declined retrying the paid video job.
+
+### Section 7: UML Component validation proof (2026-10-19)
+
+- Exact private metadata: UML Component is title Module, `shape=module`; remaining
+  scene queries Azure Container Apps and UML Artifact also return bundled metadata.
+- Native normalizer and diagram/reveal regression tests reproduce the original
+  exception before the fix. After adding only module, visual and educational
+  tests: 57 passed.
+- Live validation helper now uses the shared native-style validator instead of
+  rejecting every built-in primitive lacking mxgraph/image syntax; py_compile passed.
+- Terraform formatting and schema validation passed.
+- Fresh saved plan: only app image update and local build marker replacement.
+  Explicit scope assertion rejects all other changes. Existing HF secret preserved.
+- Build `dn4` succeeded: `education-6a649d06f166`, manifest digest
+  `sha256:baa3c2beb40f3bccc0b830765de8e321b78e31e21c7762834656f6f903a6b8dd`.
+- Existing AcrPull role is unchanged and already verified live. No new permissions.
+
+### UML Component rollout verification (2026-10-19)
+
+- Terraform apply succeeded: 1 local build marker replaced, 1 app updated in place.
+  ACR build `dn5` succeeded; no GPU, model job, HF secret or RBAC changes.
+- New app revision `video-platform--0000001`: Healthy, RunningAtMaxScale.
+- Fresh Terraform plan with the existing HF credential preserved: exit 0, no changes.
+- Exact stored scene from failed job `c77e66e01e48` successfully rendered in the new
+  deployed runtime using the private MCP and native draw.io exporter.
+- Assertions passed: agent uses `shape=module`, final PNG is 1920x1080,
+  all three reveal PNGs are 1920x1080, and a deleted reveal rebuilds from persisted
+  diagram XML with the same native module shape.
+- The standalone live-validation helper is not copied into the production image.
+  Verification called the deployed renderer directly. Long ACA exec commands hit a
+  handshake 404; a shorter compressed diagnostic command completed with an explicit
+  `UML_NATIVE_VALIDATION_PASSED` assertion.
+- Temporary validation files were isolated in a temporary directory and cleaned.
+  The assistant did not invoke the retry endpoint or submit image/video/Speech work.
+  A final read-only check found the job had independently changed to generating
+  (run 3, updated 21:08:20 UTC). Its status is not claimed to remain failed; the
+  source of that retry was not determined, and the running workload was not modified.
+- Platform: https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Current update: gated LTX-2.5 weights
+
+- User explicitly approved storing the supplied Hugging Face credential in Terraform
+  state after declining a new Key Vault and new RBAC resources.
+- Keep the same confirmed subscription, resource group and regions. No new Azure
+  resources or permissions; update the existing job's Container Apps secret,
+  rerun gated provisioning, and roll the existing ComfyUI app to its matching marker.
+- Credential supplied only through a process environment variable; never record
+  its value in this plan, committed source, literal container env or script arguments.
+  State, backups and saved plans contain it and must remain private.
+- Hugging Face LTX-2.5 auth-check returned HTTP 200; ComfyUI queue verified empty.
+- Preserve Key Vault-reference support and reject simultaneous credential sources.
+- Validate mocked credential paths and downloader regressions, inspect saved plan,
+  apply with Terraform, verify all five weights and healthy endpoints. No paid render.
+
+### Section 7: gated-weight validation proof (2026-10-19, 20:16 UTC)
+
+- `terraform validate`: passed.
+- `terraform test`: 4 passed, including inline secret references, existing Key Vault
+  support, and rejection of conflicting credentials.
+- Existing venv `pytest test_model_downloads.py test_aca_runtime.py -q`: 35 passed.
+- Hugging Face gated-repository access check: HTTP 200. Token not printed.
+- Saved `gated-models.tfplan`: 1 local-marker replacement, 2 in-place Azure updates.
+  JSON scope assertions allow only the download job, provisioning marker and ComfyUI.
+  No new Azure resources, Azure deletion, app-image change or RBAC change.
+- Existing app image already built and healthy; no image build is required.
+- User approved the inline secret and its persistence in state and saved plans.
+  Subsequent plans must supply `TF_VAR_hf_token` to retain the configured job secret.
+
+### Gated-weight deployment verification (2026-10-19)
+
+- Terraform apply succeeded: 1 local provisioning marker replaced, 2 existing Azure
+  resources updated in place. No new Azure resources, deletion or permission changes.
+- Download execution `download-models-aivideo571-ms7igi2` reports Succeeded.
+- All five LTX-2.5 filenames verified in the live ComfyUI model inventory:
+  transformer, text encoder, video VAE, audio VAE and latent spatial upscaler.
+- New ComfyUI revision `comfyui-aivideo571--0000001` is the latest ready revision:
+  Healthy, ready replica, zero restarts. A100 and 32 GiB RAM preserved.
+- Platform `/healthz` and ComfyUI `/system_stats`: HTTP 200. Queue empty.
+  No paid render submitted; render correctness is not claimed.
+- Terraform state contains the inline job secret as explicitly approved. Its value
+  was not printed or written to committed source. The generated secret-bearing
+  `gated-models.tfplan` was removed after apply.
+- Fresh plan with the configured sensitive variable returned exit 0: no changes.
+- Earlier recovery notes about missing gated weights are superseded by this update.
+- Platform: https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+- ComfyUI: https://comfyui-aivideo571.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Current update: Terraform deployment recovery
+
+- Continue the user's partially completed deployment using Terraform only for infrastructure changes.
+- Inspect the current local backend, saved plan, Azure resources and failed operations before changing configuration.
+- Preserve existing user edits and unrelated work. Confirm the new subscription and regions before deployment.
+- Refresh and validate a saved Terraform plan; obtain approval for replacements, RBAC changes and material cost increases.
+- Apply the reviewed plan and verify resource provisioning, application readiness and endpoint health.
+- Recipe: Terraform. Current validation proof will be recorded after fresh checks; historical results below do not validate this recovery.
+- User confirmed subscription `2524a5e1-00d7-43c2-a7cf-a87b79df2415`,
+  existing `rg-aivideo571`, Germany West Central / Italy North, and `education.tfvars`.
+- Azure activity logs confirmed global resource-name collisions and model quota
+  500 requested versus 250 available. User's renamed resources and 200 capacity
+  are already deployed; preserve them. Foundry deployment reports Succeeded.
+- A100 environment quota: 2 available, 0 used. Required managed-identity roles
+  are present on the new ACR, Foundry and Blob account.
+- Existing public-model download execution `download-models-aivideo571-l5hwcyu`
+  is still running. Preserve it; the recovery helper waits before starting the
+  educational revision, reuses completed files, and resumes partial downloads.
+- Keep NFS shared keys disabled to match live configuration and avoid weakening
+  access policy. No Azure resource replacement or RBAC change is planned.
+- Fresh saved recovery plan: 4 add, 1 update, 2 destroy. Both destroyed objects
+  are local `terraform_data` provisioning/build markers, not Azure resources.
+  Azure changes: create educational orchestrator and A100 app; update download
+  job for educational image weights and current provisioning revision.
+- User approved applying the reviewed plan and activating always-on paid compute.
+  Disclosed active-rate estimate: about USD 3.79/hour, USD 2,765 at 730 hours/month,
+  excluding storage, ACR, model/Speech usage, networking and tax.
+  Public unauthenticated ComfyUI exposure and missing gated weights were disclosed.
+- Windows image-build helper now selects one Azure CLI application when multiple
+  launchers resolve, and Terraform invokes that helper for UTF-8 logs.
+
+### Section 7: recovery validation proof (2026-10-19)
+
+- All validation checks pass:
+  - `terraform -chdir=infra init -input=false -lockfile=readonly`: passed.
+  - `terraform -chdir=infra fmt -check` and `validate`: passed.
+  - `terraform -chdir=infra test -no-color`: 1 mocked plan test passed.
+  - Existing venv `pytest test_aca_runtime.py test_model_downloads.py -q`: 35 passed.
+  - After multiple-launcher fix, focused `pytest -k "acr_build or model_job"`:
+    14 passed, including concurrency and CLI failure handling.
+  - Fresh `plan -var-file=education.tfvars -out=recovery.tfplan`: 4 add,
+    1 update, 2 local-marker replacements; no Azure destruction.
+  - Plan JSON checked for subscription, educational runtime and 32 GiB RAM.
+  - Static identity roles reviewed; matching live scoped assignments verified.
+  - Template-variable scan passed; no JSON tfvars file applies.
+- Bundled validation wrapper has an argument-binding bug: all Terraform calls
+  printed bare CLI usage. Direct commands above passed; wrapper success is not claimed.
+- Original public-model execution succeeded. Educational Linux image build `dn2`
+  succeeded in ACR, tag `education-a656a43ef960`, manifest digest
+  `sha256:4110d5645deed9431a285316b9a4778a9744bca6691643a0d3bab863bb344277`.
+- Validation completed at 2026-10-19 approximately 19:47 UTC. User approved
+  deployment; Terraform may now apply the reviewed recovery plan.
+
+### Terraform recovery deployment verification (2026-10-19, 19:59 UTC)
+
+- `terraform apply -input=false -no-color recovery.tfplan` succeeded:
+  4 added, 1 updated, 2 destroyed. Destroyed resources were only the two local
+  Terraform provisioning/build markers; no Azure resources were deleted.
+- Terraform ACR build `dn3` succeeded. Educational model provisioning execution
+  `download-models-aivideo571-2hv4e2y` succeeded after reusing public weights.
+- Fresh `terraform plan -var-file=education.tfvars -detailed-exitcode` returned
+  0: no changes, configuration and Azure state match.
+- Platform UI `/` and `/healthz`: HTTP 200.
+- `/api/models`: HTTP 401 without a key; HTTP 200 using the Terraform-managed key.
+  The key was used in memory and not printed.
+- GPU `/system_stats` and `/gpu_stats`: healthy NVIDIA A100 80 GB,
+  2 CPU, 32 GiB container memory. Educational Qwen image weights are listed
+  by the live model inventory.
+- ComfyUI revision `comfyui-aivideo571--thlgsfc`: Healthy, replica ready,
+  zero restarts. Initial endpoint timeout was startup delay; subsequent checks passed.
+- Platform revision `video-platform--vx1fg1k` is running; private draw.io sidecar
+  reports 10,446 indexed shapes and MCP listening on localhost port 3001.
+- Live identity roles confirmed: AcrPull on ACR, Foundry User and Speech User on
+  Foundry, Storage Blob Data Contributor on Blob storage. NFS shared keys remain
+  disabled and public network access remains disabled.
+- Queue empty; no paid render or model/Speech generation smoke test submitted.
+  Render correctness is not claimed. Five gated LTX-2.5 weights still need an
+  authorized Key Vault token reference; all public/educational weights provisioned.
+- Platform: https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+- ComfyUI: https://comfyui-aivideo571.orangeground-c268819f.italynorth.azurecontainerapps.io
 
 ## Current update: Wan render memory sizing
 
