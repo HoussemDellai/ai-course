@@ -5,7 +5,7 @@ An isolated Terraform demo with two apps:
 | App | Workload profile | Replicas | Access |
 | --- | --- | --- | --- |
 | ComfyUI CUDA 13 | Serverless A100 GPU | 0-1 | Public HTTPS UI/API |
-| Official Comfy MCP | CPU Consumption, 0.5 vCPU / 1 GiB | 1 | Public HTTPS `/mcp`, bearer token |
+| Official Comfy MCP | CPU Consumption, 0.5 vCPU / 1 GiB | 1 | Public HTTPS `/mcp`, no authentication |
 
 Use the MCP endpoint directly from GitHub Copilot in VS Code. No agent is
 deployed. This scenario does not manage the original
@@ -20,8 +20,9 @@ This demo uses the latter, not the Comfy Cloud service.
 
 The official console command uses stdio, but its underlying MCP SDK supports
 Streamable HTTP natively. [gateway.py](mcp/gateway.py) registers the official
-tool functions with that native HTTP transport and a fail-closed bearer-token
-middleware. No third-party ComfyUI MCP implementation or stdio bridge is needed.
+tool functions with that native HTTP transport. This demo intentionally has
+no authentication. No third-party ComfyUI MCP implementation or stdio bridge
+is needed.
 
 `comfy-cli` restricts local node discovery to loopback HTTP. A loopback-only
 HTTP/WebSocket forwarder on port 8188 routes **all** local tool traffic to the
@@ -49,21 +50,19 @@ Outputs are local to the GPU replica and must be downloaded before scale-down.
 
 ## Important demo limitations and costs
 
-- The MCP token protects **only MCP**. ComfyUI's public UI/API is intentionally
-  unauthenticated, matching the selected demo configuration. Anyone with its
-  URL can call it directly, bypass MCP, and potentially incur GPU charges.
-  Do not use this exposure for production.
+- **Both MCP and ComfyUI's public UI/API are unauthenticated.** Anyone who can
+  reach them can invoke tools, submit workflows, inspect or cancel jobs, and
+  potentially incur GPU charges. This is an intentionally open demo, not a
+  production configuration. Remove it when it is no longer needed.
 - Read-only requests can wake the A100 and incur GPU startup/runtime charges.
 - One ready MCP replica, Basic ACR, logs, private networking and the configured
   **1 TiB premium Azure Files share** incur charges even without inference.
 - GPU capacity is regional and not guaranteed by a supported-profile listing.
   Environment-level A100 quota is checked after the environment exists.
-- The bearer token is a sensitive Terraform input and ACA secret. Terraform
-  state and saved plans still contain it in plaintext. Keep them private,
-  encrypted at rest, and out of Git. Configure a protected remote state backend
-  if collaborating; this standalone demo defaults to local state.
-- The optional token helper uses Windows DPAPI: its file can only be decrypted
-  by the same Windows user on the same machine. Back up credentials securely.
+- No MCP token, password prompt or Authorization header is required. Historical
+  Terraform state/backups from the previous authenticated deployment can still
+  contain the retired token. Keep state, saved plans and legacy token files
+  private and out of Git. This demo defaults to local Terraform state.
 - Dependencies are version-pinned in [requirements.txt](mcp/requirements.txt);
   the deployed image is digest-pinned. Upstream Comfy MCP is AGPL-3.0-or-later
   or commercially licensed; review its terms before distributing/modifying it.
@@ -86,20 +85,16 @@ receive the explicit subscription, independently of your Azure CLI default.
 Run from this scenario directory in its separate worktree. Do not copy another
 demo's state or `.terraform` directory.
 
-### 1. Prepare configuration and token
+### 1. Prepare configuration
 
 ```powershell
 Copy-Item .\terraform.tfvars.example .\terraform.tfvars
-.\scripts\New-McpToken.ps1
-$secure = Import-Clixml .\.mcp-token.clixml
-$env:TF_VAR_mcp_token = [PSCredential]::new("mcp", $secure).GetNetworkCredential().Password
 terraform init
 terraform fmt -check
 terraform validate
 ```
 
-The token is never a Terraform output. Do not put it on the command line,
-in committed configuration, or in screenshots.
+No token variables or secrets are needed to deploy or connect.
 
 ### 2. Provision the base stack
 
@@ -137,7 +132,7 @@ and `mcp_image = "<that reference>"` in your ignored `terraform.tfvars`.
 ```powershell
 terraform validate
 terraform plan "-out=mcp.tfplan"
-# Review: only the authenticated MCP app is added.
+# Review: only the MCP app is added.
 terraform apply mcp.tfplan
 terraform output mcp_url
 terraform output comfyui_url
@@ -146,7 +141,7 @@ terraform output portal_url
 
 ACR admin access is disabled. The new app pulls using a user-assigned managed
 identity and its `AcrPull` role. No public app is enabled until its real
-authenticated image exists. Subsequent image upgrades use another build,
+image exists. Subsequent image upgrades use another build,
 update `mcp_image`, and apply a reviewed plan; Terraform remains the source of
 truth for the app's image and registry.
 
@@ -158,28 +153,15 @@ truth for the app's image and registry.
    [copilot/mcp.json](copilot/mcp.json); do not replace unrelated servers.
 3. The example contains the verified demo endpoint. For another deployment,
    replace its URL with `terraform output -raw mcp_url`.
-4. Start `comfy-aca`. VS Code prompts for the token using a password input.
-   Retrieve it locally from your secret manager or decrypt the DPAPI file;
-   do not paste it into a committed JSON file.
+4. Start `comfy-aca`. No sign-in or token is required. If you used the previous
+   configuration, remove its `headers` and the `comfy-mcp-token` input, then
+   restart the connection.
 5. In Copilot Chat, select the server's tools and ask:
    **"Using comfy-aca, inspect the KSampler node and list model folders.
    Do not submit a workflow or download models."**
 
 Interactive Copilot confirmation is a user action; successful API verification
 does not by itself prove that the VS Code UI has connected.
-
-On Windows, to paste your saved token into the VS Code password prompt without
-printing it in terminal history:
-
-```powershell
-$secure = Import-Clixml .\.mcp-token.clixml
-[PSCredential]::new("mcp", $secure).GetNetworkCredential().Password | Set-Clipboard
-# Paste into the VS Code prompt, then clear the clipboard:
-Set-Clipboard -Value ""
-```
-
-Avoid clipboard history/sync for secrets; use your secret manager instead if
-those features are enabled.
 
 ## Read-only verification
 
@@ -190,14 +172,13 @@ Push-Location .\mcp
 ..\.venv\Scripts\python.exe -m unittest -v test_gateway
 Pop-Location
 
-$env:MCP_TOKEN = $env:TF_VAR_mcp_token
 $endpoint = terraform output -raw mcp_url
 .\.venv\Scripts\python.exe .\scripts\verify_mcp.py `
   --endpoint $endpoint --report .\verification\mcp.json
 ```
 
-The verifier requires 401 for absent/incorrect tokens, then initializes MCP,
-lists tools, inspects the live backend's `KSampler` and lists model inventory.
+The verifier sends no credentials. It initializes MCP, lists tools, inspects
+the live backend's `KSampler` and lists model inventory.
 It fails explicitly on protocol/backend/tool errors. No generation is submitted.
 The focused tests also verify HTTP errors, WebSocket forwarding, omitted local
 tools, output URL mapping and invalid configuration.
@@ -212,12 +193,7 @@ If the GPU is cold, open `terraform output -raw comfyui_url`, allow startup to
 finish, inspect the GPU app's console/system logs, and rerun verification.
 Do not confuse an ACA health probe with successful backend/tool verification.
 
-## Rotate the token and clean up
-
-To rotate, generate a fresh secret through your secret manager (or explicitly
-remove/recreate only `.mcp-token.clixml`), update `TF_VAR_mcp_token`, review/apply
-the Terraform plan, and update the VS Code password input. Keep the new token
-for subsequent applies, and remove token environment variables when finished.
+## Clean up
 
 To remove **only this isolated demo**, run `terraform plan -destroy` in this
 scenario directory, review every resource, then explicitly approve its
@@ -228,12 +204,14 @@ destruction. Never run destroy against another scenario's state.
 Observed on October 20, 2026:
 
 - [MCP endpoint](https://comfy-mcp.agreeablecliff-e935d0a6.swedencentral.azurecontainerapps.io/mcp):
-  revision `comfy-mcp--qq41b9v`, healthy, CPU Consumption, one ready replica.
+  revision `comfy-mcp--0000001`, healthy, CPU Consumption, one ready replica.
 - [ComfyUI UI/API](https://comfyui-cu130-a100.agreeablecliff-e935d0a6.swedencentral.azurecontainerapps.io):
   revision `comfyui-cu130-a100--y6y0vqc`, healthy, A100, zero-to-one scaling.
 - Live backend: ComfyUI 0.38.2, PyTorch 2.14.1+cu130, NVIDIA A100 80GB.
-- Missing/wrong MCP tokens: 401. Valid token: initialize, ten tools, live
-  KSampler schema and model-folder queries succeeded.
+- Anonymous initialization, ten tools, live KSampler schema and model-folder
+  queries succeeded on both the exact revision URL and the public endpoint.
+  No Authorization header was sent. The ACA token secret and environment
+  reference are removed; managed-identity ACR pulls remain enabled.
 - `checkpoints`, `diffusion_models`, `text_encoders` and `vae`: zero model files.
   No model downloads or generation submissions were performed.
 - 12 Python gateway tests and four mocked Terraform tests passed.
@@ -241,5 +219,5 @@ Observed on October 20, 2026:
   revisions were unchanged. Interactive VS Code integration remains for you
   to try; inference is intentionally unverified without models.
 
-The ignored `verification` directory contains read-only API evidence. The
-ignored `.mcp-token.clixml` file holds the local DPAPI-protected credential.
+The ignored `verification` directory contains read-only API evidence. Legacy
+token files remain ignored but are no longer used by this configuration.

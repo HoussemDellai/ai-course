@@ -21,7 +21,7 @@ variable "location" {
 }
 
 variable "enable_mcp" {
-  description = "Enable only after building the authenticated MCP image in ACR."
+  description = "Enable only after building the MCP image in ACR."
   type        = bool
   default     = false
 }
@@ -33,16 +33,5 @@ variable "mcp_image" {
   validation {
     condition     = var.mcp_image == "" || can(regex("@sha256:[a-f0-9]{64}$", var.mcp_image))
     error_message = "Use a digest-pinned image, not a mutable tag."
-  }
-}
-
-variable "mcp_token" {
-  description = "Random bearer token, supplied through TF_VAR_mcp_token; stored in sensitive Terraform state."
-  type        = string
-  sensitive   = true
-  nullable    = false
-  validation {
-    condition     = length(var.mcp_token) >= 32 && !can(regex("\\s", var.mcp_token))
-    error_message = "Supply a random token of at least 32 characters without whitespace."
   }
 }

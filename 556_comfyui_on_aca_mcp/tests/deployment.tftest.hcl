@@ -8,7 +8,6 @@ mock_provider "azurerm" {
 mock_provider "azapi" {}
 
 variables {
-  mcp_token  = "test-only-token-not-a-deployment-secret-556"
   enable_mcp = false
   mcp_image  = ""
 }
@@ -18,7 +17,7 @@ run "base_has_no_public_placeholder_mcp" {
 
   assert {
     condition     = length(azurerm_container_app.mcp) == 0
-    error_message = "MCP must not be created before its authenticated image exists."
+    error_message = "MCP must not be created before its image exists."
   }
   assert {
     condition     = azurerm_container_app.aca_comfyui_cu130_a100.template[0].min_replicas == 0 && azurerm_container_app.aca_comfyui_cu130_a100.template[0].max_replicas == 1
@@ -38,7 +37,7 @@ run "base_has_no_public_placeholder_mcp" {
   }
 }
 
-run "mcp_is_authenticated_cpu_consumption" {
+run "mcp_is_cpu_consumption" {
   command = plan
   variables {
     enable_mcp = true
@@ -54,7 +53,7 @@ run "mcp_is_authenticated_cpu_consumption" {
   }
   assert {
     condition     = !azurerm_container_app.mcp[0].ingress[0].allow_insecure_connections
-    error_message = "The MCP bearer token must only be sent over HTTPS."
+    error_message = "The public MCP endpoint must retain HTTPS."
   }
   assert {
     condition     = azurerm_role_assignment.mcp_pull.role_definition_name == "AcrPull"
@@ -62,12 +61,20 @@ run "mcp_is_authenticated_cpu_consumption" {
   }
 }
 
-run "reject_short_token" {
+run "mcp_requires_no_credentials" {
   command = plan
   variables {
-    mcp_token = "short"
+    enable_mcp = true
+    mcp_image  = "test.azurecr.io/comfy-mcp@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }
-  expect_failures = [var.mcp_token]
+  assert {
+    condition     = length(azurerm_container_app.mcp[0].secret) == 0
+    error_message = "The anonymous MCP app must not require an ACA secret."
+  }
+  assert {
+    condition     = !contains([for env in azurerm_container_app.mcp[0].template[0].container[0].env : env.name], "MCP_TOKEN")
+    error_message = "The gateway must not require a token environment variable."
+  }
 }
 
 run "reject_mutable_image_tag" {

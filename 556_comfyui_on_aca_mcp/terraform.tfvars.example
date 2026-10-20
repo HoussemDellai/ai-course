@@ -4,4 +4,3 @@ prefix          = "556"
 enable_mcp      = false
 # After scripts\Build-McpImage.ps1, set enable_mcp=true and the returned image:
 # mcp_image = "YOUR_ACR.azurecr.io/comfy-mcp@sha256:..."
-# Supply the token through TF_VAR_mcp_token, not this file.
