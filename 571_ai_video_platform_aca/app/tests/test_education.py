@@ -12,7 +12,9 @@ from fakes import FakeComfy, FakeNarrator, FakeTeam, make_flac, make_png, requir
 from video_platform import media
 from video_platform.api import create_app, job_events
 from video_platform.config import Settings
-from video_platform.education import APPROVAL, DRAFT, build_educational_workflow, music_indices, scene_durations
+from video_platform.education import (
+    APPROVAL, DRAFT, build_educational_workflow, music_indices, scene_durations, validate_education_request,
+)
 from video_platform.education_agents import FoundryEducationTeam
 from video_platform.education_schemas import (
     DraftUpdate, EducationalBrief, EducationalDraft, EducationalScene, ResearchReport, ResearchSource,
@@ -153,7 +155,7 @@ def test_measured_duration_and_selective_music():
 
 
 @requires_ffmpeg
-@pytest.mark.parametrize("style", ["presentation", "ai_motion"])
+@pytest.mark.parametrize("style", ["presentation", "ai_motion", "hybrid"])
 async def test_pause_edit_approve_resume_and_exact_output(setup, style):
     settings, store, team, visuals, narrator, factory, close = setup
     manager = JobManager(settings, store, factory)
@@ -190,6 +192,9 @@ async def test_pause_edit_approve_resume_and_exact_output(setup, style):
     assert final.duration_seconds == pytest.approx(18.75, abs=0.085)
     assert await media.video_size(store.path(state.id, "final.mp4")) == (160, 90)
     assert len(visuals.images) == 3 and team.plan_calls == 1
+    if style == "hybrid":
+        assert visuals.motion_calls == 3
+        assert visuals.animation_calls == 6
     with pytest.raises(ReviewConflict, match="immutable"):
         await manager.review(state.id, 2, update=DraftUpdate.model_validate({**content, "revision": 2}))
     approved = await read_json(store, state.id, APPROVAL)
@@ -240,6 +245,119 @@ async def test_failed_render_reuses_approved_assets(setup):
     await manager.wait(state.id)
     assert (await manager.get(state.id)).status == JobStatus.completed
     assert len(visuals.images) == 3 and len(narrator.texts) == 3
+    await close()
+
+
+@pytest.mark.parametrize("style", ["ai_motion", "hybrid"])
+def test_motion_styles_require_configured_foundry_provider(style):
+    body = request().model_dump()
+    body["education"].update(style=style, motion_provider="foundry")
+    settings = Settings(education_search_model="search", speech_endpoint="https://speech.example",
+                        comfy_image_workflow="configured")
+    with pytest.raises(ValueError, match="Foundry video endpoint"):
+        validate_education_request(VideoRequest.model_validate(body), settings)
+    validate_education_request(VideoRequest.model_validate(body), replace(
+        settings, foundry_video_endpoint="https://video.example", foundry_video_model="video",
+    ))
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize("scene_count,narration_seconds,has_tail", [
+    (5, 1.0, False), (3, 1.0, False), (3, 5.25, True),
+])
+async def test_hybrid_short_exact_and_long_scenes(setup, scene_count, narration_seconds, has_tail):
+    settings, store, team, visuals, narrator, factory, close = setup
+    narrator.seconds = narration_seconds
+
+    async def plan(prompt, options, research, seconds, revision):
+        draft = sample_draft(revision)
+        draft.scenes = [draft.scenes[0], *[draft.scenes[1]] * (scene_count - 2), draft.scenes[-1]]
+        return draft
+
+    team.plan = plan
+    body = request().model_dump()
+    body["education"]["style"] = "hybrid"
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(VideoRequest.model_validate(body))
+    await manager.wait(state.id)
+    await manager.review(state.id, 1)
+    await manager.wait(state.id)
+    final = await manager.get(state.id)
+    assert final.status == JobStatus.completed, final.error
+    assert visuals.motion_calls == scene_count
+    assert visuals.animation_calls == scene_count * (2 if has_tail else 1)
+    assert final.duration_seconds == pytest.approx(max(15, scene_count * (narration_seconds + 1)), abs=1 / 12)
+    approved = await read_json(store, state.id, APPROVAL)
+    prefix = f"education/render/{approved['fingerprint']}"
+    for i in range(scene_count):
+        assert await store.exists(state.id, f"{prefix}/presentation/scene_{i:03d}.mp4") == has_tail
+        assert not await store.exists(state.id, f"{prefix}/clips/scene_{i:03d}_001.mp4")
+    await close()
+
+
+@requires_ffmpeg
+async def test_hybrid_diagrams_and_retry_reuse_persisted_motion_and_tail(setup, monkeypatch):
+    settings, store, team, visuals, narrator, factory, close = setup
+    body = request().model_dump()
+    body["education"]["style"] = "hybrid"
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(VideoRequest.model_validate(body))
+    await manager.wait(state.id)
+    draft = (await manager.draft(state.id)).model_dump(include={"revision", "brief", "scenes"})
+    draft["scenes"][1]["diagram"] = {
+        "nodes": [{"id": "pod", "label": "Pod", "icon_query": "Kubernetes Pod"}], "edges": [],
+    }
+    await manager.review(state.id, 1, update=DraftUpdate.model_validate(draft))
+    original = media.normalize_clip
+    failed = False
+
+    async def interrupt_tail(src, *args, **kwargs):
+        nonlocal failed
+        if src.parent.name == "presentation" and not failed:
+            failed = True
+            raise RuntimeError("restart after persisted hybrid tail")
+        return await original(src, *args, **kwargs)
+
+    monkeypatch.setattr(media, "normalize_clip", interrupt_tail)
+    await manager.review(state.id, 2)
+    await manager.wait(state.id)
+    assert (await manager.get(state.id)).status == JobStatus.failed
+    assert visuals.motion_calls == 1 and visuals.animation_calls == 2
+    for path in (settings.work_dir / state.id).rglob("*"):
+        if path.is_file():
+            path.unlink()
+    await manager.retry(state.id)
+    await manager.wait(state.id)
+    final = await manager.get(state.id)
+    assert final.status == JobStatus.completed, final.error
+    assert final.duration_seconds == pytest.approx(18.75, abs=1 / 12)
+    assert visuals.motion_calls == 2
+    assert visuals.animation_calls == 5
+    assert len(narrator.texts) == 3 and len(visuals.images) == 3
+    assert await media.video_size(store.path(state.id, "final.mp4")) == (160, 90)
+    await close()
+
+
+@requires_ffmpeg
+async def test_hybrid_motion_failure_does_not_silently_use_presentation(setup):
+    settings, store, team, visuals, narrator, factory, close = setup
+    body = request().model_dump()
+    body["education"]["style"] = "hybrid"
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(VideoRequest.model_validate(body))
+    await manager.wait(state.id)
+
+    async def fail_motion(*args, **kwargs):
+        raise RuntimeError("motion provider unavailable")
+
+    visuals.motion = fail_motion
+    await manager.review(state.id, 1)
+    await manager.wait(state.id)
+    final = await manager.get(state.id)
+    assert final.status == JobStatus.failed
+    assert final.error == "RuntimeError: motion provider unavailable"
+    assert visuals.animation_calls == 0
+    assert not await store.exists(state.id, "final.mp4")
     await close()
 
 

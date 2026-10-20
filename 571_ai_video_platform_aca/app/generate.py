@@ -27,7 +27,7 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     p = argparse.ArgumentParser()
     p.add_argument("prompt")
     p.add_argument("--use-case", "--usecase", choices=["cinematic", "educational"], default="cinematic")
-    p.add_argument("--style", choices=["presentation", "ai_motion"], default=None)
+    p.add_argument("--style", choices=["presentation", "ai_motion", "hybrid"], default=None)
     p.add_argument("--public-topic", help="Required public-only search topic; never include private information")
     p.add_argument("--image-provider", choices=["comfyui", "foundry"], default=None)
     p.add_argument("--motion-provider", choices=["comfyui", "foundry"], default=None)

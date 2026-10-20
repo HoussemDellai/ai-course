@@ -44,7 +44,7 @@ def validate_education_request(request: VideoRequest, settings: Settings) -> Non
         settings.foundry_image_endpoint and settings.foundry_image_model
     ):
         raise ValueError("Configure a Foundry image endpoint and deployment")
-    if options.style == "ai_motion" and options.motion_provider == "foundry" and not (
+    if options.style in {"ai_motion", "hybrid"} and options.motion_provider == "foundry" and not (
         settings.foundry_video_endpoint and settings.foundry_video_model
     ):
         raise ValueError("Configure a compatible Foundry video endpoint and deployment")
@@ -226,7 +226,7 @@ class EducationalExecutor(Executor):
                         clip_budget = math.floor(job.model.clip_seconds * fps) / fps
                         if clip_budget <= 0:
                             raise ValueError("Video model clip duration is shorter than one output frame")
-                        count = math.ceil(seconds / clip_budget)
+                        count = 1 if options.style == "hybrid" else math.ceil(seconds / clip_budget)
                         for clip_index in range(count):
                             clip_key, clip, clip_exists = await artifact(
                                 f"clips/scene_{i:03d}_{clip_index:03d}.mp4",
@@ -269,6 +269,15 @@ class EducationalExecutor(Executor):
                                                        naturalistic=True, target_duration=budget)
                             parts.append(normalized)
                             remaining = max(0, remaining - budget)
+                        if options.style == "hybrid" and remaining > 0:
+                            tail_key, tail, tail_exists = await artifact(f"presentation/scene_{i:03d}.mp4")
+                            if not tail_exists:
+                                await self.visuals.animate(image, scene, remaining, width, height, fps, tail)
+                                await d.store.upload(job.job_id, tail_key, tail)
+                            normalized = tail.with_name(tail.stem + "_normalized.mp4")
+                            await media.normalize_clip(tail, normalized, width, height, fps, False, 0,
+                                                       naturalistic=True, target_duration=remaining)
+                            parts.append(normalized)
                         await media.concat(parts, path, exact=True)
                         await d.store.upload(job.job_id, key, path)
                     op.update(artifact=key, scene=i)
