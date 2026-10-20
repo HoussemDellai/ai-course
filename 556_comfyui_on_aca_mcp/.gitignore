@@ -1,0 +1,13 @@
+.terraform/
+!.terraform.lock.hcl
+.venv/
+__pycache__/
+*.pyc
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!terraform.tfvars.example
+.env
+.mcp-token.clixml
+verification/
