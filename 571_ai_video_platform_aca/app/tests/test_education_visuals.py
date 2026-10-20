@@ -281,8 +281,10 @@ def test_native_style_blocks_remote_and_unsafe_metadata():
     ("shape=trapezoid;perimeter=trapezoidPerimeter;html=1;size=0.23;arcSize=10;flipV=1;",
      "shape=trapezoid;size=0.23;arcSize=10;flipV=1;"),
     ("ellipse;html=1;", "shape=ellipse;"),
+    ("shape=module;align=left;spacingLeft=20;align=center;verticalAlign=top;whiteSpace=wrap;html=1;",
+     "shape=module;align=center;verticalAlign=top;"),
 ])
-def test_native_flowchart_styles(source, expected):
+def test_native_builtin_styles(source, expected):
     assert _native_style(source) == expected
 
 
@@ -298,13 +300,17 @@ def test_flowchart_process_exact_title_beats_generic_and_predefined_process():
     assert _shape_candidates("Flowchart Process", shapes)[0] == shapes[-1]
 
 
-async def test_flowchart_process_and_manual_operation_export_and_restore(
+async def test_flowchart_and_uml_component_export_and_restore(
     visuals, artifact_dir, scene, monkeypatch,
 ):
     scene.diagram = TechnicalDiagram(nodes=[
         {"id": "process", "label": "Evaluate ticket", "icon_query": "Flowchart Process"},
         {"id": "manual", "label": "Human review", "icon_query": "Flowchart Manual Operation"},
-    ], edges=[{"source": "process", "target": "manual", "label": "Escalate"}])
+        {"id": "component", "label": "AI agent", "icon_query": "UML Component"},
+    ], edges=[
+        {"source": "process", "target": "manual", "label": "Escalate"},
+        {"source": "manual", "target": "component", "label": "Submit"},
+    ])
     scene.animation = "reveal"
     searches = []
     metadata = {
@@ -314,6 +320,9 @@ async def test_flowchart_process_and_manual_operation_export_and_restore(
         ],
         "Flowchart Manual Operation": [
             {"title": "Manual Operation", "style": "shape=trapezoid;html=1;size=0.23;flipV=1;"},
+        ],
+        "UML Component": [
+            {"title": "Module", "style": "shape=module;align=left;spacingLeft=20;align=center;verticalAlign=top;whiteSpace=wrap;html=1;"},
         ],
     }
 
@@ -340,6 +349,7 @@ async def test_flowchart_process_and_manual_operation_export_and_restore(
     graph = ET.fromstring(dest.with_suffix(".drawio").read_text())
     assert "shape=rectangle;" in graph.find(".//mxCell[@id='node-process']").get("style")
     assert "shape=trapezoid;" in graph.find(".//mxCell[@id='node-manual']").get("style")
+    assert "shape=module;" in graph.find(".//mxCell[@id='node-component']").get("style")
     for key, path in visuals.companion_assets(dest, scene).items():
         if key.startswith("reveal_"):
             path.unlink()

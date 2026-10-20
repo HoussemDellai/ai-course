@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from video_platform.comfyui import ComfyUIPool
 from video_platform.config import Settings
 from video_platform.education_schemas import EducationalScene, TechnicalDiagram
-from video_platform.education_visuals import EducationalVisuals
+from video_platform.education_visuals import EducationalVisuals, _native_style
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -70,7 +70,7 @@ async def run(args: argparse.Namespace) -> None:
         ]
         for style in styles.values():
             assert "http:" not in style and "https:" not in style
-            assert "mxgraph." in style or "image=img/lib/" in style
+            assert _native_style(style)
         raster_paths = [image] + [path for key, path in companions.items() if key.startswith("reveal_")]
         for path in raster_paths:
             with Image.open(path) as raster:

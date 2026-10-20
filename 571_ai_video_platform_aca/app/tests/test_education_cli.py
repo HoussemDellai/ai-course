@@ -26,15 +26,16 @@ def test_educational_defaults_and_public_topic():
     assert request.education.public_topic == "Public network routing concepts"
 
 
-def test_educational_selectors_and_delivery():
+@pytest.mark.parametrize("style", ["ai_motion", "hybrid"])
+def test_educational_selectors_and_delivery(style):
     request, _ = parse_request([
         "Explain routing", "--usecase", "educational", "--public-topic", "Public routing",
-        "--style", "ai_motion", "--image-provider", "foundry", "--motion-provider", "foundry",
+        "--style", style, "--image-provider", "foundry", "--motion-provider", "foundry",
         "--text-model", "configured-text", "--audience", "Engineers", "--music-mode", "background",
         "--orientation", "vertical", "--resolution", "4k", "--minutes", "0.25",
         "--speech-rate", "0", "--pronounce", "SQL=sequel",
     ])
-    assert request.education.style == "ai_motion"
+    assert request.education.style == style
     assert request.education.image_provider == request.education.motion_provider == "foundry"
     assert request.education.text_model == "configured-text"
     assert request.education.audience == "Engineers"

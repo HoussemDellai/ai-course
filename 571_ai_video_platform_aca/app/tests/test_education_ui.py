@@ -6,6 +6,57 @@ import pytest
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required for the UI behavior test")
+def test_hybrid_motion_controls_and_provider_validation():
+    script = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const html = fs.readFileSync(process.argv[1], "utf8");
+assert.match(html, /option value="hybrid">Hybrid: one AI clip, then animated illustration/);
+const source = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+new vm.Script(source);
+const elements = new Map();
+const el = id => {
+  if (!elements.has(id)) elements.set(id, {
+    value: "", disabled: false, checked: false, querySelector() {return {}},
+  });
+  return elements.get(id);
+};
+const context = {$: el, setPhoto() {}, updateFormatControls() {}, updateDeliveryControls() {}};
+vm.createContext(context);
+vm.runInContext("let cinematicControls = null;\n" +
+  source.slice(source.indexOf("    function updateEducationControls()"),
+    source.indexOf('    $("useCase").onchange')), context);
+el("useCase").value = "educational";
+for (const style of ["presentation", "ai_motion", "hybrid"]) {
+  el("educationStyle").value = style;
+  for (const provider of ["comfyui", "foundry"]) {
+    el("motionProvider").value = provider;
+    vm.runInContext("updateEducationControls()", context);
+    assert.equal(el("motionProvider").disabled, style === "presentation");
+    assert.equal(el("model").disabled, style === "presentation" || provider !== "comfyui");
+  }
+}
+el("useCase").value = "cinematic";
+vm.runInContext("updateEducationControls()", context);
+assert.equal(el("model").disabled, false);
+assert.equal(el("motionProvider").disabled, true);
+const start = source.indexOf('          if ($("educationStyle").value !== "presentation"');
+assert.ok(start >= 0);
+const validation = source.slice(start, source.indexOf('body.use_case', start));
+context.educationConfig = {motion: {comfyui: true, foundry: false}};
+el("educationStyle").value = "hybrid";
+el("motionProvider").value = "foundry";
+assert.throws(() => vm.runInContext(validation, context), /Selected motion provider is not configured/);
+el("motionProvider").value = "comfyui";
+vm.runInContext(validation, context);
+"""
+    html = Path(__file__).parents[1] / "video_platform" / "static" / "index.html"
+    result = subprocess.run(["node", "-e", script, str(html)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required for the UI behavior test")
 def test_public_source_urls_in_research_step_across_job_states():
     script = r"""
 const assert = require("node:assert/strict");

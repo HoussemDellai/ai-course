@@ -297,10 +297,10 @@
             <label for="publicTopic">Public-only search topic (required)</label>
             <input class="input" id="publicTopic" minlength="3" maxlength="1000" required>
             <label for="educationStyle">Visual style</label>
-            <select class="input" id="educationStyle"><option value="presentation">Animated presentation</option><option value="ai_motion">AI motion with illustrations / diagrams</option></select>
+            <select class="input" id="educationStyle"><option value="presentation">Animated presentation</option><option value="ai_motion">AI motion with illustrations / diagrams</option><option value="hybrid">Hybrid: one AI clip, then animated illustration</option></select>
             <label for="imageProvider">Illustration provider</label>
             <select class="input" id="imageProvider"><option value="comfyui">ComfyUI</option><option value="foundry">Foundry</option></select>
-            <label for="motionProvider">Motion provider (AI-motion style only)</label>
+            <label for="motionProvider">Motion provider (AI-motion and hybrid styles)</label>
             <select class="input" id="motionProvider"><option value="comfyui">ComfyUI</option><option value="foundry">Foundry</option></select>
             <label for="textModel">Text deployment</label><select class="input" id="textModel"><option value="">Configured default</option></select>
             <label for="audience">Audience</label><input class="input" id="audience" value="General audience" required maxlength="300">
@@ -697,8 +697,8 @@
       $("resolution").querySelector('[value="720p"]').disabled = educational;
       for (const id of ["image", "naturalistic", "music", "narration"]) $(id).disabled = educational;
       $("attachBtn").hidden = educational;
-      $("model").disabled = educational && ($("educationStyle").value !== "ai_motion" || $("motionProvider").value !== "comfyui");
-      $("motionProvider").disabled = !educational || $("educationStyle").value !== "ai_motion";
+      $("model").disabled = educational && ($("educationStyle").value === "presentation" || $("motionProvider").value !== "comfyui");
+      $("motionProvider").disabled = !educational || $("educationStyle").value === "presentation";
       updateFormatControls(); updateDeliveryControls();
     }
     $("useCase").onchange = updateEducationControls;
@@ -719,7 +719,7 @@
             throw new Error("Educational planning requires configured public search and narration.");
           if (!educationConfig.images?.[$("imageProvider").value])
             throw new Error("Selected illustration provider is not configured.");
-          if ($("educationStyle").value === "ai_motion" && !educationConfig.motion?.[$("motionProvider").value])
+          if ($("educationStyle").value !== "presentation" && !educationConfig.motion?.[$("motionProvider").value])
             throw new Error("Selected motion provider is not configured.");
           body.use_case = "educational"; body.narration = true; body.naturalistic = false; body.music = false;
           body.upscaler = "ffmpeg";

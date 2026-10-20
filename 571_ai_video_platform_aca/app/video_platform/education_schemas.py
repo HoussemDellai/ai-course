@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StringConstraints, m
 
 class EducationOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    style: Literal["presentation", "ai_motion"] = "presentation"
+    style: Literal["presentation", "ai_motion", "hybrid"] = "presentation"
     image_provider: Literal["comfyui", "foundry"] = "comfyui"
     motion_provider: Literal["comfyui", "foundry"] = "comfyui"
     text_model: str | None = Field(default=None, max_length=100)

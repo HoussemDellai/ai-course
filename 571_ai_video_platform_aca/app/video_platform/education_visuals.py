@@ -162,7 +162,7 @@ def _native_style(style: Any) -> str:
             raise VisualError("Shape requires external image assets; choose a bundled native draw.io icon")
         pairs["shape"] = "image"
     else:
-        primitives = {"rectangle", "ellipse", "doubleEllipse", "rhombus", "process", "trapezoid"}
+        primitives = {"rectangle", "ellipse", "doubleEllipse", "rhombus", "process", "trapezoid", "module"}
         shorthand = [part for part in style.split(";") if part and "=" not in part]
         if any(part not in primitives for part in shorthand) or not (pairs or shorthand):
             raise VisualError("Shape is not a bundled native draw.io stencil")

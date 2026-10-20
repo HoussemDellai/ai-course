@@ -12,8 +12,8 @@ local regression tests are not proof of live GPU compatibility.
 Select **Educational / presentation** in the web UI or pass `--use-case educational` to the CLI.
 This opt-in path does not change cinematic defaults. Educational defaults are horizontal 16:9,
 1080p, full narration and intro/outro-only **MiniMax-Music3** music. Choose 4K, vertical 9:16,
-music off or full-background music, and either deterministic animated presentation scenes or
-AI-motion illustrations with deterministic technical diagrams. A 4K output canvas does **not**
+music off or full-background music, and deterministic animated presentation scenes,
+AI-motion illustrations, or hybrid motion with deterministic technical diagrams. A 4K output canvas does **not**
 guarantee native-4K source images; source dimensions and enhancement depend on the configured provider.
 
 Provide a separate, explicit **public-only search topic**. Only `education.public_topic` is sent
@@ -80,13 +80,32 @@ python generate.py regenerate JOB_ID --revision 2
 ```
 
 Additional creation selectors: `--image-provider comfyui|foundry`,
-`--motion-provider comfyui|foundry` (used by `--style ai_motion`),
+`--motion-provider comfyui|foundry` (used by `--style ai_motion|hybrid`),
 `--text-model <configured-deployment>`, `--music-mode off|intro_outro|background`,
 `--resolution 1080p|4k`, `--orientation horizontal|vertical`. Existing cinematic
 `--model`, `--music`, reference-photo and naturalistic flags retain their behavior.
 Every CLI mutation requires an explicit positive `--revision`; it does not automatically retry
 conflicts or approve a newer draft. `draft` prints JSON or writes it using `--output`;
 `update` sends only the mutable `brief` and `scenes` plus the explicit revision.
+
+### Hybrid motion for faster educational rendering
+
+Select **Hybrid: one AI clip, then animated illustration** in the web UI, or pass
+`--style hybrid` to the CLI (`education.style: "hybrid"` in API requests).
+Each non-diagram scene starts with one native-length clip from the selected video model
+(about five seconds for Wan 2.2), trimmed if the scene is shorter. The remaining scene
+duration uses the approved source illustration with its existing pan/zoom animation,
+title and fades. This is a deliberate cut back to the illustration, not a frozen final
+AI frame or a loop. Diagrams keep their deterministic presentation/reveal behavior.
+Narration, scene order, music placement, output dimensions and measured total duration
+remain unchanged. Both ComfyUI and configured Foundry motion providers are supported.
+
+Hybrid generates at most one AI clip per non-diagram scene rather than filling the
+entire narration with separately generated clips. It still pays for a full provider
+clip when a scene is shorter; savings depend on scene durations and provider speed.
+Generated AI clips and presentation tails are persisted for retries. Existing
+`presentation` and `ai_motion` behavior and defaults do not change. Create a new job
+to choose hybrid; an already-approved job's rendering options remain immutable.
 
 ### Educational configuration and capability limits
 
@@ -422,7 +441,8 @@ the actual deployed runtime before rendering. Upgrade only between jobs.
 
 Educational diagram rendering accepts bundled draw.io stencils, local icon assets,
 and the built-in flowchart primitives used by the private MCP service, including its
-implicit Process rectangle and Manual Operation trapezoid. External assets remain
+implicit Process rectangle, Manual Operation trapezoid, and UML Component's bundled
+`module` shape. External assets remain
 prohibited. Job and operation errors show nested TaskGroup root causes; full grouped
 tracebacks remain in server logs, and multiple failures are reported together.
 
