@@ -1,0 +1,6 @@
+subscription_id = "2524a5e1-00d7-43c2-a7cf-a87b79df2415"
+location        = "swedencentral"
+prefix          = "556"
+enable_mcp      = false
+# After scripts\Build-McpImage.ps1, set enable_mcp=true and the returned image:
+# mcp_image = "YOUR_ACR.azurecr.io/comfy-mcp@sha256:..."

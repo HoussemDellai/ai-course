@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "comfy-aca": {
+      "type": "http",
+      "url": "https://comfy-mcp.agreeablecliff-e935d0a6.swedencentral.azurecontainerapps.io/mcp"
+    }
+  }
+}
