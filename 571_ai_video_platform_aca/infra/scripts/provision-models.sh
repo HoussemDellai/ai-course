@@ -15,6 +15,10 @@ printf '%s' "$COMFY_BOOTSTRAP_B64" | base64 --decode | tr -d '\r' > /tmp/prepare
 COMFY_DIR="$COMFY_DIR" bash /tmp/prepare-comfyui.sh
 mkdir -p "$COMFY_DIR/input" "$COMFY_DIR/output" "$COMFY_DIR/temp"
 chown 10000:10000 "$COMFY_DIR/input" "$COMFY_DIR/output" "$COMFY_DIR/temp"
+mkdir -p "$COMFY_DIR/user" "$COMFY_DIR/workers/secondary/input" \
+  "$COMFY_DIR/workers/secondary/output" "$COMFY_DIR/workers/secondary/user"
+chown 10000:10000 "$COMFY_DIR/user" "$COMFY_DIR/workers/secondary/input" \
+  "$COMFY_DIR/workers/secondary/output" "$COMFY_DIR/workers/secondary/user"
 mkdir -p "$COMFY_DIR/custom_nodes/platform_gpu"
 printf '%s' "$GPU_EXPORTER_B64" | base64 --decode | tr -d '\r' > "$COMFY_DIR/custom_nodes/platform_gpu/gpu_stats_exporter.py"
 printf '%s' "$GPU_EXTENSION_B64" | base64 --decode | tr -d '\r' > "$COMFY_DIR/custom_nodes/platform_gpu/__init__.py"

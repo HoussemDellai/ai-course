@@ -14,6 +14,22 @@ resource "azurerm_cognitive_deployment" "gpt_61_sol" {
   }
 }
 
+resource "azurerm_cognitive_deployment" "gpt_6_astra" {
+  name                 = "gpt-6-astra"
+  cognitive_account_id = azurerm_cognitive_account.foundry.id
+
+  sku {
+    name     = "GlobalStandard" # "Standard" # DataZoneStandard, GlobalBatch, GlobalStandard and ProvisionedManaged
+    capacity = 100
+  }
+
+  model {
+    format  = "OpenAI"
+    name    = "gpt-6-astra"
+    version = "2026-09-29"
+  }
+}
+
 # resource "azurerm_cognitive_deployment" "gpt_52" {
 #   name                 = "gpt-5.2"
 #   cognitive_account_id = azurerm_cognitive_account.foundry.id

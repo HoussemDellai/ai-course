@@ -8,7 +8,7 @@ import subprocess
 import pytest
 from fastapi.testclient import TestClient
 
-from fakes import FakeComfy, FakeNarrator, FakeTeam, make_clip, make_flac, make_png, requires_ffmpeg, tiny_model
+from fakes import FakeComfy, FakeNarrator, FakeTeam, IndependentComfy, make_clip, make_flac, make_png, requires_ffmpeg, tiny_model
 from video_platform import media
 from video_platform.api import create_app, job_events
 from video_platform.config import Settings
@@ -98,6 +98,37 @@ async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
     assert steps[3].progress_done == steps[3].progress_total == 6
     assert [o.id for o in await load_operations(store, state.id)] == [o.id for o in ops], "persisted"
     await close()
+
+
+@pytest.mark.parametrize("naturalistic", [False, True])
+async def test_cinematic_renders_overlap_on_distinct_workers(settings, tmp_path, monkeypatch, naturalistic):
+    model = tiny_model(VIDEO_MODELS["wan22"], frames=32, fps=16)
+    monkeypatch.setitem(VIDEO_MODELS, "wan22", model)
+    fake = IndependentComfy(2, make_clip(tmp_path / "parallel.mp4", 2, 16, 320, 176, False))
+    pool = fake.pool()
+    store = LocalArtifactStore(settings.local_output_dir)
+
+    def factory(manager):
+        return build_video_workflow(PipelineDeps(
+            settings=settings, team=FakeTeam(), comfy=pool, narrator=FakeNarrator(1), store=store,
+            progress=manager.progress, ops=manager.recorder,
+        ))
+
+    manager = JobManager(settings, store, factory)
+    try:
+        state = await manager.create(VideoRequest(
+            prompt="A quiet island", duration_minutes=0.25, video_model="wan22", naturalistic=naturalistic,
+        ))
+        await asyncio.wait_for(manager.wait(state.id), 90)
+        final = await manager.get(state.id)
+        assert final.status == JobStatus.completed, final.error
+        assert fake.peak == 2
+        assert all(count == 0 for count in fake.active.values())
+        clips = [op for op in await manager.operations(state.id) if op.kind == OpKind.clip]
+        assert {op.attrs["server"] for op in clips} == {"http://comfy0:8188", "http://comfy1:8188"}
+        assert await store.exists(state.id, "final.mp4")
+    finally:
+        await pool.aclose()
 
 
 def max_volume(path, start: float, seconds: float) -> float:

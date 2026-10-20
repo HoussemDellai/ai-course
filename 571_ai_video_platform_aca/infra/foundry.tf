@@ -1,12 +1,12 @@
 resource "azurerm_cognitive_account" "foundry" {
-  name                          = "foundry-${var.prefix}"
+  name                          = "foundry-ai-${var.prefix}"
   location                      = azurerm_resource_group.rg.location
   resource_group_name           = azurerm_resource_group.rg.name
   kind                          = "AIServices" # includes Azure OpenAI models and Azure AI Speech
   sku_name                      = "S0"
   project_management_enabled    = true
-  custom_subdomain_name         = "foundry-${var.prefix}" # required for Entra ID auth with Speech
-  local_auth_enabled            = false                   # Entra ID only, no API keys
+  custom_subdomain_name         = "foundry-ai-${var.prefix}" # required for Entra ID auth with Speech
+  local_auth_enabled            = false                      # Entra ID only, no API keys
   public_network_access_enabled = true
 
   identity {

@@ -24,7 +24,7 @@ variable "aca_location" {
 variable "subscription_id" {
   description = "Explicit deployment subscription; used by both providers and deployment scripts."
   type        = string
-  default     = "25a98a18-5e94-4b21-9d17-e8cf45bfd81f"
+  default     = "2524a5e1-00d7-43c2-a7cf-a87b79df2415"
 }
 
 # variable "comfyui_cpu" {
@@ -35,6 +35,16 @@ variable "subscription_id" {
 #     error_message = "A100 CPU must be 0.25-24 in increments of 0.25; verify the selected allocation in the target region."
 #   }
 # }
+
+variable "comfyui_worker_count" {
+  description = "Always-on A100 ComfyUI workers. Two enables parallel renders; drain and approve secondary deletion before reducing to one."
+  type        = number
+  default     = 2
+  validation {
+    condition     = contains([1, 2], var.comfyui_worker_count)
+    error_message = "comfyui_worker_count must be 1 or 2."
+  }
+}
 
 variable "comfyui_memory_gib" {
   description = "A100 container system RAM in GiB, separate from GPU VRAM. Validate with real enabled workflows."
@@ -83,12 +93,24 @@ variable "model_download_timeout_seconds" {
 }
 
 variable "hf_token_secret_id" {
-  description = "Optional Key Vault secret URI containing an authorized HF read token. Grant the app identity secret-read access separately; never pass the token value to Terraform."
+  description = "Optional Key Vault secret URI containing an authorized HF read token. Grant the app identity secret-read access separately. Preferred over storing hf_token in state."
   type        = string
   default     = ""
   validation {
     condition     = var.hf_token_secret_id == "" || can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[^/]+(/[^/]+)?$", var.hf_token_secret_id))
     error_message = "Use an Azure Key Vault secret URI, not the token value."
+  }
+}
+
+variable "hf_token" {
+  description = "Optional HF read token stored as a Container Apps secret. WARNING: persists in Terraform state and saved plans. Supply through TF_VAR_hf_token, not committed files. Mutually exclusive with hf_token_secret_id."
+  type        = string
+  sensitive   = true
+  default     = ""
+
+  validation {
+    condition     = var.hf_token == "" || var.hf_token_secret_id == ""
+    error_message = "Set either hf_token or hf_token_secret_id, not both."
   }
 }
 
@@ -106,7 +128,7 @@ variable "llm_model_version" {
 variable "llm_capacity" {
   description = "GlobalStandard capacity in thousands of tokens per minute."
   type        = number
-  default     = 500
+  default     = 200
 }
 
 variable "default_video_model" {

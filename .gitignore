@@ -45,3 +45,6 @@ terraform.rc
 
 *.env
 !*example.env
+
+# External quickstart checkout is kept locally, not published with this course.
+/_220_semantic_kernel_mcp/quickstart-resources/

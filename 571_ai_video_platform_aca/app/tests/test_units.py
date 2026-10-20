@@ -1,8 +1,10 @@
+import asyncio
 import re
 
+import httpx
 import pytest
 
-from fakes import FakeComfy
+from fakes import FakeComfy, IndependentComfy
 from video_platform.agents import (
     fit_music_cues, fit_shot_count, music_lyrics, rebalance_outline, shots_for_duration, strip_speaker_labels,
 )
@@ -255,6 +257,58 @@ async def test_comfy_pool_image_to_video_uploads_to_each_attempts_server(tmp_pat
         assert any(n["class_type"] == "WanImageToVideo" for n in wf.values())
         assert wf["11"]["inputs"]["image"] == "aivideo/j/shot_003.png"
     await pool.aclose()
+
+
+@pytest.mark.parametrize("servers", [1, 2])
+async def test_pool_overlaps_only_distinct_workers_and_keeps_routes(tmp_path, servers):
+    fake = IndependentComfy(servers)
+    for host, worker in fake.workers.items():
+        worker.clip_bytes = host.encode()
+    pool = fake.pool()
+    image = tmp_path / "reference.png"
+    image.write_bytes(next(iter(fake.workers.values())).image_bytes)
+    submitted = {}
+
+    async def render(i):
+        async def remember(server, prompt_id):
+            submitted[i] = (httpx.URL(server).host, prompt_id)
+        return await pool.generate_clip(
+            VIDEO_MODELS["wan22"], f"shot {i}", i, tmp_path / f"{i}.mp4", f"job/shot_{i}",
+            timeout=5, retries=0, start_image=image, upload_subfolder="job", on_submitted=remember,
+        )
+
+    try:
+        outputs = await asyncio.wait_for(asyncio.gather(*(render(i) for i in range(4))), 10)
+        assert fake.peak == servers
+        assert all(value == 0 for value in fake.active.values())
+        assert [p.read_bytes() for p in outputs] == [submitted[i][0].encode() for i in range(4)]
+        assert all(worker.uploads for worker in fake.workers.values())
+        if servers == 2:
+            assert submitted[0][1] == submitted[1][1] == "p1", "Prompt IDs intentionally collide"
+            assert submitted[0][0] != submitted[1][0]
+    finally:
+        await pool.aclose()
+
+
+async def test_pool_resume_uses_prompt_owner_with_colliding_ids(tmp_path):
+    fake = IndependentComfy(2)
+    fake._first_wave.set()
+    pool = fake.pool()
+    for host, worker in fake.workers.items():
+        worker.clip_bytes = host.encode()
+    try:
+        for client in pool._clients:
+            assert await client.submit({}) == "p1"
+        before = {host: len(worker.submitted) for host, worker in fake.workers.items()}
+        dest = await pool.generate_clip(
+            VIDEO_MODELS["wan22"], "resume", 1, tmp_path / "resume.mp4", "job/resume",
+            timeout=5, retries=0, resume={"server": "http://comfy1:8188", "prompt_id": "p1"},
+        )
+        assert dest.read_bytes() == b"comfy1"
+        assert {host: len(worker.submitted) for host, worker in fake.workers.items()} == before
+        assert ("comfy0", "GET", "/history/p1") not in fake.routes
+    finally:
+        await pool.aclose()
 
 
 def test_older_artifacts_still_load():
