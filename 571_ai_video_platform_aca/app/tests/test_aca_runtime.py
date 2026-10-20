@@ -115,6 +115,8 @@ def test_startup_requires_provisioning_and_preserves_pytorch(runtime):
     result = run("start-comfyui.sh")
     assert result.returncode != 0 and "this revision" in result.stderr
     marker.write_text("revision1")
+    for name in ("input", "output", "user"):
+        (comfy / name).mkdir()
     result = run("start-comfyui.sh", REQUIRE_SAFE_DIRECTORY="1")
     assert result.returncode == 0, result.stderr
     commands = calls.read_text()
@@ -123,6 +125,8 @@ def test_startup_requires_provisioning_and_preserves_pytorch(runtime):
     assert "rev-parse" in startup_commands
     assert "--constraint" in commands
     assert "python main.py --listen 0.0.0.0 --port 8188 --disable-xformers" in commands
+    assert f"--input-directory {bash_path(comfy / 'input')}" in commands
+    assert f"--user-directory {bash_path(comfy / 'user')}" in commands
     failed = run("start-comfyui.sh", PYTHON_FAIL="1")
     assert failed.returncode != 0
 
@@ -138,8 +142,34 @@ def test_startup_stops_when_git_trust_configuration_fails(runtime):
         f"config --global --add safe.directory {bash_path(comfy)}",
     ]
 
+@pytest.mark.parametrize("worker", ["primary", "secondary", "invalid"])
+def test_worker_runtime_directories_are_isolated(runtime, worker):
+    run, comfy, calls = runtime
+    assert run("02-install-comfyui.sh").returncode == 0
+    (comfy / ".platform-models-ready").write_text("revision1")
+    media_dir = comfy if worker == "primary" else comfy / "workers" / "secondary"
+    for name in ("input", "output", "user"):
+        (media_dir / name).mkdir(parents=True, exist_ok=True)
+    result = run("start-comfyui.sh", COMFY_WORKER=worker)
+    if worker == "invalid":
+        assert result.returncode != 0 and "COMFY_WORKER" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        commands = calls.read_text()
+        for name in ("input", "output", "user"):
+            assert f"--{name}-directory {bash_path(media_dir / name)}" in commands
+        assert f"comfyui-{worker}" in commands
 
-@pytest.mark.parametrize("chown_fail", ["0", "1"])
+
+def test_worker_startup_rejects_missing_media_directories(runtime):
+    run, comfy, _ = runtime
+    assert run("02-install-comfyui.sh").returncode == 0
+    (comfy / ".platform-models-ready").write_text("revision1")
+    result = run("start-comfyui.sh", COMFY_WORKER="secondary")
+    assert result.returncode != 0 and "worker directory is missing or inaccessible" in result.stderr
+
+
+@pytest.mark.parametrize("chown_fail", ["0", "1", "secondary"])
 def test_provisioning_sets_scoped_runtime_ownership_before_ready_marker(runtime, tmp_path, chown_fail):
     run, comfy, calls = runtime
     bin_dir = tmp_path / "bin"
@@ -148,7 +178,10 @@ def test_provisioning_sets_scoped_runtime_ownership_before_ready_marker(runtime,
         tool.write_text(f"""#!/bin/bash
 set -eu
 echo "{name} $*" >> "$CALLS"
-if [[ "{name}" == chown && "${{CHOWN_FAIL:-0}}" == 1 ]]; then exit 9; fi
+if [[ "{name}" == chown ]]; then
+  if [[ "${{CHOWN_FAIL:-0}}" == 1 ]]; then exit 9; fi
+  if [[ "${{CHOWN_FAIL:-0}}" == secondary && "$*" == *workers/secondary* ]]; then exit 9; fi
+fi
 """, encoding="utf-8")
         tool.chmod(0o755)
     downloader = '[[ -d "$MODEL_DIR" ]] || mkdir -p "$MODEL_DIR"\necho download >> "$CALLS"\n'
@@ -165,6 +198,9 @@ if [[ "{name}" == chown && "${{CHOWN_FAIL:-0}}" == 1 ]]; then exit 9; fi
     assert all((comfy / name).is_dir() for name in ("input", "output", "temp"))
     marker = comfy / ".platform-models-ready"
     if chown_fail == "0":
+        assert all((comfy / "workers" / "secondary" / name).is_dir() for name in ("input", "output", "user"))
+        assert any(line.startswith("chown 10000:10000 ") and "/workers/secondary/output" in line
+                   for line in commands)
         assert marker.read_text().strip() == "revision1"
         assert commands.index(ownership) < commands.index("download")
     else:
@@ -189,7 +225,9 @@ def test_acr_build_uses_utf8_and_preserves_failure(tmp_path, windows, exit_code)
     python = install / "python.exe"
     python.touch()
     prelude = """
-function global:Get-Command { return [pscustomobject]@{Source=$env:TEST_AZ} }
+function global:Get-Command {
+    return @([pscustomobject]@{Source=$env:TEST_AZ}, [pscustomobject]@{Source="unusable-second-launcher"})
+}
 function global:FakeCli {
     $prefix = if ($env:TEST_WINDOWS -eq "1") { @("-I","-B","-X","utf8","-m","azure.cli") } else { @() }
     $expected = $prefix + @("acr","build","--subscription","test-sub","--registry","test-acr",
@@ -242,6 +280,7 @@ def test_model_job_refuses_active_queue(tmp_path):
 function global:az {
   $global:LASTEXITCODE = 0
   if ($args -contains "start") { throw "Should not submit model job" }
+  if ($args -contains "execution" -and $args -contains "list") { return "[]" }
   return '[{"name":"comfyui","properties":{"configuration":{"ingress":{"fqdn":"comfy.test"}}}}]'
 }
 function global:Invoke-RestMethod { return @{queue_running=@(@(1,"prompt")); queue_pending=@()} }
@@ -249,6 +288,78 @@ function global:Invoke-RestMethod { return @{queue_running=@(@(1,"prompt")); que
     result = run_ps(SCRIPTS / "run-model-job.ps1", tmp_path, prelude,
                     env={"SUBSCRIPTION_ID": "test", "RESOURCE_GROUP": "rg-aivideo571", "COMFY_APP_NAME": "comfyui"})
     assert result.returncode != 0 and "active or queued" in result.stderr
+
+
+@pytest.mark.parametrize("secondary_status", ["busy", "offline", "invalid", "idle"])
+def test_model_job_checks_both_workers_before_provisioning(tmp_path, secondary_status):
+    prelude = """
+$global:checked = @()
+function global:az {
+  $global:LASTEXITCODE = 0
+  if ($args -contains "execution" -and $args -contains "list") { return "[]" }
+  if ($args -contains "list") {
+    return '[{"name":"comfyui","properties":{"configuration":{"ingress":{"fqdn":"primary.test"}}}},{"name":"comfyui-2","properties":{"configuration":{"ingress":{"fqdn":"secondary.test"}}}}]'
+  }
+  if ($args -contains "start") {
+    if ($global:checked.Count -ne 2) { throw "Did not check both workers" }
+    Write-Host "Both queues verified"
+    return '{"name":"execution"}'
+  }
+  return '{"properties":{"status":"Succeeded"}}'
+}
+function global:Invoke-RestMethod {
+  param($Uri, $TimeoutSec)
+  $global:checked += $Uri
+  if ($Uri -match "secondary") {
+    if ($env:SECONDARY_STATUS -eq "busy") { return @{queue_running=@(@(1,"p")); queue_pending=@()} }
+    if ($env:SECONDARY_STATUS -eq "offline") { throw "Worker unreachable" }
+    if ($env:SECONDARY_STATUS -eq "invalid") { return @{} }
+  }
+  return @{queue_running=@(); queue_pending=@()}
+}
+"""
+    result = run_ps(SCRIPTS / "run-model-job.ps1", tmp_path, prelude, env={
+        "SUBSCRIPTION_ID": "test", "RESOURCE_GROUP": "rg-aivideo571",
+        "JOB_NAME": "download", "COMFY_APP_NAMES": "comfyui,comfyui-2",
+        "TIMEOUT_SECONDS": "1", "SECONDARY_STATUS": secondary_status,
+    })
+    assert (result.returncode == 0) is (secondary_status == "idle"), result.stdout + result.stderr
+    assert ("Both queues verified" in result.stdout) is (secondary_status == "idle")
+
+
+@pytest.mark.parametrize("existing_status", ["Succeeded", "Failed", "Running", "Unexpected"])
+def test_model_job_waits_for_existing_execution_before_starting(tmp_path, existing_status):
+    prelude = """
+$global:existingChecked = $false
+function global:az {
+  $global:LASTEXITCODE = 0
+  if ($args -contains "execution" -and $args -contains "list") {
+    return '[{"name":"existing","properties":{"status":"Running"}}]'
+  }
+  if ($args -contains "show" -and $args -contains "existing") {
+    $global:existingChecked = $true
+    return ('{"properties":{"status":"' + $env:TEST_STATUS + '"}}')
+  }
+  if ($args -contains "list") { return "[]" }
+  if ($args -contains "start") {
+    if (-not $global:existingChecked -or $env:TEST_STATUS -ne "Succeeded") {
+      throw "Started concurrent provisioning"
+    }
+    Write-Host "Submitted requested revision"
+    return '{"name":"new"}'
+  }
+  return '{"properties":{"status":"Succeeded"}}'
+}
+function global:Start-Sleep {}
+"""
+    result = run_ps(SCRIPTS / "run-model-job.ps1", tmp_path, prelude, env={
+        "SUBSCRIPTION_ID": "test", "RESOURCE_GROUP": "rg-aivideo571",
+        "JOB_NAME": "download", "COMFY_APP_NAME": "comfyui", "TIMEOUT_SECONDS": "-1",
+        "TEST_STATUS": existing_status,
+    })
+    assert (result.returncode == 0) is (existing_status == "Succeeded"), result.stdout + result.stderr
+    assert ("Submitted requested revision" in result.stdout) is (existing_status == "Succeeded")
+    assert "Started concurrent provisioning" not in result.stderr
 
 
 @pytest.mark.parametrize("bad", ["old-group", "delete", "vm", "subscription", "none", "valid"])

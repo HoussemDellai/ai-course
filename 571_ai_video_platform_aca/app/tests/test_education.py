@@ -1,3 +1,4 @@
+import asyncio
 import re
 import subprocess
 from dataclasses import replace
@@ -8,7 +9,7 @@ from agent_framework import Content, Message
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from fakes import FakeComfy, FakeNarrator, FakeTeam, make_flac, make_png, requires_ffmpeg
+from fakes import FakeComfy, FakeNarrator, FakeTeam, IndependentComfy, make_clip, make_flac, make_png, requires_ffmpeg
 from video_platform import media
 from video_platform.api import create_app, job_events
 from video_platform.config import Settings
@@ -16,6 +17,7 @@ from video_platform.education import (
     APPROVAL, DRAFT, build_educational_workflow, music_indices, scene_durations, validate_education_request,
 )
 from video_platform.education_agents import FoundryEducationTeam
+from video_platform.education_visuals import EducationalVisuals, QWEN_T2I_WORKFLOW
 from video_platform.education_schemas import (
     DraftUpdate, EducationalBrief, EducationalDraft, EducationalScene, ResearchReport, ResearchSource,
     TechnicalDiagram,
@@ -23,7 +25,7 @@ from video_platform.education_schemas import (
 from video_platform.jobs import JobManager, ReviewConflict
 from video_platform.schemas import JobStatus, VideoRequest
 from video_platform.storage import LocalArtifactStore, read_json
-from video_platform.video_models import RESOLUTIONS
+from video_platform.video_models import RESOLUTIONS, VIDEO_MODELS
 from video_platform.workflow import PipelineDeps
 
 
@@ -152,6 +154,107 @@ def test_measured_duration_and_selective_music():
     assert music_indices(draft, "intro_outro") == [0, 2]
     assert music_indices(draft, "off") == []
     assert music_indices(draft, "background") == [0, 1, 2]
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize("style,scene_count,upscaler", [
+    ("hybrid", 3, "ffmpeg"), ("ai_motion", 1, "ffmpeg"), ("ai_motion", 3, "seedvr2"),
+])
+async def test_educational_gpu_stages_use_independent_workers_in_order(
+    setup, tmp_path, monkeypatch, style, scene_count, upscaler,
+):
+    settings, store, team, fake_visuals, narrator, _, close = setup
+    settings = replace(settings, comfy_image_workflow=str(QWEN_T2I_WORKFLOW), clip_retries=0)
+    narrator.seconds = 1
+    model = replace(VIDEO_MODELS["wan22"], frames=24, fps=12, width=160, height=90)
+    monkeypatch.setitem(VIDEO_MODELS, "wan22", model)
+    clip = make_clip(tmp_path / "parallel.mp4", 2, 12, 160, 90, audio=False)
+    fake = IndependentComfy(2, clip, music=make_flac(tmp_path / "parallel.flac", 16))
+    for worker in fake.workers.values():
+        worker.image_bytes = make_png(160, 96)
+    # A single scene has one image/music cue, but must still render several clips in parallel.
+    fake._first_wave.set()
+    fake.delay_first_worker = True
+    pool = fake.pool()
+    visuals = EducationalVisuals(settings, pool, None)
+    visuals.animate = fake_visuals.animate
+    progress = []
+    fail_final = True
+    original_concat = media.concat
+
+    async def concat(parts, dest, **kwargs):
+        nonlocal fail_final
+        if dest.name == "final.mp4":
+            assert [path.stem for path in parts] == [f"scene_{i:03d}" for i in range(scene_count)]
+            if fail_final:
+                fail_final = False
+                raise RuntimeError("restart after all persisted GPU artifacts")
+        return await original_concat(parts, dest, **kwargs)
+
+    monkeypatch.setattr(media, "concat", concat)
+
+    async def plan(prompt, options, research, seconds, revision):
+        draft = sample_draft(revision)
+        draft.scenes = draft.scenes[:scene_count]
+        return draft
+
+    team.plan = plan
+
+    def factory(manager):
+        async def record(job_id, status=None, **fields):
+            if "clips_done" in fields:
+                progress.append(fields["clips_done"])
+            await manager.progress(job_id, status, **fields)
+        return build_educational_workflow(PipelineDeps(
+            settings=settings, team=FakeTeam(), comfy=pool, narrator=narrator, store=store,
+            progress=record, ops=manager.recorder,
+        ), team, visuals)
+
+    body = request(upscaler=upscaler).model_dump()
+    body["education"].update(style=style, music_mode="background")
+    manager = JobManager(settings, store, factory)
+    try:
+        state = await manager.create(VideoRequest.model_validate(body))
+        await manager.wait(state.id)
+        await manager.review(state.id, 1)
+        await asyncio.wait_for(manager.wait(state.id), 90)
+        final = await manager.get(state.id)
+        assert final.status == JobStatus.failed
+        assert final.error == "RuntimeError: restart after all persisted GPU artifacts"
+        assert fake.peak == 2
+        assert set(fake.completed) == {"comfy0", "comfy1"}
+        assert fake.peak_by_stage["motion"] == 2
+        expected_stages = ["image", "motion"]
+        if upscaler == "seedvr2":
+            expected_stages.append("upscale")
+            assert fake.peak_by_stage["upscale"] == 2
+        expected_stages.append("music")
+        assert list(dict.fromkeys(fake.stages)) == expected_stages
+        if scene_count > 1:
+            assert fake.peak_by_stage["image"] == fake.peak_by_stage["music"] == 2
+            assert fake.completed[0] == "comfy1", "Completion order must differ from scene order"
+        assert progress == list(range(scene_count + 1))
+        operations = await manager.operations(state.id)
+        motion = [op for op in operations if op.kind == "clip"]
+        assert len(motion) >= 2
+        assert len({(op.attrs["scene"], op.attrs["clip"]) for op in motion}) == len(motion)
+        assert all(op.attrs.get("server") and op.attrs.get("prompt_id") for op in motion)
+        approved = await read_json(store, state.id, APPROVAL)
+        prefix = f"education/render/{approved['fingerprint']}"
+        for i in range(scene_count):
+            assert await store.exists(state.id, f"{prefix}/processed/scene_{i:03d}.mp4")
+        submitted_before = sum(len(w.submitted) for w in fake.workers.values())
+        await manager.retry(state.id)
+        await manager.wait(state.id)
+        assert (await manager.get(state.id)).status == JobStatus.completed
+        assert sum(len(w.submitted) for w in fake.workers.values()) == submitted_before
+        assert progress == list(range(scene_count + 1)) * 2
+        assert await media.video_size(store.path(state.id, "final.mp4")) == (160, 90)
+        assert await media.video_duration(store.path(state.id, "final.mp4")) == pytest.approx(15, abs=1 / 12)
+    finally:
+        await visuals.aclose()
+        await pool.aclose()
+        await close()
 
 
 @requires_ffmpeg
@@ -322,7 +425,7 @@ async def test_hybrid_diagrams_and_retry_reuse_persisted_motion_and_tail(setup, 
     await manager.review(state.id, 2)
     await manager.wait(state.id)
     assert (await manager.get(state.id)).status == JobStatus.failed
-    assert visuals.motion_calls == 1 and visuals.animation_calls == 2
+    assert visuals.motion_calls == 2 and visuals.animation_calls == 3
     for path in (settings.work_dir / state.id).rglob("*"):
         if path.is_file():
             path.unlink()
@@ -359,6 +462,61 @@ async def test_hybrid_motion_failure_does_not_silently_use_presentation(setup):
     assert visuals.animation_calls == 0
     assert not await store.exists(state.id, "final.mp4")
     await close()
+
+
+@requires_ffmpeg
+async def test_foundry_education_providers_remain_sequential(setup):
+    settings, store, team, visuals, narrator, _, close = setup
+    settings = replace(
+        settings, foundry_image_endpoint="https://images.example", foundry_image_model="image",
+        foundry_video_endpoint="https://video.example", foundry_video_model="video",
+    )
+    pool = FakeComfy().pool()
+
+    def factory(manager):
+        return build_educational_workflow(PipelineDeps(
+            settings=settings, team=FakeTeam(), comfy=pool, narrator=narrator, store=store,
+            progress=manager.progress, ops=manager.recorder,
+        ), team, visuals)
+
+    active = {"image": 0, "motion": 0}
+    original_image, original_motion = visuals.image, visuals.motion
+
+    async def image(*args, **kwargs):
+        assert kwargs["provider"] == "foundry"
+        active["image"] += 1
+        try:
+            assert active["image"] == 1
+            await asyncio.sleep(0)
+            return await original_image(*args, **kwargs)
+        finally:
+            active["image"] -= 1
+
+    async def motion(*args, **kwargs):
+        assert kwargs["provider"] == "foundry"
+        active["motion"] += 1
+        try:
+            assert active["motion"] == 1
+            await asyncio.sleep(0)
+            return await original_motion(*args, **kwargs)
+        finally:
+            active["motion"] -= 1
+
+    visuals.image, visuals.motion = image, motion
+    body = request().model_dump()
+    body["education"].update(style="hybrid", image_provider="foundry", motion_provider="foundry")
+    manager = JobManager(settings, store, factory)
+    try:
+        state = await manager.create(VideoRequest.model_validate(body))
+        await manager.wait(state.id)
+        await manager.review(state.id, 1)
+        await manager.wait(state.id)
+        final = await manager.get(state.id)
+        assert final.status == JobStatus.completed, final.error
+        assert len(visuals.images) == visuals.motion_calls == 3
+    finally:
+        await pool.aclose()
+        await close()
 
 
 @requires_ffmpeg

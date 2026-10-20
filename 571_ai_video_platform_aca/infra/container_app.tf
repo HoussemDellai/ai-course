@@ -102,11 +102,11 @@ resource "azurerm_container_app" "app" {
       }
       env {
         name  = "COMFYUI_URLS"
-        value = local.comfyui_url
+        value = join(",", local.comfyui_urls)
       }
       env {
         name  = "GPU_STATS_URLS"
-        value = local.gpu_stats_url
+        value = join(",", local.comfyui_urls)
       }
       env {
         name  = "DEFAULT_VIDEO_MODEL"

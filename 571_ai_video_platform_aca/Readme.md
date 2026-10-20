@@ -1,8 +1,10 @@
 # AI Video Platform on ACA GPU: cinematic and reviewed educational videos
 
 This independent `aivideo571` deployment runs the CPU orchestrator and GPU ComfyUI
-as separate Azure Container Apps. ComfyUI uses one always-on A100 replica with
-Premium Azure Files NFS storage. The solution does not deploy a GPU VM.
+as separate Azure Container Apps. ComfyUI defaults to two independently addressed
+workers, each with one always-on A100 replica, sharing Premium Azure Files NFS
+model storage. Set `comfyui_worker_count = 1` for a single worker.
+The solution does not deploy a GPU VM.
 The `555_comfyui_on_aca` folder is a read-only reference, never a deployment dependency.
 CPU/RAM sizing and real A100 workflow compatibility require profiling before deployment;
 local regression tests are not proof of live GPU compatibility.
@@ -452,7 +454,8 @@ tracebacks remain in server logs, and multiple failures are reported together.
 > `comfyui_memory_gib` controls system RAM independently of GPU VRAM. The educational
 > variables propose 32 GiB for render validation after a Wan VAE-stage exit-137
 > failure at 4 GiB; this is not yet a profiled guarantee for all video models.
-> This deployment keeps exactly one replica: ComfyUI queue and history are process-local.
+> Each ComfyUI app keeps exactly one replica: queue and history are process-local.
+> Parallel renders use separate app URLs, not load-balanced replicas of one app.
 > Older H100 timings elsewhere in this document are historical comparisons, not A100 benchmarks.
 
 ### Enable LTX-2.5
@@ -463,9 +466,9 @@ missing LTX-2.5 weights require an authorized `HF_TOKEN` in the downloader's env
 The script skips them with a warning (and still exits successfully) if files are missing and no
 token is supplied. Terraform runs this script as a Consumption job and does **not** forward your
 workstation's `HF_TOKEN`, so a fresh deployment installs every public model and skips LTX-2.5.
-Configure the job's Key Vault secret reference to add gated weights. Already-installed
-LTX-2.5 files do not require the token on subsequent runs. Never put the token in Terraform
-variables, state, source files, or command-line arguments.
+Prefer the job's Key Vault secret reference to add gated weights. Already-installed
+LTX-2.5 files do not require the token on subsequent runs. Never commit a token to source
+files or pass it in command-line arguments.
 
 1. Sign in to Hugging Face, open [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5) and accept the license (access is granted right away).
 2. Create a **read** token in [Settings > Access Tokens](https://huggingface.co/settings/tokens).
@@ -479,7 +482,26 @@ variables, state, source files, or command-line arguments.
    unversioned secret requires explicitly rerunning the job; changing its versioned URI
    automatically schedules provisioning.
 
-The job resolves `HF_TOKEN` through its managed identity. Script contents are delivered from
+Alternatively, if storing the token in Terraform state is explicitly acceptable, supply
+the sensitive `hf_token` variable through `TF_VAR_hf_token`. Do not set it together with
+`hf_token_secret_id`. For example, read it without echoing or recording its value in history:
+
+```powershell
+$credential = Get-Credential -UserName "huggingface" -Message "Enter the Hugging Face read token as the password"
+$env:TF_VAR_hf_token = $credential.GetNetworkCredential().Password
+terraform plan "-var-file=education.tfvars" "-out=gated-models.tfplan"
+terraform apply .\gated-models.tfplan
+Remove-Item Env:\TF_VAR_hf_token
+```
+
+**Warning:** `sensitive` redacts CLI output; it does not encrypt Terraform state, backups
+or saved plans. Keep these files private. Supply the same variable on later plans while
+retaining the job secret; omitting it plans to remove that secret. Rotating the inline
+token automatically reruns provisioning. Neither method places the token in script
+arguments or a literal container environment variable.
+
+With Key Vault, the job resolves `HF_TOKEN` through its managed identity; the inline
+alternative uses a Container Apps secret instead. Script contents are delivered from
 the checked-out 571 files, not fetched from GitHub. Interrupted downloads resume from `.part`
 files; only successful downloads are renamed to the model filenames. Authentication is sent
 through curl's standard input, not its command-line arguments, and is not forwarded to a
@@ -492,8 +514,11 @@ the platform does not fall back to another video model.
 Prerequisites: PowerShell 7 (`pwsh`), Azure CLI, Terraform >= 1.14, permissions for the
 new resource group, ACR builds and role assignments, A100 quota in Italy North and quota
 for the configured Foundry model in its separate region (default `germanywestcentral`).
-The default subscription is `Microsoft-Azure-1`; explicitly confirm it before deployment.
+Explicitly confirm `subscription_id` and both regions before deployment; both Terraform
+providers and deployment helpers use that subscription.
 GPU quota is environment-specific and may require a request after environment creation.
+The default now requires capacity for two simultaneous A100 replicas. Verify quota,
+subnet IP capacity and possible rollout overlap before approving a deployment.
 
 ```powershell
 Set-Location infra
@@ -518,6 +543,22 @@ Never apply the copied `tfplan` or `deploy.tfplan`, import 570 resources, or use
 inherited state. Keep state and backups private: they may contain API keys.
 If names are unavailable, use a new unique prefix; do not adopt another deployment.
 
+When resuming a partial deployment, generate a fresh plan with the same variable files;
+saved plans retain their original subscription and settings. For the educational runtime:
+
+```powershell
+terraform plan "-var-file=education.tfvars" "-out=recovery.tfplan"
+# Inspect the plan, including any replacements, before applying:
+terraform apply .\recovery.tfplan
+```
+
+The provisioning helper waits for any existing model execution before checking the
+ComfyUI queue and submitting the requested revision. It reports failed or timed-out
+executions instead of starting concurrent downloads. Already-downloaded public weights
+are reused, and interrupted downloads resume. Missing gated LTX-2.5 weights still
+require an authorized Key Vault token reference. The NFS account keeps shared keys
+disabled; mounting uses the private endpoint and NFS protocol.
+
 Before final sizing, obtain approval for any temporary billable profiling deployment.
 Exercise all enabled video, image, music and upscale workflows while recording peak
 container cgroup CPU/RAM. Select a smaller allocation with measured headroom, verify the
@@ -535,8 +576,8 @@ Terraform creates:
 > `/gpu_stats` endpoint reveals GPU and container utilization. The platform API key does
 > not protect these separate endpoints. This is not a production-secure exposure model.
 
-- **GPU Container App**: one always-on A100 replica, Single revision, digest-pinned yanwk
-  boot runtime, startup/readiness/liveness probes and graceful termination.
+- **GPU Container Apps**: two workers by default, each with one always-on A100 replica,
+  Single revision, digest-pinned yanwk boot runtime, probes and graceful termination.
 - **Premium NFS account/share**: persistent models, source, inputs and outputs, default
   1 TiB capacity. File access uses the private endpoint, not identity-based NFS mounting.
   ACA requires unencrypted NFS transport; this exception does not weaken Blob authentication.
@@ -556,6 +597,8 @@ stream ACR build logs in UTF-8. On Windows, the standard `az.cmd` launcher runs 
 bundled Python in isolated mode (`-I`), ignoring `PYTHONUTF8` and `PYTHONIOENCODING`.
 The helper invokes that same bundled runtime with `-X utf8` explicitly, preventing
 `UnicodeEncodeError` from `cp1252` when build logs contain Unicode.
+If multiple Azure CLI launchers are installed, it uses the first application resolved
+by PowerShell instead of treating the launcher list as a single executable path.
 It still waits for the build and propagates failures; it does not suppress logs.
 
 If a previous Terraform apply failed with this encoding error, inspect the ACR run
@@ -580,18 +623,133 @@ The web UI follows the GitHub Copilot app (dark theme). Your videos are listed i
 
 Each operation has a status and a duration, and shows the warnings logged while it ran. Retries keep the earlier runs, and steps resumed from saved artifacts show as *reused*. Below the timeline, the **Outputs** panel plays every intermediate video as soon as it's stored (generated shots, processed shots, assembled scenes, narration and music mixes), then the final video.
 
-The top bar shows GPU utilization/VRAM and ComfyUI container CPU/RAM, refreshed every
-2 seconds. The same HTTPS base URL serves `/gpu_stats`; a small ComfyUI extension samples
+The top bar shows GPU utilization/VRAM and ComfyUI container CPU/RAM for both workers,
+refreshed every 2 seconds. Each HTTPS base URL serves `/gpu_stats`; a ComfyUI extension samples
 off the event loop. CPU/RAM are cgroup usage and limits, not underlying host totals.
 Unavailable limits/metrics are reported explicitly, never as a false zero or host-sized
 allocation. Leave `GPU_STATS_URLS` empty to hide the badge.
 
 > [!IMPORTANT]
-> The A100 replica and allocated CPU/RAM are billed while always on; Premium Files also
+> Both A100 replicas and their allocated CPU/RAM are billed while always on; Premium Files also
 > incurs persistent charges. Do not enable ordinary HTTP scale-to-zero: submission
 > requests finish before GPU renders. Queue/history are in memory and do not survive
 > a restart or revision rollout. Persistent media and Blob checkpoints survive; existing
 > retry/resume handles unknown prompts by rerendering. Restart/update only between jobs.
+
+### Two-worker parallel rendering
+
+`comfyui_worker_count` accepts only `1` or `2` and defaults to `2`. Terraform keeps
+the original `comfyui-<prefix>` app as the primary and adds `comfyui-<prefix>-2`.
+A `moved` block preserves the existing primary resource in state; inspect a fresh
+plan to confirm it is not replaced. Both workers use the existing A100 profile,
+image and CPU/RAM allocation. The CPU orchestrator stays at one replica and
+`MAX_CONCURRENT_JOBS` is unchanged: this accelerates independent work in one video.
+
+- Terraform sets `COMFYUI_URLS` and `GPU_STATS_URLS` to both app URLs in primary,
+  secondary order. `comfyui_urls`, `gpu_stats_urls` and `comfyui_apps` are list
+  outputs. The old singular outputs still identify only the primary worker.
+- The pool allows one render per worker, up to two concurrently. Uploads, prompt
+  submission, history polling and downloads stay on the chosen endpoint.
+  Pending manifests record both server URL and prompt ID for restart recovery.
+- Cinematic/naturalistic keyframes and clips already use the pool. Educational
+  ComfyUI illustrations, motion clips (including several clips within one scene),
+  optional upscales and selected music cues now use it too. Motion finishes before
+  the upscale phase to avoid repeated video/upscaler model switching.
+- Scene order, approved content, seeds, exact durations, hybrid presentation tails,
+  diagram rendering and artifact names are preserved. Foundry providers remain
+  sequential. Native diagram exports and final CPU scene processing stay sequential;
+  this does not increase ffmpeg concurrency or parallelize Speech.
+- Model weights and source are shared. Primary input/output/user directories keep
+  their existing locations; secondary directories live under
+  `/root/ComfyUI/workers/secondary`. User directories (including ComfyUI's database)
+  are separate, and temporary files are container-local. The provisioner creates
+  the directories with runtime ownership before publishing the ready marker.
+- Provisioning checks **both known existing apps**, even when disabling the
+  secondary. A busy, unreachable or unverifiable queue blocks provisioning.
+  This is a preflight snapshot, not an atomic drain: stop new submissions and wait
+  for all platform jobs and both queues to finish before provisioning or rollout.
+- To return to one worker, drain first, set `comfyui_worker_count = 1`, inspect the
+  fresh plan and separately approve deletion of the secondary app. Removing or
+  restarting a worker loses its in-memory queue/history; unfinished work may need
+  rerendering. Persisted video artifacts remain available.
+
+The second worker adds an always-on GPU allocation and another public ComfyUI
+endpoint under the existing unauthenticated ingress policy. No deployment, quota
+change or paid benchmark is implied by the configuration. This is not a
+healthy-worker failover scheduler; failures retain the existing retry/error rules.
+
+### Measuring one versus two workers
+
+Run only after explicit deployment and paid-generation approval. Start with a
+GPU-only benchmark to avoid LLM/storyboard variability:
+
+1. Export a fixed **text-only, landscape** cinematic storyboard with at least four
+   shots. Use the same model, prompts, seed base, dimensions and clip count in every
+   run. Keep the same image, runtime allocation and model weights on both workers.
+2. From `app`, set `COMFYUI_URLS` to only the primary for the baseline, then to both
+   URLs for the parallel run. Keep both deployed for a warm comparison; actually
+   deleting/recreating the secondary changes cold-start conditions and requires
+   separate approval.
+3. The following Python example uses the saved storyboard and writes **fresh**
+   artifacts under a unique local directory every run. It makes billable ComfyUI
+   requests, has no LLM calls, and does not reuse previous clips:
+
+   ```python
+   import asyncio
+   import os
+   import time
+   import uuid
+   from pathlib import Path
+   from video_platform.comfyui import ComfyUIPool
+   from video_platform.config import Settings
+   from video_platform.schemas import Storyboard
+   from video_platform.video_models import get_video_model
+
+   async def benchmark():
+       board = Storyboard.model_validate_json(Path(os.environ["BENCH_STORYBOARD"]).read_text())
+       model = get_video_model(board.video_model)
+       root = Path("benchmark-output") / uuid.uuid4().hex
+       pool = ComfyUIPool.from_urls(Settings.from_env().comfyui_urls)
+       async def submitted(server, prompt_id):
+           print(server, prompt_id, flush=True)
+       start = time.perf_counter()
+       try:
+           await asyncio.gather(*[
+               pool.generate_clip(model, shot.prompt, 42 + i, root / f"{i:03d}.mp4",
+                                  f"benchmark/{root.name}/shot_{i:03d}", timeout=1800,
+                                  retries=0, on_submitted=submitted)
+               for i, shot in enumerate(board.shots)
+           ])
+           elapsed = time.perf_counter() - start
+           print({"workers": pool.size, "clips": len(board.shots),
+                  "seconds": elapsed, "clips_per_minute": len(board.shots) * 60 / elapsed,
+                  "output": str(root)})
+       finally:
+           await pool.aclose()
+
+   asyncio.run(benchmark())
+   ```
+
+4. Record cold model-load/startup runs separately, then repeat warm runs for each
+   configuration and compare medians. Save timings, server/prompt IDs, per-worker
+   GPU utilization, errors/retries, and output counts. Inspect the clips and use
+   ffprobe to verify expected dimensions and durations; GPU output need not be
+   bit-identical.
+5. Compute render-stage speedup as `one_worker_seconds / two_worker_seconds`.
+   Then compare fresh end-to-end jobs with the same storyboard/approved scenes,
+   explicit request seed, model, orientation, resolution, upscaler, narration and
+   music settings. Do not compare a resumed job that reuses clips with a fresh job.
+   Record each operation phase and total wall time; report any planning, narration,
+   or content differences instead of attributing them to GPU concurrency.
+6. For educational coverage, include hybrid and fully animated ComfyUI jobs, plus
+   a fully animated scene requiring several clips. Verify two distinct worker URLs
+   in overlapping motion operations, stable scene order, exact final timing and
+   successful artifact reuse after an interrupted run.
+
+Two GPUs can approach twice the independent render throughput, not necessarily
+twice the end-to-end speed. Shared NFS/model reads, warm-up, stage barriers, Speech,
+ffmpeg and too few independent tasks can limit gains. No live speedup is claimed
+until measured.
 
 After deployment, verify healthy revisions, CUDA/A100 identity, `/system_stats`,
 `/object_info` node coverage, model availability, unauthenticated `/gpu_stats`, authenticated
@@ -654,7 +812,7 @@ curl -s "$URL/api/gpu" -H "X-API-Key: $KEY"                      # GPU and conta
 cd app
 python -m venv .venv && .venv/Scripts/activate        # source .venv/bin/activate on Linux/macOS
 pip install -r requirements.txt -r requirements-dev.txt
-cp .env.sample .env                                    # fill in values from `terraform output` (COMFYUI_URLS = comfyui_url, GPU_STATS_URLS = gpu_stats_url)
+cp .env.sample .env                                    # join comfyui_urls and gpu_stats_urls outputs with commas
 python main.py                                         # http://localhost:8000
 # or, without the API:
 python generate.py "A short film about a robot learning to paint" --minutes 0.5 --model ltx2
@@ -672,6 +830,13 @@ pytest
 ```
 
 The tests check every ComfyUI workflow graph (text-to-video, image-to-video, keyframe, music and SeedVR2 upscaling: placeholders, links, node types) and the ComfyUI client (image upload, submit, poll, download, retry with a new seed). They also run the **real Agent Framework workflow with real ffmpeg** against a fake ComfyUI, fake LLM agents and fake TTS. That covers the whole pipeline (from a prompt, and from a photo for all four models: the agents get the photo, keyframes come before clips, clips start from their keyframe), the photo checks (formats, size, EXIF orientation and metadata removal), narration longer than a scene, resume without re-rendering keyframes, clips or music, background music (one cue per scene after the clips, instrumental captions and tag-only lyrics, exact scene lengths, fades and ducking), the exact output size of every orientation, resolution and upscaler (measured with ffprobe), SeedVR2 resume, reattachment and explicit failures, reattaching to an in-flight ComfyUI prompt, concurrent retries, jobs locked by another replica, audio/video sync, the operation timeline (live, persisted, across retries and replicas), the REST API (JSON and multipart uploads, intermediate videos with authentication, allowlist and Range requests) with its event stream, the composer controls, and GPU stats (GPU parsing, cgroup container limits, unavailable telemetry, `/api/gpu`). ACA-specific tests also cover the full model inventory, independent state/naming, one-replica configuration and nonblocking telemetry extension.
+
+Independent-worker regressions prove overlapping renders with a maximum of one
+per endpoint, colliding prompt-ID routing, upload affinity and resume ownership.
+Educational regressions cover parallel illustrations/motion/music, staged SeedVR2,
+out-of-order completion with ordered assembly, monotonic progress, persisted reuse,
+and unchanged Foundry scheduling. Mocked Terraform plans cover one/two workers,
+invalid counts, stable primary naming, distinct URL wiring and compatible outputs.
 
 Naturalistic regression tests cover controls and SSML escaping, language/style validation,
 strict continuity output schemas, JSON/multipart/CLI options, early narration, bounded corrections,
@@ -720,6 +885,7 @@ from synthetic fixture tests.
 - **Character consistency without a photo**: the keyframe + image-to-video path already exists for uploaded photos. Text-only videos could use it too: generate a reference image per character (e.g. Qwen-Image or Z-Image-Turbo, already used in [550_comfyui_on_vm](../550_comfyui_on_vm)) and feed it to `GenerateKeyframesExecutor`.
 - **Several photos**: `TextEncodeQwenImageEditPlus` accepts up to three images, e.g. two people and a place.
 - **LTX-2.5 multishot**: LTX-2.5 can render several connected shots in one pass, keeping the character, lighting and voice across the cuts. A scene could become one multishot clip instead of independent 5 s shots.
-- **Scale out**: add independently addressed GPU apps, each with one stable replica.
+- **Scale out beyond two**: extend the worker inventory after measuring this experiment,
+  using independently addressed GPU apps, each with one stable replica.
   Do not increase replicas behind a shared FQDN until queue/history routing is redesigned.
 - **Hosted agent**: the same workflow can be exposed as a Foundry hosted agent with `agent-framework-foundry-hosting`.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 import shutil
 import subprocess
@@ -48,6 +50,63 @@ def make_flac(path: Path, seconds: float) -> Path:
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
                     f"sine=frequency=330:duration={seconds}", "-ar", "32000", "-ac", "2", str(path)], check=True)
     return path
+
+
+class IndependentComfy:
+    """Independent queues with colliding prompt IDs and an explicit first-wave barrier."""
+
+    def __init__(self, servers: int, clip: Path | None = None, music: Path | None = None):
+        self.workers = {f"comfy{i}": FakeComfy(clip, music=music) for i in range(servers)}
+        self.active: dict[str, int] = dict.fromkeys(self.workers, 0)
+        self.peak = 0
+        self.routes: list[tuple[str, str, str]] = []
+        self.stages: list[str] = []
+        self.completed: list[str] = []
+        self.peak_by_stage: dict[str, int] = {}
+        self._active_stages: dict[str, str] = {}
+        self.delay_first_worker = False
+        self._first_wave = asyncio.Event()
+        self._expected = servers
+
+    async def handler(self, request: httpx.Request) -> httpx.Response:
+        host, path = request.url.host, request.url.path
+        worker = self.workers[host]
+        self.routes.append((host, request.method, path))
+        if path == "/prompt":
+            kinds = {node["class_type"] for node in json.loads(request.content)["prompt"].values()}
+            stage = ("image" if "SaveImage" in kinds else "music" if "SaveAudio" in kinds else
+                     "upscale" if "SeedVR2Preprocess" in kinds else "motion")
+            self.stages.append(stage)
+            self._active_stages[host] = stage
+            self.peak_by_stage[stage] = max(
+                self.peak_by_stage.get(stage, 0), list(self._active_stages.values()).count(stage),
+            )
+            self.active[host] += 1
+            assert self.active[host] == 1, "Two renders were submitted to one occupied worker"
+            self.peak = max(self.peak, sum(self.active.values()))
+            if sum(self.active.values()) == self._expected:
+                self._first_wave.set()
+            await asyncio.wait_for(self._first_wave.wait(), 5)
+            await asyncio.sleep(0)
+            if self.delay_first_worker and host == "comfy0":
+                await asyncio.sleep(0.02)
+        if path.startswith("/history/"):
+            pid = path.rsplit("/", 1)[1]
+            if not pid.startswith("p") or not pid[1:].isdigit() or int(pid[1:]) > len(worker.submitted):
+                return httpx.Response(200, json={})
+        response = worker.handler(request)
+        if path == "/view":
+            self.active[host] -= 1
+            self._active_stages.pop(host, None)
+            self.completed.append(host)
+        return response
+
+    def pool(self) -> ComfyUIPool:
+        return ComfyUIPool([
+            ComfyUIClient(f"http://{host}:8188", httpx.AsyncClient(transport=httpx.MockTransport(self.handler)),
+                          poll_interval=0)
+            for host in self.workers
+        ])
 
 
 class FakeComfy:

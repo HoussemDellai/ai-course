@@ -19,7 +19,7 @@ from .operations import OpKind
 from .schemas import CreativeBrief, JobStatus, Scene, VideoRequest
 from .storage import read_json, write_json
 from .video_models import VideoModel
-from .workflow import FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, make_submit_recorder, pending_resume
+from .workflow import FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, gather_all, make_submit_recorder, pending_resume
 
 DRAFT = "education/draft.json"
 APPROVAL = "education/approval.json"
@@ -169,7 +169,9 @@ class EducationalExecutor(Executor):
         images: list[Path] = []
         async with ops.op(OpKind.step, "Generate educational visual assets", step="education_images"):
             await d.progress(job.job_id, JobStatus.keyframing, clips_total=len(draft.scenes), clips_done=0)
-            for i, scene in enumerate(draft.scenes):
+
+            async def render_image(i: int) -> Path:
+                scene = draft.scenes[i]
                 key, path, exists = await artifact(f"images/scene_{i:03d}.png")
                 async with ops.op(OpKind.keyframe, f"Visual {i + 1}: {scene.title}", detail=scene.image_prompt) as op:
                     if exists:
@@ -207,13 +209,91 @@ class EducationalExecutor(Executor):
                         "native_generation": "vector_export" if scene.diagram else "provider_dependent",
                     })
                     op.update(artifact=key, scene=i)
-                    images.append(path)
+                return path
+
+            if options.image_provider == "comfyui":
+                image_results = {}
+                for i, scene in enumerate(draft.scenes):
+                    if scene.diagram is not None:
+                        image_results[i] = await render_image(i)
+                indices = [i for i, scene in enumerate(draft.scenes) if scene.diagram is None]
+                image_results.update(zip(indices, await gather_all([render_image(i) for i in indices])))
+                images = [image_results[i] for i in range(len(draft.scenes))]
+            else:
+                images = [await render_image(i) for i in range(len(draft.scenes))]
 
         processed: list[Path] = []
         async with ops.op(OpKind.step, "Animate educational scenes", step="education_animate"):
             await d.progress(job.job_id, JobStatus.generating)
+            processed_assets = [await artifact(f"processed/scene_{i:03d}.mp4")
+                                for i in range(len(draft.scenes))]
+            clip_budget = math.floor(job.model.clip_seconds * fps) / fps
+            motion_items: list[tuple[int, int]] = []
+            for i, scene in enumerate(draft.scenes):
+                if processed_assets[i][2] or options.style == "presentation" or scene.diagram is not None:
+                    continue
+                if clip_budget <= 0:
+                    raise ValueError("Video model clip duration is shorter than one output frame")
+                count = 1 if options.style == "hybrid" else math.ceil(durations[i] / clip_budget)
+                motion_items.extend((i, clip_index) for clip_index in range(count))
+
+            async def render_motion(i: int, clip_index: int) -> Path:
+                key, path, exists = await artifact(f"clips/scene_{i:03d}_{clip_index:03d}.mp4")
+                async with ops.op(OpKind.clip, f"Motion scene {i + 1}, clip {clip_index + 1}",
+                                  scene=i, clip=clip_index, queued=True) as op:
+                    if exists:
+                        op.reuse()
+                    else:
+                        pending = key + ".pending.json"
+                        await self.visuals.motion(
+                            images[i], draft.scenes[i].image_prompt + " Gentle illustrative motion; no text.",
+                            job.model, job.seed + i * 1000 + clip_index, path,
+                            provider=options.motion_provider,
+                            resume=await pending_resume(d, job, op, pending),
+                            on_submitted=make_submit_recorder(d, job, op, pending),
+                            width=job.render_size[0], height=job.render_size[1],
+                            upload_subfolder=job.upload_subfolder,
+                        )
+                        await d.store.upload(job.job_id, key, path)
+                    op.update(artifact=key)
+                return path
+
+            if options.motion_provider == "comfyui":
+                motion_paths = await gather_all([render_motion(i, c) for i, c in motion_items])
+            else:
+                motion_paths = [await render_motion(i, c) for i, c in motion_items]
+            motion_clips = dict(zip(motion_items, motion_paths))
+
+            async def upscale_motion(i: int, clip_index: int) -> Path:
+                key, path, exists = await artifact(f"upscaled/scene_{i:03d}_{clip_index:03d}.mp4")
+                async with ops.op(OpKind.upscale, f"Upscale scene {i + 1}, clip {clip_index + 1}",
+                                  scene=i, clip=clip_index, queued=True) as op:
+                    if exists:
+                        op.reuse()
+                    else:
+                        source = motion_clips[i, clip_index]
+                        source_width, source_height = await media.video_size(source)
+                        scale = media.fit_scale(source_width, source_height, width, height)
+                        pending = key + ".pending.json"
+                        await d.comfy.upscale_video(
+                            source=source, scale=scale, seed=job.seed + i * 1000 + clip_index,
+                            dest=path,
+                            filename_prefix=f"aivideo/{job.job_id}/education_upscale_{i:03d}_{clip_index:03d}",
+                            timeout=d.settings.clip_timeout_seconds, retries=d.settings.clip_retries,
+                            resume=await pending_resume(d, job, op, pending),
+                            on_submitted=make_submit_recorder(d, job, op, pending),
+                            upload_subfolder=job.upload_subfolder,
+                        )
+                        await d.store.upload(job.job_id, key, path)
+                    op.update(artifact=key)
+                return path
+
+            if job.seedvr2:
+                upscaled = await gather_all([upscale_motion(i, c) for i, c in motion_items])
+                motion_clips = dict(zip(motion_items, upscaled))
+
             for i, (scene, image, seconds) in enumerate(zip(draft.scenes, images, durations)):
-                key, path, exists = await artifact(f"processed/scene_{i:03d}.mp4")
+                key, path, exists = processed_assets[i]
                 async with ops.op(OpKind.ffmpeg, f"Animate scene {i + 1}", scene=i) as op:
                     if exists:
                         op.reuse()
@@ -223,43 +303,9 @@ class EducationalExecutor(Executor):
                     else:
                         parts: list[Path] = []
                         remaining = seconds
-                        clip_budget = math.floor(job.model.clip_seconds * fps) / fps
-                        if clip_budget <= 0:
-                            raise ValueError("Video model clip duration is shorter than one output frame")
                         count = 1 if options.style == "hybrid" else math.ceil(seconds / clip_budget)
                         for clip_index in range(count):
-                            clip_key, clip, clip_exists = await artifact(
-                                f"clips/scene_{i:03d}_{clip_index:03d}.mp4",
-                            )
-                            if not clip_exists:
-                                pending = clip_key + ".pending.json"
-                                await self.visuals.motion(
-                                    image, scene.image_prompt + " Gentle illustrative motion; no text.",
-                                    job.model, job.seed + i * 1000 + clip_index, clip,
-                                    provider=options.motion_provider,
-                                    resume=await pending_resume(d, job, op, pending),
-                                    on_submitted=make_submit_recorder(d, job, op, pending),
-                                    width=job.render_size[0], height=job.render_size[1],
-                                    upload_subfolder=job.upload_subfolder,
-                                )
-                                await d.store.upload(job.job_id, clip_key, clip)
-                            if job.seedvr2:
-                                upscale_key, upscale, upscale_exists = await artifact(
-                                    f"upscaled/scene_{i:03d}_{clip_index:03d}.mp4",
-                                )
-                                if not upscale_exists:
-                                    source_width, source_height = await media.video_size(clip)
-                                    scale = media.fit_scale(source_width, source_height, width, height)
-                                    pending = upscale_key + ".pending.json"
-                                    await d.comfy.upscale_video(
-                                        source=clip, scale=scale, seed=job.seed + i * 1000 + clip_index,
-                                        dest=upscale, filename_prefix=f"aivideo/{job.job_id}/education_upscale",
-                                        timeout=d.settings.clip_timeout_seconds, retries=d.settings.clip_retries,
-                                        resume=await pending_resume(d, job, op, pending),
-                                        on_submitted=make_submit_recorder(d, job, op, pending),
-                                    )
-                                    await d.store.upload(job.job_id, upscale_key, upscale)
-                                clip = upscale
+                            clip = motion_clips[i, clip_index]
                             actual = await media.video_duration(clip)
                             budget = min(remaining, clip_budget)
                             if actual + 0.000001 < budget:
@@ -305,7 +351,7 @@ class EducationalExecutor(Executor):
                     plan = await d.team.score(brief, scenes, [durations[i] for i in indices])
                     saved_music = plan.model_dump()
                     await write_json(d.store, job.job_id, plan_key, saved_music)
-                for cue_index, i in enumerate(indices):
+                async def render_music(cue_index: int, i: int) -> Path:
                     key, path, exists = await artifact(f"music/scene_{i:03d}.flac")
                     async with ops.op(OpKind.music, f"Music for scene {i + 1}", scene=i) as op:
                         if exists:
@@ -322,7 +368,10 @@ class EducationalExecutor(Executor):
                                 on_submitted=make_submit_recorder(d, job, op, pending),
                             )
                             await d.store.upload(job.job_id, key, path)
-                    music[i] = path
+                    return path
+
+                music_paths = await gather_all([render_music(c, i) for c, i in enumerate(indices)])
+                music = dict(zip(indices, music_paths))
 
         assembled: list[Path] = []
         async with ops.op(OpKind.step, "Assemble educational video", step="education_assemble"):

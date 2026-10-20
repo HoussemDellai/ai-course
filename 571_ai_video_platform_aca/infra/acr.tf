@@ -1,5 +1,5 @@
 resource "azurerm_container_registry" "acr" {
-  name                = "acr${var.prefix}"
+  name                = "acr4${var.prefix}"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   sku                 = "Basic"
@@ -26,6 +26,13 @@ resource "terraform_data" "build_app_image" {
 
   provisioner "local-exec" {
     working_dir = local.app_dir
-    command     = "az acr build --subscription ${var.subscription_id} --registry ${azurerm_container_registry.acr.name} --image ${local.app_image_tag} --file ${local.app_dockerfile} --no-logs ."
+    interpreter = ["pwsh", "-NoProfile", "-File"]
+    command     = "${abspath(path.module)}/scripts/build-app-image.ps1"
+    environment = {
+      SUBSCRIPTION_ID = var.subscription_id
+      ACR_NAME        = azurerm_container_registry.acr.name
+      APP_IMAGE_TAG   = local.app_image_tag
+      APP_DOCKERFILE  = local.app_dockerfile
+    }
   }
 }

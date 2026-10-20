@@ -1,12 +1,15 @@
 locals {
-  bootstrap_b64  = base64encode(replace(file("${path.module}/scripts/02-install-comfyui.sh"), "\r\n", "\n"))
-  downloader_b64 = base64encode(replace(file("${path.module}/scripts/03-download-models.sh"), "\r\n", "\n"))
-  exporter_b64   = base64encode(replace(file("${path.module}/scripts/gpu_stats_exporter.py"), "\r\n", "\n"))
-  extension_b64  = base64encode(replace(file("${path.module}/scripts/comfyui_gpu_extension.py"), "\r\n", "\n"))
+  hf_token_configured = var.hf_token_secret_id != "" || nonsensitive(var.hf_token != "")
+  bootstrap_b64       = base64encode(replace(file("${path.module}/scripts/02-install-comfyui.sh"), "\r\n", "\n"))
+  downloader_b64      = base64encode(replace(file("${path.module}/scripts/03-download-models.sh"), "\r\n", "\n"))
+  exporter_b64        = base64encode(replace(file("${path.module}/scripts/gpu_stats_exporter.py"), "\r\n", "\n"))
+  extension_b64       = base64encode(replace(file("${path.module}/scripts/comfyui_gpu_extension.py"), "\r\n", "\n"))
   provision_version = sha256(join("", [
     local.bootstrap_b64, local.downloader_b64, local.exporter_b64, local.extension_b64,
     filesha256("${path.module}/scripts/provision-models.sh"),
+    filesha256("${path.module}/scripts/run-model-job.ps1"),
     tostring(var.download_education_images), var.hf_token_secret_id,
+    nonsensitive(var.hf_token == "" ? "" : sha256(var.hf_token)),
   ]))
 }
 
@@ -25,11 +28,12 @@ resource "azurerm_container_app_job" "aca_job_download_models" {
   }
 
   dynamic "secret" {
-    for_each = var.hf_token_secret_id == "" ? [] : [var.hf_token_secret_id]
+    for_each = local.hf_token_configured ? [1] : []
     content {
       name                = "hf-token"
-      key_vault_secret_id = secret.value
-      identity            = azurerm_user_assigned_identity.app.id
+      value               = var.hf_token_secret_id == "" ? var.hf_token : null
+      key_vault_secret_id = var.hf_token_secret_id == "" ? null : var.hf_token_secret_id
+      identity            = var.hf_token_secret_id == "" ? null : azurerm_user_assigned_identity.app.id
     }
   }
 
@@ -62,7 +66,7 @@ resource "azurerm_container_app_job" "aca_job_download_models" {
         }
       }
       dynamic "env" {
-        for_each = var.hf_token_secret_id == "" ? [] : [1]
+        for_each = local.hf_token_configured ? [1] : []
         content {
           name        = "HF_TOKEN"
           secret_name = "hf-token"
@@ -90,7 +94,7 @@ resource "terraform_data" "provision_models" {
     command     = "${path.module}/scripts/run-model-job.ps1"
     environment = {
       JOB_NAME        = azurerm_container_app_job.aca_job_download_models.name
-      COMFY_APP_NAME  = "comfyui-${var.prefix}"
+      COMFY_APP_NAMES = join(",", [for key in sort(keys(local.comfyui_worker_names)) : local.comfyui_worker_names[key]])
       RESOURCE_GROUP  = azurerm_resource_group.rg.name
       SUBSCRIPTION_ID = var.subscription_id
       TIMEOUT_SECONDS = tostring(var.model_download_timeout_seconds * 2 + 600)
