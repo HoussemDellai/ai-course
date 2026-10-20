@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "id": "comfy-mcp-token",
+      "type": "promptString",
+      "description": "Bearer token for your Comfy MCP ACA deployment",
+      "password": true
+    }
+  ],
+  "servers": {
+    "comfy-aca": {
+      "type": "http",
+      "url": "https://comfy-mcp.agreeablecliff-e935d0a6.swedencentral.azurecontainerapps.io/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:comfy-mcp-token}"
+      }
+    }
+  }
+}
