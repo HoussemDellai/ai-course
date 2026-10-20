@@ -14,7 +14,6 @@ from starlette.testclient import TestClient
 
 from gateway import OFFICIAL_TOOLS, create_app, proxy_app, public_urls, validate_settings
 
-TOKEN = "test-only-" + "a" * 40
 FIXTURE = {
     "DemoBackendNode": {
         "input": {"required": {"text": ["STRING", {"default": ""}]}},
@@ -58,10 +57,11 @@ class GatewayTests(unittest.TestCase):
         cls.thread.start()
         cls.url = f"http://127.0.0.1:{cls.backend.server_port}"
         cls.env = patch.dict(os.environ, {
-            "MCP_TOKEN": TOKEN, "COMFY_BACKEND_URL": cls.url,
+            "COMFY_BACKEND_URL": cls.url,
             "COMFY_BIN": str(Path(sys.executable).with_name("comfy.exe" if os.name == "nt" else "comfy")),
         })
         cls.env.start()
+        os.environ.pop("MCP_TOKEN", None)
         cls.client = TestClient(create_app())
         cls.client.__enter__()
 
@@ -75,18 +75,18 @@ class GatewayTests(unittest.TestCase):
 
     def rpc(self, method, params=None):
         return self.client.post("/mcp", headers={
-            "Authorization": f"Bearer {TOKEN}",
             "Accept": "application/json, text/event-stream",
         }, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}})
 
-    def test_health_does_not_require_token(self):
+    def test_health_is_anonymous(self):
         self.assertEqual(self.client.get("/healthz").status_code, 200)
 
-    def test_missing_and_wrong_tokens_rejected(self):
-        for headers in ({}, {"Authorization": "Bearer wrong"}):
-            response = self.client.post("/mcp", headers=headers, json={})
-            self.assertEqual(response.status_code, 401)
-            self.assertNotIn(TOKEN, response.text)
+    def test_tool_discovery_requires_no_token(self):
+        self.assertNotIn("MCP_TOKEN", os.environ)
+        response = self.rpc("tools/list")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn("www-authenticate", response.headers)
+        self.assertIn("tools", response.json()["result"])
 
     def test_initialize(self):
         response = self.rpc("initialize", {
@@ -129,9 +129,7 @@ class GatewayTests(unittest.TestCase):
     def test_bad_settings_fail_closed(self):
         for backend in ("", "ftp://example.org", "https://user:pass@example.org", "http://127.0.0.1:8188"):
             with self.assertRaises(ValueError):
-                validate_settings(TOKEN, backend)
-        with self.assertRaises(ValueError):
-            validate_settings("short", self.url)
+                validate_settings(backend)
 
     def test_output_urls_are_external(self):
         self.assertEqual(

@@ -1,9 +1,8 @@
-"""Authenticated HTTP hosting for the official Comfy MCP tool registry."""
+"""Anonymous HTTP hosting for the official Comfy MCP demo tool registry."""
 
 import asyncio
 import contextlib
 import functools
-import hmac
 import json
 import logging
 import os
@@ -17,7 +16,7 @@ import aiohttp
 from aiohttp import web
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
 LOG = logging.getLogger("comfy-mcp-aca")
@@ -33,9 +32,7 @@ HOP_HEADERS = frozenset({
 })
 
 
-def validate_settings(token: str, backend: str) -> None:
-    if len(token) < 32 or any(c.isspace() for c in token):
-        raise ValueError("MCP_TOKEN must contain at least 32 non-whitespace characters")
+def validate_settings(backend: str) -> None:
     parsed = urlsplit(backend)
     if (
         parsed.scheme not in ("http", "https") or not parsed.hostname
@@ -45,23 +42,6 @@ def validate_settings(token: str, backend: str) -> None:
         raise ValueError("COMFY_BACKEND_URL must be an HTTP(S) origin without credentials")
     if parsed.hostname in ("localhost", "127.0.0.1", "::1") and parsed.port == 8188:
         raise ValueError("COMFY_BACKEND_URL must not point back at the forwarding listener")
-
-
-class BearerAuth:
-    def __init__(self, app, token: str):
-        self.app = app
-        self.expected = f"Bearer {token}".encode("utf-8")
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["path"] != "/healthz":
-            values = [v for k, v in scope["headers"] if k.lower() == b"authorization"]
-            if len(values) != 1 or not hmac.compare_digest(values[0], self.expected):
-                await JSONResponse(
-                    {"error": "unauthorized"}, status_code=401,
-                    headers={"WWW-Authenticate": "Bearer"},
-                )(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
 
 
 async def relay_websocket(source, destination) -> None:
@@ -164,9 +144,8 @@ def actionable_tool(function):
 
 
 def create_app():
-    token = os.environ.get("MCP_TOKEN", "")
     backend = os.environ.get("COMFY_BACKEND_URL", "").rstrip("/")
-    validate_settings(token, backend)
+    validate_settings(backend)
     os.environ["COMFY_LOCAL_URL"] = LOCAL_URL
     os.environ["COMFYUI_URL"] = LOCAL_URL
     os.environ["COMFY_CLI_NO_REMOTE_REFRESH"] = "1"
@@ -223,4 +202,4 @@ def create_app():
     mcp.add_tool(actionable_tool(fetch_outputs))
     app.router.lifespan_context = lifespan
     app.routes.insert(0, Route("/healthz", lambda request: PlainTextResponse("ok")))
-    return BearerAuth(app, token)
+    return app

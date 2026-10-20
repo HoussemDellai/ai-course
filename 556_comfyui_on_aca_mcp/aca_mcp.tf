@@ -16,11 +16,6 @@ resource "azurerm_container_app" "mcp" {
     identity = azurerm_user_assigned_identity.mcp.id
   }
 
-  secret {
-    name  = "mcp-token"
-    value = var.mcp_token
-  }
-
   ingress {
     external_enabled           = true
     allow_insecure_connections = false
@@ -42,10 +37,6 @@ resource "azurerm_container_app" "mcp" {
       cpu    = 0.5
       memory = "1Gi"
 
-      env {
-        name        = "MCP_TOKEN"
-        secret_name = "mcp-token"
-      }
       env {
         name  = "COMFY_BACKEND_URL"
         value = "https://${azurerm_container_app.aca_comfyui_cu130_a100.ingress[0].fqdn}"

@@ -2,31 +2,19 @@
 
 import argparse
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 
 
-def verify(endpoint: str, token: str) -> dict:
+def verify(endpoint: str) -> dict:
     if not endpoint.startswith("https://") or not endpoint.endswith("/mcp"):
         raise ValueError("Supply the HTTPS MCP endpoint ending in /mcp")
-    if len(token) < 32:
-        raise ValueError("Supply MCP_TOKEN; do not put the token on the command line")
     headers = {
-        "Authorization": f"Bearer {token}",
         "Accept": "application/json, text/event-stream",
     }
     with httpx.Client(timeout=180) as client:
-        for auth in (None, "Bearer incorrect-token"):
-            response = client.post(
-                endpoint, headers={"Authorization": auth} if auth else {},
-                json={"jsonrpc": "2.0", "id": 0, "method": "tools/list"},
-            )
-            if response.status_code != 401:
-                raise RuntimeError(f"Authentication check expected 401, got {response.status_code}")
-
         def rpc(method: str, params: dict) -> dict:
             response = client.post(endpoint, headers=headers, json={
                 "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
@@ -57,7 +45,7 @@ def verify(endpoint: str, token: str) -> dict:
         return {
             "verified_at": datetime.now(timezone.utc).isoformat(),
             "endpoint": endpoint,
-            "authentication": "missing and incorrect tokens rejected; valid token accepted",
+            "authentication": "none; public anonymous access",
             "server": initialized["serverInfo"],
             "tools": names,
             "backend_node": nodes,
@@ -71,10 +59,10 @@ def main():
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
-    report = verify(args.endpoint, os.environ.get("MCP_TOKEN", ""))
+    report = verify(args.endpoint)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(f"PASS: authenticated MCP and read-only backend discovery. Report: {args.report}")
+    print(f"PASS: anonymous MCP and read-only backend discovery. Report: {args.report}")
 
 
 if __name__ == "__main__":
