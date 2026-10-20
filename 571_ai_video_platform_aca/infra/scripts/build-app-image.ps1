@@ -3,7 +3,7 @@ $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($f
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 
-$azureCli = Get-Command az -CommandType Application -ErrorAction Stop
+$azureCli = Get-Command az -CommandType Application -ErrorAction Stop | Select-Object -First 1
 $arguments = @(
     "acr", "build",
     "--subscription", $env:SUBSCRIPTION_ID,

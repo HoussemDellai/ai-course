@@ -41,8 +41,11 @@ def test_deployment_is_independent_and_gpu_only():
     assert 'memory  = "${var.comfyui_memory_gib}Gi"' in app
     assert 'variable "comfyui_memory_gib" {' in variables
     assert not (INFRA / "vm_comfyui.tf").exists()
-    assert 'value = local.gpu_stats_url' in (INFRA / "container_app.tf").read_text()
+    assert 'value = join(",", local.comfyui_urls)' in (INFRA / "container_app.tf").read_text()
     assert "gpu_stats_url = local.comfyui_url" in app
+    assert 'for_each                     = local.comfyui_workers' in app
+    assert 'to   = azurerm_container_app.comfyui["primary"]' in app
+    assert 'name  = "COMFY_WORKER"' in app
 
 
 def test_downloader_inventory_covers_every_workflow():

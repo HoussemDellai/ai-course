@@ -1,10 +1,25 @@
 locals {
-  comfyui_url   = "https://${azurerm_container_app.comfyui.ingress[0].fqdn}"
+  comfyui_worker_names = {
+    primary   = "comfyui-${var.prefix}"
+    secondary = "comfyui-${var.prefix}-2"
+  }
+  comfyui_workers = {
+    for key, name in local.comfyui_worker_names : key => name
+    if key == "primary" || var.comfyui_worker_count == 2
+  }
+  comfyui_urls  = [for key in sort(keys(local.comfyui_workers)) : "https://${azurerm_container_app.comfyui[key].ingress[0].fqdn}"]
+  comfyui_url   = local.comfyui_urls[0]
   gpu_stats_url = local.comfyui_url
 }
 
+moved {
+  from = azurerm_container_app.comfyui
+  to   = azurerm_container_app.comfyui["primary"]
+}
+
 resource "azurerm_container_app" "comfyui" {
-  name                         = "comfyui-${var.prefix}"
+  for_each                     = local.comfyui_workers
+  name                         = each.value
   resource_group_name          = azurerm_resource_group.rg.name
   container_app_environment_id = azurerm_container_app_environment.aca_environment.id
   revision_mode                = "Single"
@@ -41,6 +56,10 @@ resource "azurerm_container_app" "comfyui" {
       env {
         name  = "PROVISION_VERSION"
         value = local.provision_version
+      }
+      env {
+        name  = "COMFY_WORKER"
+        value = each.key
       }
       volume_mounts {
         name = "storage-comfyui"

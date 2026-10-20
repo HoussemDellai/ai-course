@@ -28,7 +28,19 @@ output "aca_environment" {
 }
 
 output "comfyui_app" {
-  value = azurerm_container_app.comfyui.name
+  value = azurerm_container_app.comfyui["primary"].name
+}
+
+output "comfyui_urls" {
+  value = local.comfyui_urls
+}
+
+output "gpu_stats_urls" {
+  value = local.comfyui_urls
+}
+
+output "comfyui_apps" {
+  value = [for key in sort(keys(local.comfyui_workers)) : azurerm_container_app.comfyui[key].name]
 }
 
 output "acr_name" {
