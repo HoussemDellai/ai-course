@@ -8,21 +8,24 @@ resource "azurerm_container_registry" "acr" {
 
 locals {
   app_dir = "${path.module}/../app"
-  app_files = sort([
-    for f in fileset(local.app_dir, "**") : f
-    if !startswith(f, ".venv/") && !strcontains(f, "__pycache__") && !startswith(f, "tests/") && !startswith(f, ".") && !startswith(f, "output/")
-  ])
-  app_hash       = substr(sha256(join("", [for f in local.app_files : filesha256("${local.app_dir}/${f}")])), 0, 12)
-  app_image_tag  = var.educational_runtime ? "video-platform:education-${local.app_hash}" : "video-platform:1.0.0"
+  # Single source of truth shared with the application (video_platform/version.py) and the image tag.
+  app_version    = trimspace(file("${path.module}/../app/video_platform/VERSION"))
+  app_image_tag  = "video-platform:${local.app_version}"
   app_dockerfile = var.educational_runtime ? "drawio_runtime/Dockerfile.education" : "Dockerfile"
   app_image      = "${azurerm_container_registry.acr.login_server}/${local.app_image_tag}"
-  # app_image = "${azurerm_container_registry.acr.login_server}/video-platform:${local.app_hash}"
 }
 
-# Builds the orchestrator image in ACR (no local Docker needed) only when the tag is missing, e.g. in a new registry.
-# To ship app changes, rebuild the tag manually or bump it in local.app_image_tag.
+# Builds the orchestrator image in ACR (no local Docker needed) only when the semantic-version tag is missing.
+# To ship app changes, bump app/video_platform/VERSION; the image tag always equals the version shown in the UI.
 resource "terraform_data" "build_app_image" {
   triggers_replace = [azurerm_container_registry.acr.id, local.app_image]
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$", local.app_version))
+      error_message = "app/video_platform/VERSION must contain a semantic version such as 1.0.0."
+    }
+  }
 
   provisioner "local-exec" {
     working_dir = local.app_dir
