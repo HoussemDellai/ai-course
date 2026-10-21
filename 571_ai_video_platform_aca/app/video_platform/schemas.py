@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .education_schemas import EducationOptions
+from .document_schemas import DocumentOptions
 
 # ---------------------------------------------------------------------------
 # Structured outputs produced by the LLM agents (all fields required for strict JSON schema).
@@ -161,8 +162,9 @@ class Storyboard(BaseModel):
 
 
 class VideoRequest(BaseModel):
-    use_case: Literal["cinematic", "educational"] = "cinematic"
+    use_case: Literal["cinematic", "educational", "document"] = "cinematic"
     education: EducationOptions | None = None
+    document: DocumentOptions | None = Field(default=None, exclude_if=lambda value: value is None)
     prompt: str = Field(min_length=3, max_length=4000)
     duration_minutes: float = Field(default=5.0, ge=0.25, le=10.0)
     video_model: str | None = Field(default=None, description="wan22, ltx2, ltx25 or hunyuan15")
@@ -189,12 +191,28 @@ class VideoRequest(BaseModel):
 
     @model_validator(mode="after")
     def delivery_requires_narration(self) -> VideoRequest:
-        if self.delivery is not None and not ((self.naturalistic or self.use_case == "educational") and self.narration):
-            raise ValueError("Delivery controls require naturalistic mode and narration")
+        if self.delivery is not None and not (
+            (self.naturalistic or self.use_case in {"educational", "document"}) and self.narration
+        ):
+            raise ValueError("Delivery controls require naturalistic, educational or document narration")
         return self
 
     @model_validator(mode="after")
     def educational_defaults(self) -> VideoRequest:
+        if self.use_case != "document" and self.document is not None:
+            raise ValueError("Document options require the document use case")
+        if self.use_case == "document":
+            if self.education is not None or self.naturalistic or self.reference_image or self.music:
+                raise ValueError("Document videos do not support education options, photos, naturalistic mode or music")
+            if not self.narration:
+                raise ValueError("Document videos require narration")
+            if self.upscaler != "ffmpeg":
+                raise ValueError("Document videos render original pages; GPU upscaling is not supported")
+            if self.document is None:
+                self.document = DocumentOptions()
+            if "resolution" not in self.model_fields_set:
+                self.resolution = "1080p"
+            return self
         if self.use_case == "cinematic":
             if self.education is not None:
                 raise ValueError("Education options require the educational use case")

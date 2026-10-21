@@ -14,6 +14,8 @@ from agent_framework import WorkflowRunResult
 from .education import APPROVAL, DRAFT, draft_fingerprint, validate_education_request
 from .education_schemas import DraftUpdate, EducationalDraft, ReviewResult
 from .config import Settings
+from .documents import DocumentError, DocumentUpload, office_available, validate_document_request
+from .document_schemas import DocumentOptions
 from .operations import Operation, OperationRecorder, format_error, install_log_capture, load_operations
 from .schemas import JobState, JobStatus, VideoRequest, utcnow
 from .storage import LEASE_SECONDS, ArtifactStore, JobLock, read_json, write_json
@@ -50,16 +52,31 @@ class JobManager:
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
         install_log_capture()
 
-    async def create(self, request: VideoRequest, image: bytes | None = None) -> JobState:
-        """Starts a job. image is an already sanitized PNG (see images.sanitize_image), saved before the job state
-        so a job never exists without its reference photo."""
+    async def create(self, request: VideoRequest, image: bytes | None = None,
+                     document: DocumentUpload | None = None) -> JobState:
+        """Starts a job with a sanitized image or validated document, persisted before the job state."""
         if request.use_case == "educational" and image is not None:
             raise ValueError("Educational videos do not accept reference photos")
         validate_education_request(request, self.settings)
+        validate_document_request(request, self.settings)
+        if request.use_case == "document":
+            if document is None or image is not None:
+                raise DocumentError("Document videos require one document upload and do not accept reference photos")
+            if document.key.endswith(".pptx") and not office_available(self.settings):
+                raise DocumentError("PowerPoint rendering requires LibreOffice; install it or configure LIBREOFFICE_PATH")
+            options = request.document or DocumentOptions()
+            request = request.model_copy(update={"document": options.model_copy(update={"filename": document.filename})})
+        elif document is not None:
+            raise DocumentError("Document uploads require the document use case")
         if request.seed is None:
             request = request.model_copy(update={"seed": random.randint(0, 2**40)})
         request = request.model_copy(update={"reference_image": image is not None})
         state = JobState(id=uuid.uuid4().hex[:12], request=request)
+        if document is not None:
+            local = self.settings.work_dir / state.id / document.key
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_bytes(document.data)
+            await self.store.upload(state.id, document.key, local)
         if image is not None:
             local = self.settings.work_dir / state.id / REFERENCE_IMAGE
             local.parent.mkdir(parents=True, exist_ok=True)

@@ -288,6 +288,7 @@
           <label class="pill">Use case
             <select id="useCase" aria-label="Use case">
               <option value="cinematic">Cinematic</option><option value="educational">Educational / presentation</option>
+              <option value="document">PowerPoint / PDF to narrated video</option>
             </select>
           </label>
           <fieldset class="education-controls" id="educationControls" hidden disabled>
@@ -307,6 +308,25 @@
             <label for="musicMode">Music placement (MiniMax-Music3)</label>
             <select class="input" id="musicMode"><option value="intro_outro">Intro / outro only</option><option value="off">Off</option><option value="background">Full background</option></select>
             <p class="muted small" id="educationCapabilities">Loading configuration; provider availability is not verified live.</p>
+          </fieldset>
+          <fieldset class="education-controls" id="documentControls" hidden disabled>
+            <legend>PowerPoint / PDF to narrated video</legend>
+            <p class="muted">Preserves every slide/page in order, fitted without cropping. Narration uses extracted text
+              and PowerPoint speaker notes. Document content goes to the configured text and Speech services, never web search.
+              Generation starts immediately; no educational review step. Scanned/image-only pages need text or speaker notes.</p>
+            <label for="documentInput">PowerPoint (.pptx) or PDF (.pdf) file</label>
+            <input class="input" id="documentInput" type="file" accept=".pptx,.pdf" required>
+            <label for="documentLanguage">Narration language locale</label>
+            <input class="input" id="documentLanguage" value="en-US" pattern="[a-z]{2,3}-[A-Z]{2}" required>
+            <label><input id="documentAnimations" type="checkbox"> Animate pages: gentle zoom and fade between pages</label>
+            <p class="muted small">Optional, CPU only (no GPU cost). Each page eases in from 94% to full size with a fade
+              in and out. Pages are never cropped; narration and total duration stay unchanged. These are generated
+              effects, not your original PowerPoint animations.</p>
+            <label><input id="documentCinematic" type="checkbox"> Cinematic cutaways: 5 seconds every 30 seconds</label>
+            <p class="muted small">Optional GPU generation using the video model below. Replaces page visuals at
+              00:30–00:35, 01:00–01:05, etc.; narration and total duration stay unchanged. Only full 5-second
+              windows are used. Adds rendering time and GPU cost; generated audio is discarded.</p>
+            <p class="muted small" id="documentCapabilities">Loading document configuration.</p>
           </fieldset>
           <div class="attachments" id="attachments"></div>
           <textarea id="prompt" required minlength="3" maxlength="4000" placeholder="Describe your video, e.g. A documentary about a lighthouse keeper's last winter on a remote Breton island. Attach a photo to build the video around a person or a scene."></textarea>
@@ -431,6 +451,7 @@
       completed: "finished the video", failed: "stopped because of an error",
     };
     function statusText(job) {
+      if (job.request.use_case === "document" && job.status === "generating") return "Rendering document pages";
       if (job.request.use_case === "educational") {
         if (job.status === "generating") return "Rendering educational scenes";
         if (job.status === "processing") return "Processing educational scenes";
@@ -440,8 +461,9 @@
     }
     function progressText(job) {
       const educational = job.request.use_case === "educational";
-      const showing = job.status === "generating" || (educational && ["processing", "assembling"].includes(job.status));
-      return showing && job.clips_total ? `${job.clips_done}/${job.clips_total} ${educational ? "scenes" : "clips"}` : "";
+      const document = job.request.use_case === "document";
+      const showing = job.status === "generating" || ((educational || document) && ["processing", "assembling"].includes(job.status));
+      return showing && job.clips_total ? `${job.clips_done}/${job.clips_total} ${document ? "pages" : educational ? "scenes" : "clips"}` : "";
     }
     const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", upscale: "ComfyUI", narration: "Speech", music: "ComfyUI", ffmpeg: "ffmpeg", upload: "Storage" };
     const DETAIL_LABEL = { agent: "Result", keyframe: "Edit prompt", clip: "Prompt", narration: "Narration", music: "Caption" };
@@ -476,7 +498,7 @@
     const ACTIVE = new Set(["queued", "running"]);
     const isFinished = (job) => job && (job.status === "completed" || job.status === "failed");
     const isPaused = (job) => job?.status === "awaiting_review";
-    let educationConfig = null, cinematicControls = null, review = null;
+    let educationConfig = null, documentConfig = null, cinematicControls = null, review = null;
 
     function fmtDur(sec) {
       sec = Math.max(0, Math.floor(sec));
@@ -626,6 +648,10 @@
         if (!c) return;
         maxImageMb = c.max_image_mb;
         educationConfig = c.education || null;
+        documentConfig = c.document || null;
+        $("documentCapabilities").textContent = documentConfig
+          ? `Up to ${documentConfig.max_document_mb} MB and ${documentConfig.max_pages} pages. PDF rendering configured; PowerPoint ${documentConfig.powerpoint_configured ? "configured" : "requires LibreOffice"}; narration ${documentConfig.narration_configured ? "configured" : "missing"}.`
+          : "Document capabilities are unavailable from this server.";
         $("textModel").innerHTML = `<option value="">Configured default</option>` +
           (educationConfig?.text_models || []).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
         for (const [id, flags] of [["imageProvider", educationConfig?.images], ["motionProvider", educationConfig?.motion]]) {
@@ -646,8 +672,14 @@
       showLicense();
     }
     function showLicense() {
+      if ($("useCase").value === "document") {
+        const animated = $("documentAnimations").checked ? " Pages are animated with a gentle zoom and fades." : "";
+        $("license").textContent = $("documentCinematic").checked
+          ? "Original pages with 5-second GPU cinematic cutaways every 30 seconds. Narration stays continuous; no generated clip audio or music. Model license applies." + animated
+          : "Original pages, no GPU generation or music. Target duration may extend to fit the full narration, up to 10 minutes. PowerPoint animations become static slides; fonts may be substituted." + animated;
+        return;
+      }
       if ($("useCase").value === "educational") {
-        if ($("publicTopic").value.trim().length < 3) throw new Error("Provide a public-only search topic of at least three characters.");
         $("license").textContent = "Educational canvas: 1080p or 4K (orientation-swapped for vertical). Source image dimensions depend on the provider; a 4K canvas is not a native-4K image claim. Music: MiniMax-Music3.";
         return;
       }
@@ -664,7 +696,7 @@
     function updateFormatControls() {
       // 720p is the models' native size: there is nothing to upscale.
       const native = ($("resolution").value || "720p") === "720p";
-      $("upscaler").disabled = native || $("useCase").value === "educational";
+      $("upscaler").disabled = native || ["educational", "document"].includes($("useCase").value);
       $("upscalerPill").classList.toggle("off", native);
       showLicense();
     }
@@ -673,7 +705,7 @@
     $("upscaler").onchange = showLicense;
     updateFormatControls();
     function updateDeliveryControls() {
-      $("deliveryControls").disabled = !($("naturalistic").checked || $("useCase").value === "educational") || !$("narration").checked;
+      $("deliveryControls").disabled = !($("naturalistic").checked || ["educational", "document"].includes($("useCase").value)) || !$("narration").checked;
       $("voice").disabled = !$("narration").checked;
     }
     $("naturalistic").onchange = updateDeliveryControls;
@@ -681,27 +713,33 @@
     updateDeliveryControls();
     function updateEducationControls() {
       const educational = $("useCase").value === "educational";
-      if (educational && !cinematicControls) {
+      const document = $("useCase").value === "document";
+      const presentation = educational || document;
+      if (presentation && !cinematicControls) {
         cinematicControls = { resolution: $("resolution").value, orientation: $("orientation").value,
           narration: $("narration").checked, naturalistic: $("naturalistic").checked, music: $("music").checked };
         $("resolution").value = "1080p"; $("orientation").value = "horizontal";
         $("narration").checked = true; $("naturalistic").checked = false; $("music").checked = false;
         setPhoto(null);
-      } else if (!educational && cinematicControls) {
+      } else if (!presentation && cinematicControls) {
         for (const [id, value] of Object.entries(cinematicControls)) {
           if (typeof value === "boolean") $(id).checked = value; else $(id).value = value;
         }
         cinematicControls = null;
       }
       $("educationControls").hidden = !educational; $("educationControls").disabled = !educational;
+      $("documentControls").hidden = !document; $("documentControls").disabled = !document;
+      $("documentInput").disabled = !document;
       $("resolution").querySelector('[value="720p"]').disabled = educational;
-      for (const id of ["image", "naturalistic", "music", "narration"]) $(id).disabled = educational;
-      $("attachBtn").hidden = educational;
-      $("model").disabled = educational && ($("educationStyle").value === "presentation" || $("motionProvider").value !== "comfyui");
+      for (const id of ["image", "naturalistic", "music", "narration"]) $(id).disabled = presentation;
+      $("attachBtn").hidden = presentation;
+      $("model").disabled = (document && !$("documentCinematic").checked) || (educational && ($("educationStyle").value === "presentation" || $("motionProvider").value !== "comfyui"));
       $("motionProvider").disabled = !educational || $("educationStyle").value === "presentation";
       updateFormatControls(); updateDeliveryControls();
     }
     $("useCase").onchange = updateEducationControls;
+    $("documentCinematic").onchange = updateEducationControls;
+    $("documentAnimations").onchange = showLicense;
     $("educationStyle").onchange = updateEducationControls;
     $("motionProvider").onchange = updateEducationControls;
     $("prompt").oninput = () => { const t = $("prompt"); t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; };
@@ -728,7 +766,21 @@
             motion_provider: $("motionProvider").value, text_model: $("textModel").value || null,
             audience: $("audience").value, public_topic: $("publicTopic").value.trim(), music_mode: $("musicMode").value };
         }
-        if ((body.naturalistic || body.use_case === "educational") && body.narration) {
+        if ($("useCase").value === "document") {
+          const file = $("documentInput").files[0];
+          if (!file) throw new Error("Choose a PowerPoint (.pptx) or PDF (.pdf) file.");
+          if (!/\.(pptx|pdf)$/i.test(file.name)) throw new Error("Use a .pptx or .pdf document.");
+          if (!documentConfig?.narration_configured) throw new Error("Document narration requires a configured Speech endpoint.");
+          if (file.size > documentConfig.max_document_mb * 1024 * 1024)
+            throw new Error(`The document must be ${documentConfig.max_document_mb} MB or less.`);
+          if (/\.pptx$/i.test(file.name) && !documentConfig.powerpoint_configured)
+            throw new Error("PowerPoint rendering requires LibreOffice on the server. Export to PDF or configure LibreOffice.");
+          body.use_case = "document"; body.narration = true; body.naturalistic = false; body.music = false;
+          body.upscaler = "ffmpeg"; body.video_model = $("documentCinematic").checked ? body.video_model : null;
+          body.document = {language: $("documentLanguage").value.trim(),
+            cinematic_cutaways: $("documentCinematic").checked, animations: $("documentAnimations").checked};
+        }
+        if ((body.naturalistic || ["educational", "document"].includes(body.use_case)) && body.narration) {
           const pronunciations = $("pronunciations").value.split(/\r?\n/).filter(line => line.trim()).map(line => {
             const split = line.indexOf("=");
             if (split < 1 || !line.slice(split + 1).trim()) throw new Error("Pronunciation hints must use TEXT=ALIAS.");
@@ -738,18 +790,20 @@
             style: $("speechStyle").value.trim() || null, pronunciations };
         }
         let opts = { method: "POST", body: JSON.stringify(body) };
-        if (photo) {
+        if (body.use_case === "document" || photo) {
           const form = new FormData();
           form.append("request", JSON.stringify(body));
-          form.append("image", photo, photo.name || "photo.png");
+          if (body.use_case === "document") form.append("document", $("documentInput").files[0]);
+          else form.append("image", photo, photo.name || "photo.png");
           opts = { method: "POST", body: form };
         }
-        const r = await api("/api/videos", opts);
+        const r = await api(body.use_case === "document" ? "/api/videos/document" : "/api/videos", opts);
         if (r.status === 401) { $("keyPop").hidden = false; return; }
         if (!r.ok) { alert(await errorText(r)); return; }
         const job = await r.json();
         $("prompt").value = ""; $("prompt").style.height = "";
         setPhoto(null);
+        $("documentInput").value = "";
         jobs = [job, ...jobs.filter(j => j.id !== job.id)];
         location.hash = job.id;
         loadJobs();
@@ -767,7 +821,7 @@
 
     // Reference photo: picker, drag & drop and paste.
     function setPhoto(file) {
-      if (file && $("useCase").value === "educational") { alert("Educational videos do not accept reference photos. Only the public topic is searched."); return; }
+      if (file && ["educational", "document"].includes($("useCase").value)) { alert("Reference photos are available only for cinematic videos."); return; }
       if (file && !IMAGE_TYPES.includes(file.type)) { alert("Use a PNG, JPEG or WebP photo."); file = null; }
       else if (file && file.size > maxImageMb * 1024 * 1024) { alert(`The photo must be ${maxImageMb} MB or less.`); file = null; }
       if (photoUrl) URL.revokeObjectURL(photoUrl);
@@ -1148,7 +1202,7 @@
     function formatText(request) {
       const resolution = request.resolution || "720p";
       const text = `${RESOLUTION_TEXT[resolution] || resolution} ${request.orientation === "vertical" ? "vertical" : "horizontal"}`;
-      if (request.use_case === "educational") return `${text} canvas`;
+      if (["educational", "document"].includes(request.use_case)) return `${text} canvas`;
       return resolution === "720p" ? text : `${text} · ${UPSCALER_TEXT[request.upscaler] || request.upscaler}`;
     }
     // Videos only start loading when they scroll into view: a 10 min video has ~120 shots per group.
@@ -1268,8 +1322,8 @@
         <h2>${esc(job.title || "Untitled video")}</h2>
         <div class="job-meta">
           <span class="label ${statusClass}">${statusClass === "active" ? `<span class="icon">${ICONS.running}</span>` : ""}${esc(statusText(job))}</span>
-          ${job.request.use_case === "educational" && progressText(job) ? `<span>${esc(progressText(job))}</span>` : ""}
-          <span>${esc(job.request.use_case === "educational" ? `Educational · ${job.request.education.style} · ${job.request.education.image_provider}` : model ? model.name : job.request.video_model)}</span>
+          ${job.request.use_case !== "cinematic" && progressText(job) ? `<span>${esc(progressText(job))}</span>` : ""}
+          <span>${esc(job.request.use_case === "document" ? `Document · ${job.request.document.filename}` : job.request.use_case === "educational" ? `Educational · ${job.request.education.style} · ${job.request.education.image_provider}` : model ? model.name : job.request.video_model)}</span>
           <span>·</span><span>${esc(formatText(job.request))}</span>
           <span>·</span><span>${esc(job.request.duration_minutes)} min</span>
           ${job.duration_seconds ? `<span>·</span><span>${esc(fmtDur(job.duration_seconds))} rendered</span>` : ""}
@@ -1287,7 +1341,9 @@
         <div class="chips">
           ${job.request.reference_image ? `<span class="chip"><span class="k">mode</span>photo to video</span>` : ""}
           ${job.request.naturalistic ? `<span class="chip"><span class="k">direction</span>naturalistic</span>` : ""}
-          <span class="chip"><span class="k">${job.request.education ? "style" : "model"}</span>${esc(job.request.education ? job.request.education.style : job.request.video_model)}</span>
+          <span class="chip"><span class="k">${job.request.document ? "document" : job.request.education ? "style" : "model"}</span>${esc(job.request.document ? job.request.document.filename : job.request.education ? job.request.education.style : job.request.video_model)}</span>
+          ${job.request.document?.animations ? `<span class="chip"><span class="k">animations</span>zoom · fade</span>` : ""}
+          ${job.request.document?.cinematic_cutaways ? `<span class="chip"><span class="k">cinematic cutaways</span>5s every 30s · ${esc(job.request.video_model)}</span>` : ""}
           <span class="chip"><span class="k">format</span>${esc(formatText(job.request))}</span>
           <span class="chip"><span class="k">duration</span>${esc(job.request.duration_minutes)} min</span>
           <span class="chip"><span class="k">narration</span>${job.request.narration ? "on" : "off"}</span>
@@ -1298,7 +1354,9 @@
         </div>`;
       }
       const elapsed = isFinished(job) ? ` in ${fmtDur((new Date(job.updated_at) - new Date(job.created_at)) / 1000)}` : "";
-      const agentText = job.request.use_case === "educational" && ["generating", "processing", "keyframing"].includes(job.status)
+      const agentText = job.request.use_case === "document" && job.status === "generating"
+        ? "is rendering the narrated document pages"
+        : job.request.use_case === "educational" && ["generating", "processing", "keyframing"].includes(job.status)
         ? job.status === "keyframing" ? "is generating illustrations and diagrams" : "is rendering the educational scenes"
         : AGENT_TEXT[job.status] || job.status;
       $("agentTitle").innerHTML = `<b>Video agent</b><span class="muted">${esc(agentText)}${esc(elapsed)}</span>`;
@@ -1325,7 +1383,7 @@
       const steps = ops.filter(o => o.run === latest && !o.parent_id);
       const started = new Set(steps.map(o => o.attrs.step));
       // Naturalistic jobs write the narration before the keyframes (prepare_narration) instead of after the clips.
-      const plannedSteps = job.request.use_case === "educational"
+      const plannedSteps = ["educational", "document"].includes(job.request.use_case)
         ? []
         : job.request.naturalistic
         ? STEPS.flatMap(s => s[0] === "narrate" ? [] : s[0] === "generate_keyframes" ? [["prepare_narration", "Prepare narration"], s] : [s])
@@ -1346,7 +1404,7 @@
             <video controls preload="metadata" src="/api/videos/${enc}/download?${q}"></video>
             <div class="player-bar">
               <a class="btn btn-sm" href="/api/videos/${enc}/download?${q}" download="${esc(job.id)}.mp4">Download MP4</a>
-              <a class="btn btn-sm" href="/api/videos/${enc}/${job.request.use_case === "educational" ? "draft" : "storyboard"}?${q}" target="_blank" rel="noopener">${job.request.use_case === "educational" ? "Approved draft JSON" : "Storyboard JSON"}</a>
+              <a class="btn btn-sm" href="/api/videos/${enc}/${job.request.use_case === "educational" ? "draft" : "storyboard"}?${q}" target="_blank" rel="noopener">${job.request.use_case === "document" ? "Narration script JSON" : job.request.use_case === "educational" ? "Approved draft JSON" : "Storyboard JSON"}</a>
             </div></div>`;
         } else if (job.status === "failed") {
           $("outcome").innerHTML = `<div class="flash flash-error">${icon("failed")}

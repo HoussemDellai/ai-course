@@ -7,6 +7,7 @@ ARG DRAWIO_SHA256=f4455b3bba3d3b539c3cd069218fc64f0462b1b01610fe8d11acc3ca8566f3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl libssl3 libasound2 \
        xvfb xauth fonts-dejavu-core libgbm1 libgtk-3-0 libnss3 libxss1 libxtst6 \
+       libreoffice-impress fonts-liberation \
     && curl --fail --location --retry 2 --connect-timeout 20 --max-time 300 --output /drawio.deb \
        "https://github.com/jgraph/drawio-desktop/releases/download/v${DRAWIO_VERSION}/drawio-amd64-${DRAWIO_VERSION}.deb" \
     && echo "${DRAWIO_SHA256}  /drawio.deb" | sha256sum --check - \
