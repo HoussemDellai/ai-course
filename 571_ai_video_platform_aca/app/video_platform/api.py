@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import APIKeyHeader, APIKeyQuery
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
@@ -32,6 +32,7 @@ from .operations import Operation
 from .schemas import JobState, VideoRequest
 from .storage import LocalArtifactStore, read_json
 from .video_models import VIDEO_MODELS
+from .version import __version__
 from .workflow import FINAL_VIDEO, REFERENCE_IMAGE, PipelineDeps, build_video_workflow, keyframe_name
 
 log = logging.getLogger(__name__)
@@ -232,7 +233,7 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         await app.state.gpu.aclose()
         await close()
 
-    app = FastAPI(title="AI Video Platform", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="AI Video Platform", version=__version__, lifespan=lifespan)
     api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
     api_key_query = APIKeyQuery(name="key", auto_error=False)
 
@@ -248,11 +249,12 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz():
-        return {"status": "ok"}
+        return {"status": "ok", "version": __version__}
 
     @app.get("/", include_in_schema=False)
     async def index():
-        return FileResponse(STATIC_DIR / "index.html")
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(html.replace("{{APP_VERSION}}", __version__))
 
     @app.get("/api/models", dependencies=[Depends(require_api_key)])
     async def list_models():

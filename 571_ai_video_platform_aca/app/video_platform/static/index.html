@@ -88,7 +88,7 @@
     .sidebar { width: 300px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 16px 8px 16px 16px; border-right: 1px solid var(--border); background: var(--bg); overflow-y: auto; }
     .side-title { margin: 12px 8px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
     main { flex: 1; overflow-y: auto; min-width: 0; }
-
+    .app-footer { flex: none; padding: 6px 16px; border-top: 1px solid var(--border); text-align: center; font-size: 12px; color: var(--muted); background: var(--bg); }
     /* Session list */
     .job-list { display: flex; flex-direction: column; gap: 2px; }
     .job-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 6px; color: var(--fg); position: relative; }
@@ -421,6 +421,7 @@
       </section>
     </main>
   </div>
+  <footer class="app-footer" id="appVersion">AI Video Platform · v{{APP_VERSION}}</footer>
 
   <script>
     const $ = (id) => document.getElementById(id);

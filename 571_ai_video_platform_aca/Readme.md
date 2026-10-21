@@ -626,6 +626,15 @@ the platform does not fall back to another video model.
 
 ## Deploy
 
+### Versioning
+
+The semantic version lives in one file, [`app/video_platform/VERSION`](app/video_platform/VERSION)
+(currently `1.0.0`). The application reads it for the footer at the bottom of every page,
+`/healthz` and the OpenAPI version, and Terraform reads the same file to tag the container
+image `video-platform:<version>`, so the UI and the image always match. **Bump `VERSION`
+for every release**: the image is only built when its tag is new, and a new tag creates a
+new Container Apps revision.
+
 Prerequisites: PowerShell 7 (`pwsh`), Azure CLI, Terraform >= 1.14, permissions for the
 new resource group, ACR builds and role assignments, A100 quota in Italy North and quota
 for the configured Foundry model in its separate region (default `germanywestcentral`).
