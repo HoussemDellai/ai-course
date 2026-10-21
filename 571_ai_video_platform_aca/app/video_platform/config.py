@@ -53,6 +53,8 @@ class Settings:
     voice_clone_api_key: str = ""
     max_voice_sample_mb: int = 25
     voice_clone_load_timeout_seconds: int = 1800
+
+    @classmethod
     def from_env(cls) -> Settings:
         e = os.environ.get
         return cls(
