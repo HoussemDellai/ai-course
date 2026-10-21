@@ -318,3 +318,14 @@ def test_cli_voice_cloning_options(tmp_path):
                 ["--voice-sample", "me.wav", "--voice-consent", "--voice", "en-US-AndrewMultilingualNeural"]):
         with pytest.raises(SystemExit):
             parse_request(["A documentary", *bad])
+
+
+def test_settings_from_env_reads_voice_clone_configuration(monkeypatch):
+    monkeypatch.setenv("VOICE_CLONE_URL", "https://clone.internal/")
+    monkeypatch.setenv("VOICE_CLONE_API_KEY", "k")
+    monkeypatch.setenv("MAX_VOICE_SAMPLE_MB", "7")
+    settings = Settings.from_env()
+    assert settings.voice_clone_url == "https://clone.internal" and settings.voice_clone_api_key == "k"
+    assert settings.max_voice_sample_bytes == 7 * 1024 * 1024
+    monkeypatch.delenv("VOICE_CLONE_URL")
+    assert Settings.from_env().voice_clone_url == ""
