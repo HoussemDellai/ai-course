@@ -1,4 +1,4 @@
-# AI Video Platform on ACA GPU: cinematic and reviewed educational videos
+# AI Video Platform on ACA GPU: cinematic, educational and document videos
 
 This independent `aivideo571` deployment runs the CPU orchestrator and GPU ComfyUI
 as separate Azure Container Apps. ComfyUI defaults to two independently addressed
@@ -8,6 +8,121 @@ The solution does not deploy a GPU VM.
 The `555_comfyui_on_aca` folder is a read-only reference, never a deployment dependency.
 CPU/RAM sizing and real A100 workflow compatibility require profiling before deployment;
 local regression tests are not proof of live GPU compatibility.
+
+## PowerPoint / PDF to video with voice
+
+Select **PowerPoint / PDF to narrated video** in the web UI, attach a `.pptx` or `.pdf`
+file, and describe how to explain it. The new `document` scenario preserves the original
+slides/pages and their order, fits each complete page onto the selected horizontal/vertical
+720p, 1080p (default), or 4K canvas without cropping, and adds voice narration.
+PowerPoint speaker notes guide the narration when present; otherwise the text extracted
+from the rendered slide/page is used. The configured Foundry text model writes an original
+spoken explanation, grounded in the supplied content. By default, the document scenario does **not**
+search the web, generate replacement illustrations, call ComfyUI, or add background music.
+The optional cinematic cutaways below enable ComfyUI video generation only.
+Document content is processed by the configured text model and Azure Speech service;
+only upload files you are authorized to process. Unlike the educational scenario below,
+**document jobs render immediately, without an approval step**.
+
+### Optional page animations
+
+Enable **Animate pages: gentle zoom and fade between pages** to add motion to PDF or
+PowerPoint videos. Each page eases in from 94% to full size while fading in from and out
+to white. The page itself is never cropped (only its white margin is), and narration,
+page order and total duration do not change. The option is **off by default** and
+runs on CPU with ffmpeg only, so there is no GPU cost. These are generated effects
+and do not reproduce the original PowerPoint animations. It can be combined with
+the cinematic cutaways below.
+
+CLI: add `--animations` to a document creation command.
+API: set `"document": {"language": "en-US", "animations": true}`.
+
+### Optional cinematic cutaways
+
+Enable **Cinematic cutaways: 5 seconds every 30 seconds** to replace page visuals
+with short, document-grounded cinematic clips while the original narration continues.
+Clips occupy **00:30–00:35, 01:00–01:05, 01:30–01:35**, and so on.
+Only complete five-second windows are used: a video shorter than 35 seconds generates
+none; a 60-second video generates one; a 65-second video generates two.
+Scheduling uses the final measured narration timeline, not just the requested duration,
+and works across slide/page boundaries. Page order, narration and total duration do
+not change. The option is **off by default**.
+
+This option calls the existing **ComfyUI GPU backend** with the selected video model,
+adding generation time and cost. Prompts use the pages and narration overlapping
+each window; generated clip audio is discarded. Clips render at the model's native
+dimensions, are fitted to the output canvas and trimmed to exactly five seconds.
+Model licensing applies. GPU errors fail the job explicitly; retry reuses persisted
+prompts, submitted GPU jobs and completed clips rather than silently omitting cutaways.
+Original document-only behavior is unchanged when the option is disabled.
+
+CLI: add `--cinematic-cutaways --model wan22` to a document creation command.
+API: set `"document": {"language": "en-US", "cinematic_cutaways": true}` and optionally
+`"video_model": "wan22"` in the existing multipart request JSON.
+
+Limits and fidelity:
+
+- One file, up to `MAX_DOCUMENT_MB` (default 50 MB), and 1–60 pages/slides.
+  PowerPoint packages are limited to 200 MB expanded content and 5,000 ZIP entries.
+- Modern `.pptx` is supported; legacy `.ppt` must first be saved as `.pptx` or PDF.
+  Encrypted, malformed, macro-bearing, embedded OLE/ActiveX, and externally linked
+  media/object presentations are rejected. Ordinary hyperlinks are allowed.
+  Charts with embedded `.xlsx` data remain supported as static slide content.
+- PDF text and PowerPoint notes must be extractable. A page with no text or notes fails
+  explicitly; scanned/image-only pages need OCR before uploading. No OCR is performed.
+  Each page's extracted text and notes are limited to 20,000 characters each.
+- PowerPoint uses **LibreOffice Impress** for PDF conversion; both orchestrator Docker
+  images include it. When running locally, install LibreOffice and put `soffice` on PATH,
+  or set `LIBREOFFICE_PATH` to its executable. PDF input does not need LibreOffice.
+  Conversion has a 120-second timeout. `/api/config` reports PowerPoint availability.
+- Animations, transitions and embedded audio/video are not played: slides become static
+  images, including hidden slides. Fonts may be substituted by the server; PDF input
+  offers more predictable visual fidelity. 4K output cannot restore missing source detail.
+- The duration is a target, not a narration cutoff. Speech is synthesized through the
+  existing REST transport, measured, and given a one-second lead/tail allowance per page.
+  The complete timeline is frame-aligned and may extend to fit the voice, but never
+  beyond 10 minutes. Overlong narration fails before video rendering; it is never
+  truncated or accelerated. Voice and delivery controls work as for educational narration.
+
+### Document CLI
+
+Run from `app`, with the configured text model, Speech endpoint and storage:
+
+```powershell
+python generate.py "Explain these slides to new engineers" --use-case document --document "C:\slides\training.pptx" --minutes 2
+python generate.py "Summarize each page clearly" --use-case document --document "C:\slides\guide.pdf" --language en-US --voice en-US-AndrewMultilingualNeural --resolution 1080p
+```
+
+`--image`, `--naturalistic`, `--no-narration`, music, GPU upscaling and educational
+search/provider selectors are not supported in this scenario.
+
+### Document API
+
+Use **`POST /api/videos/document`**, multipart form data with `request` (JSON string)
+and `document` (the uploaded file). This endpoint has its own upload limit, independent
+of reference-photo limits on the existing `POST /api/videos`.
+
+```json
+{
+  "use_case": "document",
+  "prompt": "Explain these slides to new engineers",
+  "duration_minutes": 2,
+  "document": {"language": "en-US"},
+  "resolution": "1080p",
+  "orientation": "horizontal"
+}
+```
+
+The server sets `document.filename` from the actual upload; client-supplied filenames
+in JSON are not authoritative. Authentication, job polling, SSE progress, operations,
+failed-job retry and video download use the existing endpoints. Progress counts pages.
+`GET /api/videos/{id}/storyboard` returns the narration script as
+`{"pages":[{"title":"…","narration":"…"}]}`; the UI links it as **Narration script JSON**.
+Rendered page videos appear in the Outputs panel. Original documents, extracted text,
+page images, scripts and audio are persisted in the job's artifact store for restart/retry,
+but original uploads and internal extraction files are not exposed through media URLs.
+Retries reuse completed extraction, narration and page videos and reject changed
+request/source/voice/render dependencies rather than mixing incompatible artifacts.
 
 ## Educational / presentation videos
 

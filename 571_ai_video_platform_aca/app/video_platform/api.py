@@ -24,6 +24,10 @@ from .images import ImageError, sanitize_image
 from .jobs import JobManager, ReviewConflict
 from .education import build_educational_workflow, validate_education_request
 from .education_schemas import DraftRevision, DraftUpdate, EducationalDraft
+from .documents import (
+    DocumentError, DocumentUpload, FoundryDocumentTeam, build_document_workflow,
+    office_available, validate_document, validate_document_request,
+)
 from .operations import Operation
 from .schemas import JobState, VideoRequest
 from .storage import LocalArtifactStore, read_json
@@ -61,6 +65,16 @@ CREATE_VIDEO_OPENAPI = {
             },
         },
     }
+}
+
+CREATE_DOCUMENT_OPENAPI = {
+    "requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
+        "type": "object", "required": ["request", "document"],
+        "properties": {
+            "request": {"type": "string", "description": "VideoRequest JSON with use_case=document"},
+            "document": {"type": "string", "format": "binary", "description": "PowerPoint (.pptx) or PDF (.pdf)"},
+        },
+    }}}},
 }
 
 
@@ -184,10 +198,11 @@ def create_services(settings: Settings):
                             progress=manager.progress, ops=manager.recorder)
         cinematic = build_video_workflow(deps)
         educational = build_educational_workflow(deps, education_team, visuals)
+        document = build_document_workflow(deps, FoundryDocumentTeam(chat_client))
 
         class UseCaseWorkflow:
             async def run(self, job):
-                workflow = educational if job.request.use_case == "educational" else cinematic
+                workflow = {"educational": educational, "document": document}.get(job.request.use_case, cinematic)
                 return await workflow.run(job)
 
         return UseCaseWorkflow()
@@ -251,7 +266,11 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
 
     @app.get("/api/config", dependencies=[Depends(require_api_key)])
     async def get_config():
-        return {"max_image_mb": settings.max_image_mb, "education": {
+        return {"max_image_mb": settings.max_image_mb, "document": {
+            "max_document_mb": settings.max_document_mb, "max_pages": 60,
+            "pdf_configured": True, "powerpoint_configured": office_available(settings),
+            "narration_configured": bool(settings.speech_endpoint),
+        }, "education": {
             "text_models": list(dict.fromkeys([settings.foundry_model, *settings.education_text_models])),
             "search_configured": bool(settings.education_search_model),
             "images": {"comfyui": bool(settings.comfy_image_workflow),
@@ -270,15 +289,33 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
               dependencies=[Depends(require_api_key)], openapi_extra=CREATE_VIDEO_OPENAPI)
     async def create_video(request: Request):
         """JSON body (text-to-video), or multipart with a 'request' JSON field and an optional 'image' photo."""
+        return await submit_video(request)
+
+    @app.post("/api/videos/document", status_code=status.HTTP_202_ACCEPTED, response_model=JobState,
+              dependencies=[Depends(require_api_key)], openapi_extra=CREATE_DOCUMENT_OPENAPI)
+    async def create_document_video(request: Request):
+        """Multipart document-to-video creation, with independent document upload limits."""
+        return await submit_video(request, document_mode=True)
+
+    async def submit_video(request: Request, document_mode: bool = False):
         image: bytes | None = None
+        document: DocumentUpload | None = None
         content_type = request.headers.get("content-type", "")
         try:
             if content_type.startswith("multipart/form-data"):
-                body, image = await read_multipart(request)
+                body, image, document = await read_multipart(request, document_mode)
             else:
+                if document_mode:
+                    raise HTTPException(422, "Document videos require multipart 'request' and 'document' fields")
                 body = VideoRequest.model_validate_json(await request.body())
         except ValidationError as e:
             raise RequestValidationError(e.errors(include_url=False)) from None
+        if (body.use_case == "document") != document_mode:
+            raise HTTPException(422, "Use multipart POST /api/videos/document with use_case=document for document uploads")
+        try:
+            validate_document_request(body, settings)
+        except DocumentError as e:
+            raise HTTPException(e.status_code, str(e)) from None
         if body.use_case == "educational":
             if image is not None:
                 raise HTTPException(422, "Educational videos do not accept reference photos")
@@ -290,12 +327,20 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         if key not in VIDEO_MODELS:
             raise HTTPException(422,
                                 f"Unknown video_model '{key}'. Choose one of: {', '.join(VIDEO_MODELS)}")
-        return await jobs(request).create(body.model_copy(update={"video_model": key}), image=image)
+        try:
+            return await jobs(request).create(body.model_copy(update={"video_model": key}),
+                                               image=image, document=document)
+        except DocumentError as e:
+            raise HTTPException(e.status_code, str(e)) from None
 
-    async def read_multipart(request: Request) -> tuple[VideoRequest, bytes | None]:
-        limit = settings.max_image_bytes + MULTIPART_OVERHEAD_BYTES
+    async def read_multipart(request: Request, document_mode: bool = False
+                             ) -> tuple[VideoRequest, bytes | None, DocumentUpload | None]:
+        max_bytes = settings.max_document_bytes if document_mode else settings.max_image_bytes
+        max_mb = settings.max_document_mb if document_mode else settings.max_image_mb
+        label = "document" if document_mode else "image"
+        limit = max_bytes + MULTIPART_OVERHEAD_BYTES
         too_large = HTTPException(status.HTTP_413_CONTENT_TOO_LARGE,
-                                  f"The image is larger than {settings.max_image_mb} MB")
+                                  f"The {label} is larger than {max_mb} MB")
         if int(request.headers.get("content-length") or 0) > limit:
             raise too_large
         # Count the bytes ourselves: chunked uploads have no Content-Length, and Starlette's form parser
@@ -307,19 +352,32 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
                 raise too_large
             chunks.append(chunk)
         request._body = b"".join(chunks)
-        async with request.form(max_files=1, max_fields=4) as form:
+        async with request.form(max_files=2, max_fields=4) as form:
+            if any(name not in {"request", label} for name in form):
+                raise HTTPException(422, f"Only 'request' and '{label}' form fields are supported")
+            if any(len(form.getlist(name)) != 1 for name in form):
+                raise HTTPException(422, "Duplicate form fields are not supported")
             raw = form.get("request")
             if not isinstance(raw, str):
                 raise HTTPException(422, "Missing 'request' form field (the VideoRequest as JSON)")
             body = VideoRequest.model_validate_json(raw)
-            upload = form.get("image")
+            upload = form.get(label)
             if upload is None or (isinstance(upload, UploadFile) and not upload.filename and upload.size == 0):
-                return body, None
+                if document_mode:
+                    raise HTTPException(422, "Missing 'document' file")
+                return body, None, None
             if not isinstance(upload, UploadFile):
-                raise HTTPException(422, "'image' must be a file")
-            data = await upload.read(settings.max_image_bytes + 1)
+                raise HTTPException(422, f"'{label}' must be a file")
+            data = await upload.read(max_bytes + 1)
+            filename = upload.filename or ""
+        if document_mode:
+            try:
+                document = await run_in_threadpool(validate_document, data, filename, max_bytes)
+                return body, None, document
+            except DocumentError as e:
+                raise HTTPException(e.status_code, str(e)) from None
         try:
-            return body, await run_in_threadpool(sanitize_image, data, settings.max_image_bytes)
+            return body, await run_in_threadpool(sanitize_image, data, settings.max_image_bytes), None
         except ImageError as e:
             raise HTTPException(e.status_code, str(e)) from None
 
@@ -339,6 +397,12 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         draft = await jobs(request).draft(job_id)
         if draft is not None:
             return draft.model_dump(mode="json")
+        state = await jobs(request).get(job_id)
+        if state is not None and state.request.use_case == "document":
+            script = await read_json(request.app.state.store, job_id, "document/script.json")
+            if script is None:
+                raise HTTPException(404, "Document narration script not ready yet")
+            return script
         storyboard = await read_json(request.app.state.store, job_id, "storyboard.narrated.json")
         if storyboard is None:
             storyboard = await read_json(request.app.state.store, job_id, "storyboard.json")

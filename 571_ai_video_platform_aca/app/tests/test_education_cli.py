@@ -189,7 +189,7 @@ def test_main_plans_without_approving(monkeypatch, capsys):
         def __init__(self, *args):
             pass
 
-        async def create(self, request, image):
+        async def create(self, request, image, document=None):
             calls.append("create")
             return state
 

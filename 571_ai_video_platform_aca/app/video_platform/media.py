@@ -123,6 +123,59 @@ async def concat(parts: list[Path], dest: Path, exact: bool = False) -> Path:
     return dest
 
 
+ANIMATION_START_SCALE = 0.94
+ANIMATION_FADE_SECONDS = 0.5
+
+
+def page_animation_filter(width: int, height: int, fps: int, seconds: float) -> str:
+    """Zoom the page from 94% to 100% with white fades; the page is never cropped, only its white margin."""
+    margin = 1 / ANIMATION_START_SCALE
+    canvas_w, canvas_h = 2 * round(width * margin), 2 * round(height * margin)
+    zoom_end = min(canvas_w / (2 * width), canvas_h / (2 * height))
+    frames = max(1, round(seconds * fps))
+    fade = min(ANIMATION_FADE_SECONDS, seconds / 4)
+    return (
+        f"scale={2 * width}:{2 * height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+        f"pad={canvas_w}:{canvas_h}:(ow-iw)/2:(oh-ih)/2:color=white,"
+        f"zoompan=z='1+{zoom_end - 1:.6f}*on/{frames}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
+        f"d=1:s={width}x{height}:fps={fps},setsar=1,"
+        f"fade=t=in:st=0:d={fade:.6f}:color=white,"
+        f"fade=t=out:st={max(0.0, seconds - fade):.6f}:d={fade:.6f}:color=white"
+    )
+
+
+async def still_video(image: Path, dest: Path, width: int, height: int, fps: int, seconds: float,
+                      animate: bool = False) -> Path:
+    """Preserve a complete page on a fixed canvas; never crop document text. Optionally animate it."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    video_filter = page_animation_filter(width, height, fps, seconds) if animate else (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=white,setsar=1")
+    await run(
+        "ffmpeg", "-y", "-loop", "1", "-framerate", str(fps), "-i", str(image),
+        "-vf", video_filter,
+        "-t", f"{seconds:.9f}", *VIDEO_ENCODE, "-an", "-movflags", "+faststart", str(dest),
+    )
+    return dest
+
+
+async def overlay_cutaways(base: Path, clips: list[tuple[float, Path]], dest: Path, seconds: float) -> Path:
+    """Replace timed visual windows while copying the original narration track untouched."""
+    args = ["ffmpeg", "-y", "-i", str(base)]
+    filters = ["[0:v]setpts=PTS-STARTPTS[base]"]
+    previous = "base"
+    for i, (start, clip) in enumerate(clips):
+        args += ["-i", str(clip)]
+        filters.append(f"[{i + 1}:v]trim=duration=5,setpts=PTS-STARTPTS+{start:.9f}/TB[c{i}]")
+        filters.append(f"[{previous}][c{i}]overlay=eof_action=pass:repeatlast=0:"
+                       f"enable='gte(t,{start:.9f})*lt(t,{start + 5:.9f})'[v{i}]")
+        previous = f"v{i}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    await run(*args, "-filter_complex", ";".join(filters), "-map", f"[{previous}]", "-map", "0:a:0",
+              *VIDEO_ENCODE, "-c:a", "copy", "-t", f"{seconds:.9f}", "-movflags", "+faststart", str(dest))
+    return dest
+
+
 async def mix_narration(
     video: Path, narration: Path | None, dest: Path, lead_in: float = 0.4, tail: float = 0.6,
     naturalistic: bool = False,

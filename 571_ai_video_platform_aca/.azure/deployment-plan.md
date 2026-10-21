@@ -1,6 +1,109 @@
 # Azure deployment plan: AI Video Platform 571
 
-Status: Deployed and verified (two-worker ComfyUI rollout, 2026-10-20).
+Status: Deployed and verified (cinematic-cutaway update, 2026-10-20).
+
+## Current update: optional cinematic document cutaways
+
+- User requested deployment to the same previously confirmed subscription and
+  existing video-platform app in rg-aivideo571, Italy North.
+- Recipe: Terraform with the existing default workspace/backend and education.tfvars.
+- Scope: content-addressed ACR image build and CPU application revision only.
+  Preserve GPU workers, settings, sidecar, identities, roles, networking and storage.
+- Option remains off by default. Do not start paid generation or mutate existing jobs.
+- Feature verification: 75 tests passed, including exact 5-second windows, audio
+  preservation, horizontal/vertical output, GPU failure handling and retry reuse.
+- All validation checks pass: fresh init/format/schema/tests, saved plan,
+  image-only structural comparison, role verification and build checks.
+
+### Section 7: Cinematic-cutaway validation proof
+
+- 2026-10-20: Azure login and existing app confirmed; current revision 0000005.
+- No active jobs: five completed, one failed, one awaiting review. Preserve all seven.
+- `terraform init -input=false -lockfile=readonly`, recursive fmt check,
+  `terraform validate` and `terraform test` passed (8 tests).
+- Fresh full plan with education.tfvars and state-managed HF secret preserved:
+  only image-build marker replacement and in-place app image update.
+- Structural comparison verifies all fields other than the application image
+  are identical, including GPU workers, sidecar, resources, probes and env.
+- Target image: `video-platform:education-80f3198bcb7f`.
+- Python compilation and pip dependency check passed; 75 feature/shared tests
+  passed in the implementation turn. No source changes since those tests.
+- Static and live roles confirmed: resource-scoped AcrPull, Foundry User,
+  Speech User and Blob Data Contributor. No new role assignment needed.
+- Recipe remains plain Terraform, not AZD; no new policies, services or capacity.
+
+### Cinematic-cutaway deployment results
+
+- Saved-plan apply succeeded; ACR build `dn9` completed successfully.
+- Image: `video-platform:education-80f3198bcb7f`;
+  digest `sha256:1c894c7618bf79cb58ea155fd0ffded340be05a715c4a9ddc637f72afc70e333`.
+- Revision `video-platform--0000006` is Healthy and Provisioned, serving 100% traffic.
+- Live HTML contains the cinematic-cutaway checkbox. OpenAPI exposes the boolean
+  document option with default false and the five-second/every-30-second behavior.
+- Authenticated config confirms PDF, PowerPoint and narration availability.
+- Synthetic rendering check inside the deployed container passed: 65-second output,
+  cutaways at 30 and 60 seconds, original narration AAC stream byte-for-byte unchanged.
+  Temporary files were cleaned automatically. No paid AI/Speech/GPU job was started.
+- All seven existing job IDs/statuses and both GPU revisions are unchanged.
+- Live identity roles remain correct; fresh full Terraform plan reports no changes.
+- Application: https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Current update: PowerPoint/PDF narrated-video scenario
+
+- User requested deployment of the implemented scenario to the existing deployment.
+- Retain the previously approved subscription, regions, resource group, environment,
+  GPU workers, identities, permissions, storage and application configuration.
+- Recipe: existing Terraform backend and education.tfvars. Build the content-addressed
+  education container through ACR and update only the CPU application revision.
+- Inspect a fresh saved plan before apply; reject GPU, storage, networking, RBAC,
+  destructive or unrelated changes. Do not start paid video generation jobs.
+- Prior local verification: 129 regression tests passed, dependency check and Python
+  compilation passed; browser PDF upload produced a playable narrated MP4 with
+  stubbed AI/Speech and real FFmpeg.
+- Pending: live context, job activity, Terraform validation/plan, identity verification,
+  ACR build/deployment, healthy revision and authenticated document capability checks.
+- Target confirmed against the existing deployment and current Azure login.
+  Confirmation form was unavailable in autopilot; proceed under the user's explicit
+  "deploy it" request using the unchanged, previously approved target and scope.
+
+### Section 7: Document-video validation proof
+
+All validation checks pass (2026-10-20, document-video update):
+- Terraform installed and existing default workspace/backend accessible.
+- Azure CLI authenticated to the existing subscription; no target/region change.
+- `terraform init -input=false -lockfile=readonly`, recursive format check and
+  schema validation passed on 2026-10-20.
+- `terraform plan -input=false -no-color -var-file=education.tfvars -out=<private
+  session plan> -detailed-exitcode` passed with preserved state-managed HF secret.
+  Exact inspected changes: local image-build marker replacement and CPU app update.
+  Structural comparison confirms only the video-platform container image changes;
+  sidecar, env, CPU/RAM, probes and all GPU resources remain identical.
+- Target image: `acr4aivideo571.azurecr.io/video-platform:education-3767a142920f`.
+- `terraform test -no-color`: 8 passed. Python compilation and `pip check` passed.
+- Existing application has no active generation jobs (three completed, one review).
+- Live identity retains AcrPull, Foundry User, Speech User and Blob Data Contributor.
+- Static identity.tf review confirms the same least-privilege resource-scoped roles.
+- Prior app verification: 129 tests, Python compilation and dependency check passed.
+- No AZD template variables or new resource types/policies apply to this image-only update.
+
+### Document-video deployment results
+
+- Inspected saved-plan apply succeeded; ACR build `dn8` succeeded.
+- Image: `video-platform:education-3767a142920f`;
+  digest `sha256:f91e9d0a9baf5eadb10aa262e45026500ad369079025d1d67499bbf9d2733c3d`.
+- Revision `video-platform--0000005` is Healthy, Provisioned, ready and serving
+  100% of ingress traffic. Prior revision drains with zero traffic.
+- HTTPS health check succeeded; authenticated config confirms PDF, PowerPoint and
+  narration configured, 50 MB upload limit and 60-page limit. New UI and OpenAPI
+  document-upload endpoint verified.
+- Real LibreOffice conversion and PDF text extraction succeeded inside the deployed
+  container using a synthetic PowerPoint and temporary files, cleaned automatically.
+  An initial text-match assertion was whitespace-sensitive; the normalized,
+  short-title conversion check passed. No AI/Speech generation job was started.
+- All four existing jobs remain unchanged (three completed, one awaiting review).
+- Both GPU revisions are unchanged. Live identity retains all four expected roles.
+- Fresh full post-deployment Terraform plan returned exit code 0: no changes/drift.
+- Application: https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
 
 ## Current update: two-worker ComfyUI rollout
 

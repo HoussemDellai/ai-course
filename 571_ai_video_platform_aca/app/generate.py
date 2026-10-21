@@ -21,12 +21,20 @@ from video_platform.images import sanitize_image
 from video_platform.jobs import JobManager
 from video_platform.schemas import NarrationDelivery, Pronunciation, VideoRequest
 from video_platform.education_schemas import DraftUpdate, EducationOptions
+from video_platform.document_schemas import DocumentOptions
+from video_platform.documents import validate_document
 
 
 def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | None]:
     p = argparse.ArgumentParser()
     p.add_argument("prompt")
-    p.add_argument("--use-case", "--usecase", choices=["cinematic", "educational"], default="cinematic")
+    p.add_argument("--use-case", "--usecase", choices=["cinematic", "educational", "document"], default="cinematic")
+    p.add_argument("--document", type=Path, help="PowerPoint (.pptx) or PDF (.pdf) for --use-case document")
+    p.add_argument("--language", default=None, help="Document narration locale, e.g. en-US or fr-FR")
+    p.add_argument("--cinematic-cutaways", action="store_true",
+                   help="Document videos: replace page visuals with 5-second cinematic clips every 30 seconds")
+    p.add_argument("--animations", action="store_true",
+                   help="Document videos: animate pages with a gentle zoom and fade in/out (ffmpeg, no GPU)")
     p.add_argument("--style", choices=["presentation", "ai_motion", "hybrid"], default=None)
     p.add_argument("--public-topic", help="Required public-only search topic; never include private information")
     p.add_argument("--image-provider", choices=["comfyui", "foundry"], default=None)
@@ -56,6 +64,13 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
                    help="upscaler for 1080p and 4K: ffmpeg (fast) or seedvr2 (SeedVR2 7B on the GPU); ignored at 720p")
     args = p.parse_args(argv)
     education = None
+    if args.use_case == "document":
+        if not args.document:
+            p.error("--document is required for document videos")
+        if args.image or args.naturalistic or args.no_narration or args.music or args.upscaler != "ffmpeg":
+            p.error("Document videos require narration and do not accept photos, naturalistic mode, music or GPU upscaling")
+    elif args.document is not None or args.language is not None or args.cinematic_cutaways or args.animations:
+        p.error("--document, --language, --cinematic-cutaways and --animations require --use-case document")
     if args.use_case == "educational":
         if not args.public_topic or len(args.public_topic.strip()) < 3:
             p.error("--public-topic is required for educational videos")
@@ -88,11 +103,14 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
         )
     return VideoRequest(
         use_case=args.use_case, education=education,
+        document=DocumentOptions(language=args.language or "en-US", cinematic_cutaways=args.cinematic_cutaways,
+                                 animations=args.animations)
+        if args.use_case == "document" else None,
         prompt=args.prompt, duration_minutes=args.minutes, video_model=args.model,
         narration=not args.no_narration, voice=args.voice, naturalistic=args.naturalistic, delivery=delivery,
         music=args.music, orientation=args.orientation,
-        resolution=args.resolution or ("1080p" if education else "720p"), upscaler=args.upscaler,
-    ), args.image
+        resolution=args.resolution or ("1080p" if args.use_case != "cinematic" else "720p"), upscaler=args.upscaler,
+    ), args.document if args.use_case == "document" else args.image
 
 
 def parse_review_command(argv: list[str]) -> argparse.Namespace:
@@ -154,13 +172,22 @@ async def main(argv: list[str] | None = None) -> None:
     if argv and argv[0] in {"draft", "update", "approve", "regenerate"}:
         await asyncio.to_thread(review_command, parse_review_command(argv))
         return
-    request, image_path = parse_request(argv)
+    request, input_path = parse_request(argv)
     settings = Settings.from_env()
-    image = sanitize_image(image_path.read_bytes(), settings.max_image_bytes) if image_path else None
+    document = None
+    image = None
+    if input_path:
+        if request.use_case == "document":
+            if input_path.stat().st_size > settings.max_document_bytes:
+                raise ValueError(f"The document is larger than {settings.max_document_mb} MB")
+            document = await asyncio.to_thread(validate_document, input_path.read_bytes(),
+                                               input_path.name, settings.max_document_bytes)
+        else:
+            image = sanitize_image(input_path.read_bytes(), settings.max_image_bytes)
     store, workflow_factory, close = create_services(settings)
     manager = JobManager(settings, store, workflow_factory)
     try:
-        state = await manager.create(request, image=image)
+        state = await manager.create(request, image=image, document=document)
         print(f"Job {state.id} started")
         await manager.wait(state.id)
         finished = await manager.get(state.id)
