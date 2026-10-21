@@ -19,6 +19,7 @@ from .document_schemas import DocumentOptions
 from .operations import Operation, OperationRecorder, format_error, install_log_capture, load_operations
 from .schemas import JobState, JobStatus, VideoRequest, utcnow
 from .storage import LEASE_SECONDS, ArtifactStore, JobLock, read_json, write_json
+from .voice_clone import VOICE_SAMPLE, validate_voice_clone_request
 from .workflow import REFERENCE_IMAGE, VideoResult, new_video_job
 
 log = logging.getLogger(__name__)
@@ -53,8 +54,9 @@ class JobManager:
         install_log_capture()
 
     async def create(self, request: VideoRequest, image: bytes | None = None,
-                     document: DocumentUpload | None = None) -> JobState:
+                     document: DocumentUpload | None = None, voice_sample: bytes | None = None) -> JobState:
         """Starts a job with a sanitized image or validated document, persisted before the job state."""
+        validate_voice_clone_request(request, self.settings, voice_sample is not None)
         if request.use_case == "educational" and image is not None:
             raise ValueError("Educational videos do not accept reference photos")
         validate_education_request(request, self.settings)
@@ -70,8 +72,14 @@ class JobManager:
             raise DocumentError("Document uploads require the document use case")
         if request.seed is None:
             request = request.model_copy(update={"seed": random.randint(0, 2**40)})
-        request = request.model_copy(update={"reference_image": image is not None})
+        request = request.model_copy(update={"reference_image": image is not None,
+                                             "voice_sample": voice_sample is not None})
         state = JobState(id=uuid.uuid4().hex[:12], request=request)
+        if voice_sample is not None:
+            local = self.settings.work_dir / state.id / VOICE_SAMPLE
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_bytes(voice_sample)
+            await self.store.upload(state.id, VOICE_SAMPLE, local)
         if document is not None:
             local = self.settings.work_dir / state.id / document.key
             local.parent.mkdir(parents=True, exist_ok=True)

@@ -25,6 +25,14 @@ resource "azurerm_container_app" "app" {
     value = random_password.api_key.result
   }
 
+  dynamic "secret" {
+    for_each = var.voice_clone_enabled ? [1] : []
+    content {
+      name  = "voice-clone-key"
+      value = random_password.voice_clone_key[0].result
+    }
+  }
+
   ingress {
     external_enabled = true
     target_port      = 8000
@@ -123,6 +131,21 @@ resource "azurerm_container_app" "app" {
       env {
         name        = "API_KEY"
         secret_name = "api-key"
+      }
+
+      dynamic "env" {
+        for_each = var.voice_clone_enabled ? [1] : []
+        content {
+          name  = "VOICE_CLONE_URL"
+          value = local.voice_clone_url
+        }
+      }
+      dynamic "env" {
+        for_each = var.voice_clone_enabled ? [1] : []
+        content {
+          name        = "VOICE_CLONE_API_KEY"
+          secret_name = "voice-clone-key"
+        }
       }
 
       dynamic "env" {

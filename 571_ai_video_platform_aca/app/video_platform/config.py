@@ -49,8 +49,10 @@ class Settings:
     drawio_export_command: str = ""
     comfy_image_workflow: str = ""
     education_font: str = ""
-
-    @classmethod
+    voice_clone_url: str = ""
+    voice_clone_api_key: str = ""
+    max_voice_sample_mb: int = 25
+    voice_clone_load_timeout_seconds: int = 1800
     def from_env(cls) -> Settings:
         e = os.environ.get
         return cls(
@@ -86,7 +88,15 @@ class Settings:
             drawio_export_command=e("DRAWIO_EXPORT_COMMAND", ""),
             comfy_image_workflow=e("COMFY_IMAGE_WORKFLOW", ""),
             education_font=e("EDUCATION_FONT", ""),
+            voice_clone_url=e("VOICE_CLONE_URL", "").rstrip("/"),
+            voice_clone_api_key=e("VOICE_CLONE_API_KEY", ""),
+            max_voice_sample_mb=int(e("MAX_VOICE_SAMPLE_MB", "25")),
+            voice_clone_load_timeout_seconds=int(e("VOICE_CLONE_LOAD_TIMEOUT_SECONDS", "1800")),
         )
+
+    @property
+    def max_voice_sample_bytes(self) -> int:
+        return self.max_voice_sample_mb * 1024 * 1024
 
     @property
     def max_image_bytes(self) -> int:

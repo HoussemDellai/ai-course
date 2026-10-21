@@ -2,7 +2,7 @@ resource "azurerm_container_registry" "acr" {
   name                = "acr4${var.prefix}"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
-  sku                 = "Basic"
+  sku                 = "Standard" # Basic's 10 GiB quota cannot hold the multi-engine voice-clone image
   admin_enabled       = false
 }
 

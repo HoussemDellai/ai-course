@@ -33,6 +33,10 @@ from .schemas import JobState, VideoRequest
 from .storage import LocalArtifactStore, read_json
 from .video_models import VIDEO_MODELS
 from .version import __version__
+from .voice_clone import (
+    CLONE_MODELS, MAX_SAMPLE_SECONDS, MIN_SAMPLE_SECONDS, VoiceCloner, VoiceSampleError,
+    validate_voice_clone_request, validate_voice_sample,
+)
 from .workflow import FINAL_VIDEO, REFERENCE_IMAGE, PipelineDeps, build_video_workflow, keyframe_name
 
 log = logging.getLogger(__name__)
@@ -48,6 +52,12 @@ EDUCATION_ARTIFACT = re.compile(
     r"(?:processed|scenes)/scene_\d{3}\.mp4|timing\.json))"
 )
 
+VOICE_SAMPLE_OPENAPI = {
+    "type": "string", "format": "binary",
+    "description": "Optional voice sample (.wav or .mp4, at least 3 seconds) for voice cloning; "
+                   "requires the request's voice_clone options",
+}
+
 CREATE_VIDEO_OPENAPI = {
     "requestBody": {
         "required": True,
@@ -61,6 +71,7 @@ CREATE_VIDEO_OPENAPI = {
                         "request": {"type": "string", "description": "VideoRequest as a JSON string"},
                         "image": {"type": "string", "format": "binary",
                                   "description": "Optional reference photo (PNG, JPEG or WebP) of a person or a scene"},
+                        "voice_sample": VOICE_SAMPLE_OPENAPI,
                     },
                 }
             },
@@ -74,6 +85,7 @@ CREATE_DOCUMENT_OPENAPI = {
         "properties": {
             "request": {"type": "string", "description": "VideoRequest JSON with use_case=document"},
             "document": {"type": "string", "format": "binary", "description": "PowerPoint (.pptx) or PDF (.pdf)"},
+            "voice_sample": VOICE_SAMPLE_OPENAPI,
         },
     }}}},
 }
@@ -181,6 +193,11 @@ def create_services(settings: Settings):
         else None
     )
     comfy = ComfyUIPool.from_urls(settings.comfyui_urls)
+    cloner = (
+        VoiceCloner(settings.voice_clone_url, settings.voice_clone_api_key, settings.voice_clone_load_timeout_seconds)
+        if settings.voice_clone_url
+        else None
+    )
     team = FoundryCreativeTeam(chat_client)
     clients = {settings.foundry_model: chat_client}
 
@@ -196,7 +213,7 @@ def create_services(settings: Settings):
 
     def workflow_factory(manager: JobManager):
         deps = PipelineDeps(settings=settings, team=team, comfy=comfy, narrator=narrator, store=store,
-                            progress=manager.progress, ops=manager.recorder)
+                            progress=manager.progress, ops=manager.recorder, cloner=cloner)
         cinematic = build_video_workflow(deps)
         educational = build_educational_workflow(deps, education_team, visuals)
         document = build_document_workflow(deps, FoundryDocumentTeam(chat_client))
@@ -209,6 +226,8 @@ def create_services(settings: Settings):
         return UseCaseWorkflow()
 
     async def close():
+        if cloner is not None:
+            await cloner.aclose()
         await visuals.aclose()
         await comfy.aclose()
         await store.aclose()
@@ -268,7 +287,14 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
 
     @app.get("/api/config", dependencies=[Depends(require_api_key)])
     async def get_config():
-        return {"max_image_mb": settings.max_image_mb, "document": {
+        return {"max_image_mb": settings.max_image_mb, "voice_clone": {
+            "configured": bool(settings.voice_clone_url),
+            "max_sample_mb": settings.max_voice_sample_mb,
+            "min_sample_seconds": MIN_SAMPLE_SECONDS, "max_sample_seconds": MAX_SAMPLE_SECONDS,
+            "models": [{"key": m.key, "name": m.name, "license": m.license,
+                        "languages": sorted(m.languages) if m.languages else "80+"}
+                       for m in CLONE_MODELS.values()],
+        }, "document": {
             "max_document_mb": settings.max_document_mb, "max_pages": 60,
             "pdf_configured": True, "powerpoint_configured": office_available(settings),
             "narration_configured": bool(settings.speech_endpoint),
@@ -302,10 +328,11 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
     async def submit_video(request: Request, document_mode: bool = False):
         image: bytes | None = None
         document: DocumentUpload | None = None
+        voice_sample: bytes | None = None
         content_type = request.headers.get("content-type", "")
         try:
             if content_type.startswith("multipart/form-data"):
-                body, image, document = await read_multipart(request, document_mode)
+                body, image, document, voice_sample = await read_multipart(request, document_mode)
             else:
                 if document_mode:
                     raise HTTPException(422, "Document videos require multipart 'request' and 'document' fields")
@@ -315,8 +342,9 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         if (body.use_case == "document") != document_mode:
             raise HTTPException(422, "Use multipart POST /api/videos/document with use_case=document for document uploads")
         try:
+            validate_voice_clone_request(body, settings, voice_sample is not None)
             validate_document_request(body, settings)
-        except DocumentError as e:
+        except (DocumentError, VoiceSampleError) as e:
             raise HTTPException(e.status_code, str(e)) from None
         if body.use_case == "educational":
             if image is not None:
@@ -331,16 +359,16 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
                                 f"Unknown video_model '{key}'. Choose one of: {', '.join(VIDEO_MODELS)}")
         try:
             return await jobs(request).create(body.model_copy(update={"video_model": key}),
-                                               image=image, document=document)
-        except DocumentError as e:
+                                               image=image, document=document, voice_sample=voice_sample)
+        except (DocumentError, VoiceSampleError) as e:
             raise HTTPException(e.status_code, str(e)) from None
 
     async def read_multipart(request: Request, document_mode: bool = False
-                             ) -> tuple[VideoRequest, bytes | None, DocumentUpload | None]:
+                             ) -> tuple[VideoRequest, bytes | None, DocumentUpload | None, bytes | None]:
         max_bytes = settings.max_document_bytes if document_mode else settings.max_image_bytes
         max_mb = settings.max_document_mb if document_mode else settings.max_image_mb
         label = "document" if document_mode else "image"
-        limit = max_bytes + MULTIPART_OVERHEAD_BYTES
+        limit = max_bytes + settings.max_voice_sample_bytes + MULTIPART_OVERHEAD_BYTES
         too_large = HTTPException(status.HTTP_413_CONTENT_TOO_LARGE,
                                   f"The {label} is larger than {max_mb} MB")
         if int(request.headers.get("content-length") or 0) > limit:
@@ -355,31 +383,47 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
             chunks.append(chunk)
         request._body = b"".join(chunks)
         async with request.form(max_files=2, max_fields=4) as form:
-            if any(name not in {"request", label} for name in form):
-                raise HTTPException(422, f"Only 'request' and '{label}' form fields are supported")
+            if any(name not in {"request", label, "voice_sample"} for name in form):
+                raise HTTPException(422, f"Only 'request', '{label}' and 'voice_sample' form fields are supported")
             if any(len(form.getlist(name)) != 1 for name in form):
                 raise HTTPException(422, "Duplicate form fields are not supported")
             raw = form.get("request")
             if not isinstance(raw, str):
                 raise HTTPException(422, "Missing 'request' form field (the VideoRequest as JSON)")
             body = VideoRequest.model_validate_json(raw)
-            upload = form.get(label)
-            if upload is None or (isinstance(upload, UploadFile) and not upload.filename and upload.size == 0):
-                if document_mode:
-                    raise HTTPException(422, "Missing 'document' file")
-                return body, None, None
-            if not isinstance(upload, UploadFile):
-                raise HTTPException(422, f"'{label}' must be a file")
-            data = await upload.read(max_bytes + 1)
-            filename = upload.filename or ""
+
+            def uploaded(name: str) -> UploadFile | None:
+                upload = form.get(name)
+                if upload is None or (isinstance(upload, UploadFile) and not upload.filename and upload.size == 0):
+                    return None
+                if not isinstance(upload, UploadFile):
+                    raise HTTPException(422, f"'{name}' must be a file")
+                return upload
+
+            main, sample = uploaded(label), uploaded("voice_sample")
+            if main is None and document_mode:
+                raise HTTPException(422, "Missing 'document' file")
+            main_data = (await main.read(max_bytes + 1), main.filename or "") if main else None
+            if main_data is not None and len(main_data[0]) > max_bytes:
+                raise too_large
+            sample_data = (await sample.read(settings.max_voice_sample_bytes + 1),
+                           sample.filename or "") if sample else None
+        voice_sample = None
+        if sample_data is not None:
+            try:
+                voice_sample = await validate_voice_sample(*sample_data, settings.max_voice_sample_bytes)
+            except VoiceSampleError as e:
+                raise HTTPException(e.status_code, str(e)) from None
+        if main_data is None:
+            return body, None, None, voice_sample
         if document_mode:
             try:
-                document = await run_in_threadpool(validate_document, data, filename, max_bytes)
-                return body, None, document
+                document = await run_in_threadpool(validate_document, *main_data, max_bytes)
+                return body, None, document, voice_sample
             except DocumentError as e:
                 raise HTTPException(e.status_code, str(e)) from None
         try:
-            return body, await run_in_threadpool(sanitize_image, data, settings.max_image_bytes), None
+            return body, await run_in_threadpool(sanitize_image, main_data[0], settings.max_image_bytes), None, voice_sample
         except ImageError as e:
             raise HTTPException(e.status_code, str(e)) from None
 

@@ -3,6 +3,7 @@
     python generate.py "A documentary about bees" --minutes 0.5 --model wan22
     python generate.py "Her first trip to Japan" --image photo.jpg --minutes 0.5
     python generate.py "A day at the beach" --orientation vertical --resolution 1080p --upscaler seedvr2
+    python generate.py "A documentary about bees" --voice-sample my_voice.wav --clone-model chatterbox --voice-consent
 """
 
 import argparse
@@ -19,10 +20,18 @@ from video_platform.api import create_services
 from video_platform.config import Settings
 from video_platform.images import sanitize_image
 from video_platform.jobs import JobManager
-from video_platform.schemas import NarrationDelivery, Pronunciation, VideoRequest
+from video_platform.schemas import NarrationDelivery, Pronunciation, VideoRequest, VoiceCloneOptions
 from video_platform.education_schemas import DraftUpdate, EducationOptions
 from video_platform.document_schemas import DocumentOptions
 from video_platform.documents import validate_document
+from video_platform.voice_clone import validate_voice_sample
+
+
+def voice_sample_path(argv: list[str]) -> Path | None:
+    """The --voice-sample file of a creation command (parse_request returns only the photo/document path)."""
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--voice-sample", type=Path, default=None)
+    return p.parse_known_args(argv)[0].voice_sample
 
 
 def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | None]:
@@ -62,7 +71,25 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
                    help="output resolution; clips render natively at about 720p and are upscaled above it")
     p.add_argument("--upscaler", choices=["ffmpeg", "seedvr2"], default="ffmpeg",
                    help="upscaler for 1080p and 4K: ffmpeg (fast) or seedvr2 (SeedVR2 7B on the GPU); ignored at 720p")
+    p.add_argument("--voice-sample", type=Path, default=None,
+                   help="voice cloning: .wav or .mp4 sample of the voice to clone (at least 3 seconds)")
+    p.add_argument("--clone-model", choices=["qwen3-tts", "chatterbox", "openvoice-v2", "fish-s2-pro"], default=None,
+                   help="voice cloning model (default with --voice-sample: qwen3-tts)")
+    p.add_argument("--sample-transcript", default=None,
+                   help="voice cloning: exact transcript of the sample (default: transcribed automatically)")
+    p.add_argument("--voice-consent", action="store_true",
+                   help="confirm you have the right to clone the voice in the sample (required with --voice-sample)")
     args = p.parse_args(argv)
+    voice_clone = None
+    if args.voice_sample is not None:
+        if args.voice or args.no_narration:
+            p.error("--voice-sample cannot be combined with --voice or --no-narration")
+        if not args.voice_consent:
+            p.error("--voice-consent is required: confirm you have the right to clone the sampled voice")
+        voice_clone = VoiceCloneOptions(model=args.clone_model or "qwen3-tts", consent=True,
+                                        sample_transcript=args.sample_transcript)
+    elif args.clone_model or args.sample_transcript or args.voice_consent:
+        p.error("--clone-model, --sample-transcript and --voice-consent require --voice-sample")
     education = None
     if args.use_case == "document":
         if not args.document:
@@ -108,6 +135,7 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
         if args.use_case == "document" else None,
         prompt=args.prompt, duration_minutes=args.minutes, video_model=args.model,
         narration=not args.no_narration, voice=args.voice, naturalistic=args.naturalistic, delivery=delivery,
+        voice_clone=voice_clone,
         music=args.music, orientation=args.orientation,
         resolution=args.resolution or ("1080p" if args.use_case != "cinematic" else "720p"), upscaler=args.upscaler,
     ), args.document if args.use_case == "document" else args.image
@@ -187,7 +215,14 @@ async def main(argv: list[str] | None = None) -> None:
     store, workflow_factory, close = create_services(settings)
     manager = JobManager(settings, store, workflow_factory)
     try:
-        state = await manager.create(request, image=image, document=document)
+        voice_sample = None
+        if (sample_path := voice_sample_path(argv)) is not None:
+            if sample_path.stat().st_size > settings.max_voice_sample_bytes:
+                raise ValueError(f"The voice sample is larger than {settings.max_voice_sample_mb} MB")
+            voice_sample = await validate_voice_sample(sample_path.read_bytes(), sample_path.name,
+                                                       settings.max_voice_sample_bytes)
+        extra = {"voice_sample": voice_sample} if voice_sample is not None else {}
+        state = await manager.create(request, image=image, document=document, **extra)
         print(f"Job {state.id} started")
         await manager.wait(state.id)
         finished = await manager.get(state.id)
