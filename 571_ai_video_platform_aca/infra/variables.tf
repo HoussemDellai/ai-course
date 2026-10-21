@@ -185,19 +185,19 @@ variable "voice_clone_enabled" {
 }
 
 variable "voice_clone_workload_profile" {
-  description = "GPU workload profile of the voice-clone service. The A100 profile fits every engine; it scales to zero when idle."
+  description = "GPU workload profile of the voice-clone service; it scales to zero when idle. The ComfyUI workers use the whole A100 quota (2), so the default is the T4 profile: engines run in fp16 there. Use GPU-NC24-A100 when A100 quota is available."
   type        = string
-  default     = "GPU-NC24-A100"
+  default     = "GPU-NC8as-T4"
 }
 
 variable "voice_clone_cpu" {
-  description = "Voice-clone container vCPU allocation."
+  description = "Voice-clone container vCPU allocation (T4 profile: up to 8)."
   type        = number
   default     = 4
 }
 
 variable "voice_clone_memory_gib" {
-  description = "Voice-clone container system RAM in GiB (separate from GPU VRAM); engines are loaded one at a time."
+  description = "Voice-clone container system RAM in GiB (separate from GPU VRAM; T4 profile: up to 56); engines are loaded one at a time."
   type        = number
-  default     = 32
+  default     = 28
 }

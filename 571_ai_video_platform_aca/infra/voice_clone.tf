@@ -89,6 +89,10 @@ resource "azurerm_container_app" "voice_clone" {
         secret_name = "api-key"
       }
       env {
+        name  = "VOICE_CLONE_FP16"
+        value = strcontains(var.voice_clone_workload_profile, "T4") ? "1" : "0"
+      }
+      env {
         name  = "MODEL_CACHE"
         value = "/cache/voice-clone"
       }

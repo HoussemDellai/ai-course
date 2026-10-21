@@ -154,18 +154,23 @@ class VoiceCloner:
 
     async def ensure_ready(self, model: str) -> None:
         info = CLONE_MODELS[model]
-        self._check(await self._request("POST", f"/v1/models/{model}/start"), f"start of {info.name}")
         deadline = time.monotonic() + self.load_timeout
         while True:
-            response = await self._request("GET", f"/v1/models/{model}")
-            self._check(response, f"status of {info.name}")
-            status = response.json()
-            if status.get("state") == "ready":
-                return
-            if status.get("state") == "error":
-                raise SpeechError(f"{info.name} failed to load: {status.get('error', 'unknown error')}")
-            if time.monotonic() > deadline:
-                raise SpeechError(f"{info.name} did not load within {self.load_timeout:.0f} s")
+            # (Re)start the engine whenever the service has no record of loading it, e.g. after a replica restart.
+            self._check(await self._request("POST", f"/v1/models/{model}/start"), f"start of {info.name}")
+            while True:
+                response = await self._request("GET", f"/v1/models/{model}")
+                self._check(response, f"status of {info.name}")
+                status = response.json()
+                if status.get("state") == "ready":
+                    return
+                if status.get("state") == "error":
+                    raise SpeechError(f"{info.name} failed to load: {status.get('error', 'unknown error')}")
+                if time.monotonic() > deadline:
+                    raise SpeechError(f"{info.name} did not load within {self.load_timeout:.0f} s")
+                if status.get("state") == "stopped":
+                    break
+                await asyncio.sleep(self.poll_seconds)
             await asyncio.sleep(self.poll_seconds)
 
     async def synthesize(self, *, model: str, text: str, language: str, sample: Path, ref_text: str,

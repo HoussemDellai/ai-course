@@ -90,6 +90,6 @@ def test_voice_clone_infrastructure_is_private_scale_to_zero_gpu():
     service = (infra / "voice_clone.tf").read_text()
     assert "external_enabled           = false" in service and "min_replicas                     = 0" in service
     assert "workload_profile_name        = var.voice_clone_workload_profile" in service
-    assert 'default     = "GPU-NC24-A100"' in (infra / "variables.tf").read_text()
+    assert 'default     = "GPU-NC8as-T4"' in (infra / "variables.tf").read_text()
     app = (infra / "container_app.tf").read_text()
     assert "VOICE_CLONE_URL" in app and "VOICE_CLONE_API_KEY" in app

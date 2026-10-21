@@ -329,3 +329,19 @@ def test_settings_from_env_reads_voice_clone_configuration(monkeypatch):
     assert settings.max_voice_sample_bytes == 7 * 1024 * 1024
     monkeypatch.delenv("VOICE_CLONE_URL")
     assert Settings.from_env().voice_clone_url == ""
+
+
+async def test_cloner_restarts_engine_after_service_restart():
+    events = []
+    states = iter(["loading", "stopped", "loading", "ready"])  # the replica restarted while loading
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            events.append("start")
+            return httpx.Response(202, json={})
+        return httpx.Response(200, json={"state": next(states)})
+
+    cloner = service(handler)
+    await cloner.ensure_ready("qwen3-tts")
+    assert events == ["start", "start"]
+    await cloner.aclose()
