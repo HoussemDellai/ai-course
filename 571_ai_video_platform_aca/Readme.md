@@ -34,8 +34,10 @@ scale-to-zero GPU service (T4 by default, because the two ComfyUI workers use th
 fp16 there, set `voice_clone_workload_profile = "GPU-NC24-A100"` when quota is available) that loads one engine at a time, each in its own virtualenv, and caches
 weights on the shared NFS share. The **first use of a model after a cold start downloads and loads it,
 which can take several minutes**; the job waits (`VOICE_CLONE_LOAD_TIMEOUT_SECONDS`, default 1800).
-Fish Audio S2 Pro weights are gated on Hugging Face: accept the license and set `hf_token`
-(`TF_VAR_hf_token`) before using it. Set `voice_clone_enabled = false` to skip the service; the option is
+Fish Audio S2 Pro needs a GPU with at least 24 GiB of memory, so it fails fast with a clear error on the
+default T4; set `voice_clone_workload_profile = "GPU-NC24-A100"` (requires A100 quota beyond the ComfyUI workers).
+Its weights are gated on Hugging Face: accept the license and set `hf_token`
+(`TF_VAR_hf_token`) if anonymous download is refused. Set `voice_clone_enabled = false` to skip the service; the option is
 then reported as not configured. The orchestrator reads `VOICE_CLONE_URL` and `VOICE_CLONE_API_KEY`.
 
 CLI: `python generate.py "A documentary about bees" --voice-sample me.wav --clone-model chatterbox --voice-consent`
