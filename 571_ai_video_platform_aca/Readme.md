@@ -30,7 +30,8 @@ Cloned voices support pronunciation hints and sentence pauses, but not Azure spe
 Only clone voices you are authorised to use: the request must set `voice_clone.consent` to `true`.
 
 The engines run in the `voice-clone-<prefix>` Container App (`voice_clone_server/`): a private,
-scale-to-zero A100 service that loads one engine at a time, each in its own virtualenv, and caches
+scale-to-zero GPU service (T4 by default, because the two ComfyUI workers use the A100 quota; engines run in
+fp16 there, set `voice_clone_workload_profile = "GPU-NC24-A100"` when quota is available) that loads one engine at a time, each in its own virtualenv, and caches
 weights on the shared NFS share. The **first use of a model after a cold start downloads and loads it,
 which can take several minutes**; the job waits (`VOICE_CLONE_LOAD_TIMEOUT_SECONDS`, default 1800).
 Fish Audio S2 Pro weights are gated on Hugging Face: accept the license and set `hf_token`

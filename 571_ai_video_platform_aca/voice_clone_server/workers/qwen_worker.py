@@ -18,7 +18,8 @@ LANGUAGES = {
     "fr": "French", "ru": "Russian", "pt": "Portuguese", "es": "Spanish", "it": "Italian",
 }
 
-model = Qwen3TTSModel.from_pretrained(MODEL_ID, device_map="cuda:0", dtype=torch.bfloat16)
+DTYPE = torch.float16 if os.environ.get("VOICE_CLONE_FP16") == "1" else torch.bfloat16  # T4 has no bfloat16
+model = Qwen3TTSModel.from_pretrained(MODEL_ID, device_map="cuda:0", dtype=DTYPE)
 app = FastAPI()
 
 

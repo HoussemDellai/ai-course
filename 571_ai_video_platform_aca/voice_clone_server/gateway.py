@@ -67,6 +67,8 @@ def build_engines() -> dict[str, Engine]:
             "--decoder-config-name", "modded_dac_vq",
         ], cwd=FISH_REPO, health="/v1/health"),
     ]
+    if os.environ.get("VOICE_CLONE_FP16") == "1":  # GPUs without bfloat16 (T4)
+        engines[3].command.append("--half")
     return {e.key: e for e in engines}
 
 
