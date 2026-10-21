@@ -1,5 +1,6 @@
 """The GPU voice-clone gateway: text splitting, audio joining and the HTTP contract (engines are faked)."""
 
+import asyncio
 import io
 import sys
 import wave
@@ -93,3 +94,16 @@ def test_voice_clone_infrastructure_is_private_scale_to_zero_gpu():
     assert 'default     = "GPU-NC8as-T4"' in (infra / "variables.tf").read_text()
     app = (infra / "container_app.tf").read_text()
     assert "VOICE_CLONE_URL" in app and "VOICE_CLONE_API_KEY" in app
+
+
+async def test_fish_is_rejected_on_gpus_that_are_too_small(monkeypatch):
+    async def small_gpu():
+        return 15.0
+
+    monkeypatch.setattr(gateway, "gpu_memory_gib", small_gpu)
+    manager = gateway.EngineManager({"fish-s2-pro": gateway.Engine("fish-s2-pro", "Fish Audio S2 Pro", 1, [])})
+    manager.start("fish-s2-pro")
+    await asyncio.gather(*manager._tasks)
+    assert manager.states["fish-s2-pro"] == "error"
+    assert "at least 24 GiB" in manager.errors["fish-s2-pro"]
+    await manager.aclose()

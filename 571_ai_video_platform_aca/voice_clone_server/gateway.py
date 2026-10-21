@@ -34,6 +34,19 @@ LOAD_TIMEOUT = float(os.environ.get("LOAD_TIMEOUT_SECONDS", "1800"))
 MAX_TEXT_CHARS = 8000
 CHUNK_CHARS = int(os.environ.get("CHUNK_CHARS", "300"))
 FISH_REPO_ID = os.environ.get("FISH_MODEL_REPO", "fishaudio/s2-pro")
+MIN_VRAM_GIB = {"fish-s2-pro": 24}  # the 4.4B-parameter model plus its KV cache does not fit a 16 GiB T4
+
+
+async def gpu_memory_gib() -> float | None:
+    """Total memory of the first GPU, or None when nvidia-smi is unavailable."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await proc.communicate()
+        return float(out.decode().splitlines()[0]) / 1024
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 @dataclass
@@ -158,6 +171,13 @@ class EngineManager:
                 await proc.wait()
 
     async def _prepare(self, engine: Engine) -> None:
+        required = MIN_VRAM_GIB.get(engine.key, 0)
+        if required:
+            total = await gpu_memory_gib()
+            if total is not None and total < required:
+                raise RuntimeError(
+                    f"{engine.name} needs a GPU with at least {required} GiB of memory but this one has "
+                    f"{total:.0f} GiB; set voice_clone_workload_profile to GPU-NC24-A100")
         if engine.key != "fish-s2-pro" or (CACHE / "fish-s2-pro" / "codec.pth").exists():
             return
         from huggingface_hub import snapshot_download

@@ -12,7 +12,7 @@ import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from huggingface_hub import snapshot_download
 from melo.api import TTS
-from openvoice.api import ToneColorConverter
+from openvoice.api import OpenVoiceBaseClass, ToneColorConverter
 
 # language -> (MeloTTS language code, base-speaker embedding file)
 LANGUAGES = {
@@ -21,8 +21,18 @@ LANGUAGES = {
 }
 DEVICE = "cuda:0"
 
+
+class Converter(ToneColorConverter):
+    """ToneColorConverter without the optional wavmark watermark (its __init__ cannot be told to skip it)."""
+
+    def __init__(self, config_path: str, device: str):
+        OpenVoiceBaseClass.__init__(self, config_path, device)
+        self.watermark_model = None
+        self.version = getattr(self.hps, "_version_", "v1")
+
+
 checkpoints = Path(snapshot_download("myshell-ai/OpenVoiceV2"))
-converter = ToneColorConverter(str(checkpoints / "converter" / "config.json"), device=DEVICE, enable_watermark=False)
+converter = Converter(str(checkpoints / "converter" / "config.json"), DEVICE)
 converter.load_ckpt(str(checkpoints / "converter" / "checkpoint.pth"))
 base_models: dict[str, TTS] = {}
 app = FastAPI()

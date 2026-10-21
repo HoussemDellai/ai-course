@@ -17,8 +17,8 @@ uv pip install --python /opt/venvs/qwen/bin/python torch==2.6.0 torchaudio==2.6.
 
 # Chatterbox Multilingual (MIT)
 uv venv /opt/venvs/chatterbox --python $PY
-uv pip install --python /opt/venvs/chatterbox/bin/python torch==2.6.0 torchaudio==2.6.0 chatterbox-tts==0.1.7 $COMMON
-/opt/venvs/chatterbox/bin/python -c "from chatterbox.mtl_tts import ChatterboxMultilingualTTS"
+uv pip install --python /opt/venvs/chatterbox/bin/python torch==2.6.0 torchaudio==2.6.0 chatterbox-tts==0.1.7 "setuptools<81" $COMMON
+/opt/venvs/chatterbox/bin/python -c "import perth; assert perth.PerthImplicitWatermarker is not None; from chatterbox.mtl_tts import ChatterboxMultilingualTTS"
 
 # OpenVoice v2 (MIT): its repositories pin 2022-era dependencies, so install them without their metadata.
 uv venv /opt/venvs/openvoice --python $PY
@@ -32,7 +32,7 @@ uv pip install --python /opt/venvs/openvoice/bin/python --no-deps \
     "git+https://github.com/myshell-ai/OpenVoice.git" "git+https://github.com/myshell-ai/MeloTTS.git"
 /opt/venvs/openvoice/bin/python -m nltk.downloader -d "$NLTK_DATA" \
     averaged_perceptron_tagger averaged_perceptron_tagger_eng cmudict punkt punkt_tab
-/opt/venvs/openvoice/bin/python -c "from openvoice.api import ToneColorConverter; from melo.api import TTS"
+/opt/venvs/openvoice/bin/python -c "from openvoice.api import OpenVoiceBaseClass, ToneColorConverter; from melo.api import TTS"
 
 # Fish Audio S2 Pro (research license, non-commercial): official source, run through its API server.
 git clone https://github.com/fishaudio/fish-speech /opt/fish-speech
