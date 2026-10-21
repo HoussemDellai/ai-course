@@ -9,6 +9,41 @@ The `555_comfyui_on_aca` folder is a read-only reference, never a deployment dep
 CPU/RAM sizing and real A100 workflow compatibility require profiling before deployment;
 local regression tests are not proof of live GPU compatibility.
 
+## Optional voice cloning (zero-shot TTS)
+
+Every use case (cinematic, educational and PowerPoint/PDF) can speak its narration in a voice cloned
+from a short sample instead of an Azure Speech voice. It is **off by default**. In the web UI open
+**Voice and delivery → Clone a voice from a sample**, choose a model, upload a `.wav` or `.mp4`
+(at least 3 seconds of clear speech; only the first 30 seconds are used; up to `MAX_VOICE_SAMPLE_MB`,
+default 25 MB), tick the consent box and generate. Without a transcript, the sample is transcribed
+automatically with Azure AI Speech when the selected model benefits from one.
+
+| Model (`voice_clone.model`) | Engine | Languages | License |
+| --- | --- | --- | --- |
+| `qwen3-tts` (default) | Qwen3-TTS-12Hz-1.7B-Base | zh en ja ko de fr ru pt es it | Apache-2.0 |
+| `chatterbox` | Chatterbox Multilingual | 23 languages (ar da de el en es fi fr he hi it ja ko ms nl no pl pt ru sv sw tr zh) | MIT |
+| `openvoice-v2` | MeloTTS + OpenVoice v2 tone-color converter | en es fr zh ja ko | MIT |
+| `fish-s2-pro` | Fish Audio S2 Pro | 80+ languages | Fish Audio Research License: **non-commercial only** |
+
+The job fails before rendering when the narration language is not supported by the chosen model.
+Cloned voices support pronunciation hints and sentence pauses, but not Azure speaking style or rate.
+Only clone voices you are authorised to use: the request must set `voice_clone.consent` to `true`.
+
+The engines run in the `voice-clone-<prefix>` Container App (`voice_clone_server/`): a private,
+scale-to-zero A100 service that loads one engine at a time, each in its own virtualenv, and caches
+weights on the shared NFS share. The **first use of a model after a cold start downloads and loads it,
+which can take several minutes**; the job waits (`VOICE_CLONE_LOAD_TIMEOUT_SECONDS`, default 1800).
+Fish Audio S2 Pro weights are gated on Hugging Face: accept the license and set `hf_token`
+(`TF_VAR_hf_token`) before using it. Set `voice_clone_enabled = false` to skip the service; the option is
+then reported as not configured. The orchestrator reads `VOICE_CLONE_URL` and `VOICE_CLONE_API_KEY`.
+
+CLI: `python generate.py "A documentary about bees" --voice-sample me.wav --clone-model chatterbox --voice-consent`
+(optional `--sample-transcript "..."`; works with `--use-case educational` and `document` too).
+
+API: send `multipart/form-data` to `POST /api/videos` (or `/api/videos/document`) with the `request`
+JSON containing `"voice_clone": {"model": "qwen3-tts", "consent": true, "sample_transcript": null}`
+and the sample in the `voice_sample` file field. `GET /api/config` lists the models under `voice_clone`.
+
 ## PowerPoint / PDF to video with voice
 
 Select **PowerPoint / PDF to narrated video** in the web UI, attach a `.pptx` or `.pdf`
@@ -992,7 +1027,8 @@ from synthetic fixture tests.
 │   │   ├── comfy_workflows/        # API-format workflows: T2V and I2V for the 4 models, Qwen-Image-Edit keyframes, MiniMax Music 3, SeedVR2
 │   │   ├── video_models.py         # model registry (resolution, fps, frames, T2V/I2V prompt guides, license) + output resolutions
 │   │   ├── images.py               # reference photo checks and cleanup (format, size, EXIF/GPS removal)
-│   │   ├── speech.py               # Azure AI Speech TTS (Entra ID)
+│   │   ├── speech.py               # Azure AI Speech TTS (Entra ID) and sample transcription
+│   │   ├── voice_clone.py          # optional voice cloning: sample validation, client of the GPU voice-clone service
 │   │   ├── media.py                # ffmpeg: normalize (scale, pad, fps), concat, narration and music mix
 │   │   ├── storage.py              # Blob / local artifact store
 │   │   ├── jobs.py                 # background jobs, resume, retry, live notifications
@@ -1000,6 +1036,7 @@ from synthetic fixture tests.
 │   │   ├── api.py                  # REST API (JSON or multipart with a photo, intermediate videos) + Server-Sent Events
 │   │   └── static/index.html       # web UI (Copilot-style sessions, photo upload, live timeline, outputs panel)
 │   └── tests/
+├── voice_clone_server/             # private GPU service: gateway + one virtualenv per cloning engine
 ├── images/architecture.drawio      # architecture diagram (draw.io, Azure icons) + .png export
 └── infra/                          # Terraform, ACA bootstrap and model-provisioning scripts
 ```

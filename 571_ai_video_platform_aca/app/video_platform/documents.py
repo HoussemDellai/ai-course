@@ -25,7 +25,9 @@ from .narration import fingerprint
 from .operations import OpKind
 from .schemas import JobStatus, ShotPrompt, VideoRequest
 from .storage import read_json, write_json
-from .workflow import FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, make_submit_recorder, pending_resume
+from .workflow import (
+    FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, make_submit_recorder, pending_resume, resolve_narrator,
+)
 
 MAX_PAGES = 60
 PDF_LOCK = threading.RLock()  # PDFium is not thread-safe, including across different documents.
@@ -153,7 +155,8 @@ def validate_document(data: bytes, filename: str, max_bytes: int) -> DocumentUpl
 
 
 def validate_document_request(request: VideoRequest, settings: Settings) -> None:
-    if request.use_case == "document" and not settings.speech_endpoint:
+    if request.use_case == "document" and not (
+            settings.speech_endpoint or (request.voice_clone and settings.voice_clone_url)):
         raise DocumentError("Document videos require a configured Speech endpoint")
     if (request.use_case == "document" and request.document and request.document.cinematic_cutaways
             and not settings.comfyui_urls):
@@ -253,7 +256,8 @@ class DocumentExecutor(Executor):
         d, options = self.deps, job.request.document
         assert options is not None and options.filename is not None
         validate_document_request(job.request, d.settings)
-        if d.narrator is None:
+        narrator = await resolve_narrator(d, job)
+        if narrator is None:
             raise DocumentError("Document videos require a configured narrator")
         ops, fps = d.ops(job.job_id), d.settings.output_fps
         width, height = job.output_size
@@ -331,9 +335,9 @@ class DocumentExecutor(Executor):
                         op.reuse()
                     else:
                         path.parent.mkdir(parents=True, exist_ok=True)
-                        await d.narrator.synthesize(spoken.narration, path, voice=job.request.voice,
-                                                   language=options.language, delivery=job.request.delivery,
-                                                   transport="rest")
+                        await narrator.synthesize(spoken.narration, path, voice=job.request.voice,
+                                                  language=options.language, delivery=job.request.delivery,
+                                                  transport="rest")
                         await d.store.upload(job.job_id, name, path)
                     duration, has_audio = await media.probe(path)
                     if not has_audio or not math.isfinite(duration) or duration <= 0:

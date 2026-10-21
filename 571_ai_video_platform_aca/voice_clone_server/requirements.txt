@@ -1,0 +1,6 @@
+fastapi==0.141.1
+uvicorn==0.54.0
+httpx==0.28.1
+python-multipart==0.0.32
+ormsgpack==1.10.0
+huggingface_hub>=0.34

@@ -382,6 +382,22 @@
             <summary>Voice and delivery</summary>
             <label for="voice">Voice short name (blank uses the configured voice)</label>
             <input class="input" id="voice" type="text" placeholder="en-US-AndrewMultilingualNeural">
+            <fieldset id="cloneControls" style="border: 0; padding: 8px 0">
+              <legend>Voice cloning (optional)</legend>
+              <label class="pill" title="Speak the narration in the voice of an uploaded sample (zero-shot TTS) instead of an Azure Speech voice">
+                <input id="cloneEnabled" type="checkbox"> Clone a voice from a sample
+              </label>
+              <div id="cloneFields" hidden>
+                <label for="cloneModel">Cloning model</label>
+                <select class="input" id="cloneModel" aria-label="Voice cloning model"></select>
+                <label for="cloneSample">Voice sample (.wav or .mp4, at least 3 seconds of clear speech)</label>
+                <input class="input" id="cloneSample" type="file" accept=".wav,.mp4,audio/wav,video/mp4">
+                <label for="cloneTranscript">Exact transcript of the sample (optional; transcribed automatically when blank)</label>
+                <textarea class="input" id="cloneTranscript" rows="2" maxlength="1000"></textarea>
+                <label class="pill"><input id="cloneConsent" type="checkbox"> I have the right to clone the voice in this sample</label>
+                <p class="muted small" id="cloneNote"></p>
+              </div>
+            </fieldset>
             <fieldset id="deliveryControls" disabled style="border: 0; padding: 8px 0">
               <legend>Naturalistic narration controls</legend>
               <label for="speechRate">Rate adjustment (%)</label>
@@ -499,7 +515,7 @@
     const ACTIVE = new Set(["queued", "running"]);
     const isFinished = (job) => job && (job.status === "completed" || job.status === "failed");
     const isPaused = (job) => job?.status === "awaiting_review";
-    let educationConfig = null, documentConfig = null, cinematicControls = null, review = null;
+    let educationConfig = null, documentConfig = null, voiceCloneConfig = null, cinematicControls = null, review = null;
 
     function fmtDur(sec) {
       sec = Math.max(0, Math.floor(sec));
@@ -650,6 +666,8 @@
         maxImageMb = c.max_image_mb;
         educationConfig = c.education || null;
         documentConfig = c.document || null;
+        voiceCloneConfig = c.voice_clone || null;
+        renderCloneControls();
         $("documentCapabilities").textContent = documentConfig
           ? `Up to ${documentConfig.max_document_mb} MB and ${documentConfig.max_pages} pages. PDF rendering configured; PowerPoint ${documentConfig.powerpoint_configured ? "configured" : "requires LibreOffice"}; narration ${documentConfig.narration_configured ? "configured" : "missing"}.`
           : "Document capabilities are unavailable from this server.";
@@ -707,8 +725,24 @@
     updateFormatControls();
     function updateDeliveryControls() {
       $("deliveryControls").disabled = !($("naturalistic").checked || ["educational", "document"].includes($("useCase").value)) || !$("narration").checked;
-      $("voice").disabled = !$("narration").checked;
+      $("voice").disabled = !$("narration").checked || $("cloneEnabled").checked;
+      $("cloneEnabled").disabled = !$("narration").checked || !voiceCloneConfig?.configured;
+      $("cloneFields").hidden = !$("cloneEnabled").checked;
     }
+    function renderCloneControls() {
+      $("cloneModel").innerHTML = (voiceCloneConfig?.models || []).map(m =>
+        `<option value="${esc(m.key)}">${esc(m.name)} · ${esc(m.license)}</option>`).join("");
+      showCloneNote();
+      updateDeliveryControls();
+    }
+    function showCloneNote() {
+      const m = (voiceCloneConfig?.models || []).find(m => m.key === $("cloneModel").value);
+      $("cloneNote").textContent = !voiceCloneConfig?.configured
+        ? "Voice cloning is not configured on this server."
+        : m ? `Languages: ${Array.isArray(m.languages) ? m.languages.join(", ") : m.languages}. The first use of a model loads it on the GPU, which can take several minutes. Speaking style and rate are not supported; pronunciation hints and sentence pauses are.` : "";
+    }
+    $("cloneModel").onchange = showCloneNote;
+    $("cloneEnabled").onchange = updateDeliveryControls;
     $("naturalistic").onchange = updateDeliveryControls;
     $("narration").onchange = updateDeliveryControls;
     updateDeliveryControls();
@@ -790,12 +824,28 @@
           body.delivery = { rate_percent: Number($("speechRate").value), sentence_pause_ms: Number($("sentencePause").value),
             style: $("speechStyle").value.trim() || null, pronunciations };
         }
+        let voiceSample = null;
+        if ($("cloneEnabled").checked) {
+          voiceSample = $("cloneSample").files[0];
+          if (!body.narration) throw new Error("Voice cloning requires narration.");
+          if (!voiceSample) throw new Error("Choose a voice sample (.wav or .mp4, at least 3 seconds).");
+          if (!/\.(wav|mp4)$/i.test(voiceSample.name)) throw new Error("The voice sample must be a .wav or .mp4 file.");
+          if (voiceSample.size > voiceCloneConfig.max_sample_mb * 1024 * 1024)
+            throw new Error(`The voice sample must be ${voiceCloneConfig.max_sample_mb} MB or less.`);
+          if (!$("cloneConsent").checked) throw new Error("Confirm that you have the right to clone this voice.");
+          if (body.delivery && (body.delivery.rate_percent !== 0 || body.delivery.style))
+            throw new Error("Cloned voices do not support speaking style or rate; clear them or turn off cloning.");
+          body.voice = null;
+          body.voice_clone = { model: $("cloneModel").value, consent: true,
+            sample_transcript: $("cloneTranscript").value.trim() || null };
+        }
         let opts = { method: "POST", body: JSON.stringify(body) };
-        if (body.use_case === "document" || photo) {
+        if (body.use_case === "document" || photo || voiceSample) {
           const form = new FormData();
           form.append("request", JSON.stringify(body));
           if (body.use_case === "document") form.append("document", $("documentInput").files[0]);
-          else form.append("image", photo, photo.name || "photo.png");
+          else if (photo) form.append("image", photo, photo.name || "photo.png");
+          if (voiceSample) form.append("voice_sample", voiceSample, voiceSample.name);
           opts = { method: "POST", body: form };
         }
         const r = await api(body.use_case === "document" ? "/api/videos/document" : "/api/videos", opts);
@@ -805,6 +855,7 @@
         $("prompt").value = ""; $("prompt").style.height = "";
         setPhoto(null);
         $("documentInput").value = "";
+        $("cloneSample").value = ""; $("cloneConsent").checked = false;
         jobs = [job, ...jobs.filter(j => j.id !== job.id)];
         location.hash = job.id;
         loadJobs();
@@ -1341,6 +1392,7 @@
         ${job.request.reference_image ? `<img class="ref-photo" alt="Reference photo" src="/api/videos/${encodeURIComponent(job.id)}/image?key=${encodeURIComponent(key())}">` : ""}
         <div class="chips">
           ${job.request.reference_image ? `<span class="chip"><span class="k">mode</span>photo to video</span>` : ""}
+          ${job.request.voice_clone ? `<span class="chip"><span class="k">voice</span>cloned · ${esc(job.request.voice_clone.model)}</span>` : ""}
           ${job.request.naturalistic ? `<span class="chip"><span class="k">direction</span>naturalistic</span>` : ""}
           <span class="chip"><span class="k">${job.request.document ? "document" : job.request.education ? "style" : "model"}</span>${esc(job.request.document ? job.request.document.filename : job.request.education ? job.request.education.style : job.request.video_model)}</span>
           ${job.request.document?.animations ? `<span class="chip"><span class="k">animations</span>zoom · fade</span>` : ""}

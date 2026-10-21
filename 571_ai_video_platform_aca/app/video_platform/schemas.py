@@ -150,6 +150,31 @@ class NarrationDelivery(BaseModel):
         return self
 
 
+VoiceCloneModel = Literal["qwen3-tts", "chatterbox", "openvoice-v2", "fish-s2-pro"]
+
+
+class VoiceCloneOptions(BaseModel):
+    """Zero-shot voice cloning: the narration is spoken in the voice of an uploaded sample instead of Azure Speech."""
+
+    model_config = ConfigDict(extra="forbid")
+    model: VoiceCloneModel = Field(default="qwen3-tts", description="qwen3-tts, chatterbox, openvoice-v2 or fish-s2-pro")
+    sample_transcript: str | None = Field(
+        default=None, max_length=1000,
+        description="Optional exact transcript of the sample. When omitted it is transcribed automatically.",
+    )
+    consent: bool = Field(
+        default=False, description="Must be true: confirms you have the right to clone the voice in the sample.",
+    )
+
+    @model_validator(mode="after")
+    def require_consent(self) -> VoiceCloneOptions:
+        if not self.consent:
+            raise ValueError("Voice cloning requires confirming that you have the right to clone the sampled voice")
+        if self.sample_transcript is not None:
+            self.sample_transcript = self.sample_transcript.strip() or None
+        return self
+
+
 class Storyboard(BaseModel):
     brief: CreativeBrief
     video_model: str
@@ -174,6 +199,11 @@ class VideoRequest(BaseModel):
     naturalistic: bool = False
     music: bool = Field(default=False, description="Instrumental background music per scene (MiniMax-Music3).")
     delivery: NarrationDelivery | None = None
+    voice_clone: VoiceCloneOptions | None = Field(default=None, exclude_if=lambda value: value is None)
+    voice_sample: bool = Field(
+        default=False, exclude_if=lambda value: not value,
+        description="Set by the server when a voice sample is uploaded (multipart 'voice_sample' field).",
+    )
     reference_image: bool = Field(
         default=False,
         description="Set by the server when a reference photo is uploaded (multipart 'image' field).",
@@ -195,6 +225,18 @@ class VideoRequest(BaseModel):
             (self.naturalistic or self.use_case in {"educational", "document"}) and self.narration
         ):
             raise ValueError("Delivery controls require naturalistic, educational or document narration")
+        return self
+
+    @model_validator(mode="after")
+    def voice_clone_requirements(self) -> VideoRequest:
+        if self.voice_clone is None:
+            return self
+        if not self.narration:
+            raise ValueError("Voice cloning requires narration")
+        if self.voice is not None:
+            raise ValueError("Choose either an Azure Speech voice or voice cloning, not both")
+        if self.delivery is not None and (self.delivery.style or self.delivery.rate_percent):
+            raise ValueError("Cloned voices support pronunciations and sentence pauses, not speaking style or rate")
         return self
 
     @model_validator(mode="after")

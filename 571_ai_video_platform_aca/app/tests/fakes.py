@@ -297,6 +297,9 @@ class FakeNarrator:
     async def validate(self, voice, language, delivery) -> None:
         pass
 
+    async def transcribe(self, audio: Path) -> str:
+        return "transcribed sample"
+
     async def synthesize(self, text: str, dest: Path, voice: str | None = None, language: str = "en-US",
                           delivery=None, transport="sdk") -> Path:
         self.texts.append(text)

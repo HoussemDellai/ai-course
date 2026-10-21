@@ -19,7 +19,10 @@ from .operations import OpKind
 from .schemas import CreativeBrief, JobStatus, Scene, VideoRequest
 from .storage import read_json, write_json
 from .video_models import VideoModel
-from .workflow import FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, gather_all, make_submit_recorder, pending_resume
+from .workflow import (
+    FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, gather_all, make_submit_recorder, pending_resume,
+    resolve_narrator,
+)
 
 DRAFT = "education/draft.json"
 APPROVAL = "education/approval.json"
@@ -32,7 +35,7 @@ def validate_education_request(request: VideoRequest, settings: Settings) -> Non
     assert options is not None
     if not settings.education_search_model:
         raise ValueError("Configure EDUCATION_SEARCH_MODEL before creating educational videos")
-    if not settings.speech_endpoint:
+    if not (settings.speech_endpoint or (request.voice_clone and settings.voice_clone_url)):
         raise ValueError("Educational videos require a Speech endpoint")
     if options.text_model and options.text_model not in {
         settings.foundry_model, *settings.education_text_models,
@@ -144,7 +147,8 @@ class EducationalExecutor(Executor):
         measured: list[float] = []
         async with ops.op(OpKind.step, "Measure approved narration", step="education_narrate"):
             await d.progress(job.job_id, JobStatus.narrating)
-            if d.narrator is None:
+            narrator = await resolve_narrator(d, job)
+            if narrator is None:
                 raise ValueError("Educational videos require a configured Speech endpoint")
             for i, scene in enumerate(draft.scenes):
                 key, path, exists = await artifact(f"narration/scene_{i:03d}.wav")
@@ -152,9 +156,9 @@ class EducationalExecutor(Executor):
                     if exists:
                         op.reuse()
                     else:
-                        await d.narrator.synthesize(scene.narration, path, voice=job.request.voice,
-                                                   language=draft.brief.language, delivery=job.request.delivery,
-                                                   transport="rest")
+                        await narrator.synthesize(scene.narration, path, voice=job.request.voice,
+                                                  language=draft.brief.language, delivery=job.request.delivery,
+                                                  transport="rest")
                         await d.store.upload(job.job_id, key, path)
                     duration, has_audio = await media.probe(path)
                     if duration <= 0 or not has_audio:

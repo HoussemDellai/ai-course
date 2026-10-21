@@ -437,7 +437,7 @@ def test_api(settings, tmp_path, monkeypatch):
 
 
 def test_api_reference_photo(settings, tmp_path, monkeypatch):
-    settings = Settings(**{**settings.__dict__, "api_key": "secret", "max_image_mb": 1})
+    settings = Settings(**{**settings.__dict__, "api_key": "secret", "max_image_mb": 1, "max_voice_sample_mb": 1})
     store, factory, close, fake_comfy, team, _ = make_services(settings, tmp_path, monkeypatch, "wan22")
     app = create_app(settings, services=(store, factory, close))
     h = {"X-API-Key": "secret"}

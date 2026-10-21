@@ -74,3 +74,12 @@ output "storage_account_url" {
 output "storage_container" {
   value = azurerm_storage_container.videos.name
 }
+
+output "voice_clone_app" {
+  value = var.voice_clone_enabled ? azurerm_container_app.voice_clone[0].name : null
+}
+
+output "voice_clone_url" {
+  description = "Private URL inside the Container Apps environment."
+  value       = var.voice_clone_enabled ? local.voice_clone_url : null
+}

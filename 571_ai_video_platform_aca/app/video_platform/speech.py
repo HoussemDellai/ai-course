@@ -96,6 +96,24 @@ class Narrator:
     async def validate(self, voice: str | None, language: str, delivery: NarrationDelivery) -> None:
         await asyncio.to_thread(self._validate, voice or self.voice, language, delivery)
 
+    def _transcribe(self, audio: Path) -> str:
+        token = self.credential.get_token("https://cognitiveservices.azure.com/.default")
+        try:
+            response = httpx.post(
+                self.endpoint.rstrip("/") + "/speechtotext/transcriptions:transcribe",
+                params={"api-version": "2024-11-15"}, headers={"Authorization": "Bearer " + token.token},
+                files={"audio": (audio.name, audio.read_bytes(), "audio/wav")}, timeout=120,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise SpeechError(f"Speech transcription failed: {exc}") from exc
+        phrases = response.json().get("combinedPhrases") or []
+        return " ".join(p.get("text", "") for p in phrases).strip()
+
+    async def transcribe(self, audio: Path) -> str:
+        """Transcript of a short audio file (Azure AI Speech fast transcription, language auto-detected)."""
+        return await asyncio.to_thread(self._transcribe, audio)
+
     def _synthesize(
         self, text: str, dest: Path, voice: str, language: str, delivery: NarrationDelivery | None = None,
     ) -> Path:

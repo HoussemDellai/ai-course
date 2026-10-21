@@ -89,7 +89,7 @@ class Narrator(FakeNarrator):
 def setup(tmp_path, monkeypatch):
     monkeypatch.setitem(RESOLUTIONS, "1080p", (160, 90))
     settings = Settings(speech_endpoint="https://speech.example", work_dir=tmp_path / "work",
-                        local_output_dir=tmp_path / "out", output_fps=12, max_document_mb=1,
+                        local_output_dir=tmp_path / "out", output_fps=12, max_document_mb=1, max_voice_sample_mb=1,
                         libreoffice_path="missing-office-for-test")
     store = LocalArtifactStore(settings.local_output_dir)
     team, narrator = DocumentTeam(), Narrator(2.25)

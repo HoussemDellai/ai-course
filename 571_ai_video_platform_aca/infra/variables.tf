@@ -177,3 +177,27 @@ variable "educational_runtime" {
   type        = bool
   default     = false
 }
+
+variable "voice_clone_enabled" {
+  description = "Deploy the serverless GPU voice-clone service (Qwen3-TTS, Chatterbox, OpenVoice v2, Fish Audio S2 Pro) and enable optional voice cloning in the orchestrator."
+  type        = bool
+  default     = true
+}
+
+variable "voice_clone_workload_profile" {
+  description = "GPU workload profile of the voice-clone service. The A100 profile fits every engine; it scales to zero when idle."
+  type        = string
+  default     = "GPU-NC24-A100"
+}
+
+variable "voice_clone_cpu" {
+  description = "Voice-clone container vCPU allocation."
+  type        = number
+  default     = 4
+}
+
+variable "voice_clone_memory_gib" {
+  description = "Voice-clone container system RAM in GiB (separate from GPU VRAM); engines are loaded one at a time."
+  type        = number
+  default     = 32
+}

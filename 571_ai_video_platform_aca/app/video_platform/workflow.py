@@ -37,6 +37,9 @@ from .schemas import (
     CreativeBrief, JobStatus, MusicPlan, NarrationDelivery, NaturalSceneOutline, Scene, Storyboard, VideoRequest,
 )
 from .speech import Narrator, SpeechError
+from .voice_clone import (
+    CLONE_MODELS, VOICE_SAMPLE, VOICE_SAMPLE_TRANSCRIPT, CloneNarrator, VoiceCloner,
+)
 from .storage import ArtifactStore, read_json, write_json
 from .video_models import (
     KEYFRAME_MODEL_NAME, MUSIC_MODEL_NAME, UPSCALE_MODEL_NAME, VideoModel, get_video_model, output_size,
@@ -61,6 +64,33 @@ class PipelineDeps:
     store: ArtifactStore
     progress: ProgressCallback  # async (job_id, status=None, **fields)
     ops: Callable[[str], OperationRecorder]  # job_id -> live operation log of the current run
+    cloner: VoiceCloner | None = None
+
+
+async def resolve_narrator(d: PipelineDeps, job: VideoJob) -> Narrator | CloneNarrator | None:
+    """Azure Speech, or the job's cloned voice when the request enables voice cloning."""
+    options = job.request.voice_clone
+    if options is None:
+        return d.narrator
+    if d.cloner is None:
+        raise SpeechError("Voice cloning requires a configured VOICE_CLONE_URL")
+    sample = job.work_dir / VOICE_SAMPLE
+    if not (sample.exists() or await d.store.download(job.job_id, VOICE_SAMPLE, sample)):
+        raise SpeechError("The uploaded voice sample is missing from job storage")
+    transcript = options.sample_transcript or ""
+    if not transcript and CLONE_MODELS[options.model].uses_transcript:
+        saved = job.work_dir / VOICE_SAMPLE_TRANSCRIPT
+        if saved.exists() or await d.store.download(job.job_id, VOICE_SAMPLE_TRANSCRIPT, saved):
+            transcript = saved.read_text(encoding="utf-8")
+        elif d.narrator is not None:
+            try:
+                transcript = await d.narrator.transcribe(sample)
+            except SpeechError as exc:
+                log.warning("Voice sample transcription failed; cloning without a transcript: %s", exc)
+            if transcript:
+                saved.write_text(transcript, encoding="utf-8")
+                await d.store.upload(job.job_id, VOICE_SAMPLE_TRANSCRIPT, saved)
+    return CloneNarrator(d.cloner, options, sample, transcript)
 
 
 @dataclass
@@ -592,22 +622,24 @@ class NarrateExecutor(Executor):
         ops = d.ops(job.job_id)
         scenes = job.storyboard.scenes
         async with ops.op(OpKind.step, "Narrate", step=self.id) as step:
-            if job.request.naturalistic and job.request.narration and d.narrator is None:
+            narrator = await resolve_narrator(d, job) if job.request.narration else None
+            if job.request.naturalistic and job.request.narration and narrator is None:
                 raise SpeechError("Naturalistic narration requires a configured Speech endpoint, "
                                   "or disable narration")
-            if not job.request.narration or d.narrator is None:
+            if not job.request.narration or narrator is None:
                 job.narrations = [None] * len(scenes)
                 step.skip("Narration disabled" if not job.request.narration
                           else "No Azure AI Speech endpoint configured")
             else:
                 await d.progress(job.job_id, JobStatus.narrating)
                 language = job.storyboard.brief.narration_language or "en-US"
-                step.update(voice=job.request.voice or d.settings.tts_voice, language=language)
+                voice_name = getattr(narrator, "voice_id", None) or job.request.voice or d.settings.tts_voice
+                step.update(voice=voice_name, language=language)
                 names = [c.name for c in job.storyboard.brief.characters]
                 reused = 0
                 delivery = job.request.delivery or NarrationDelivery()
-                if job.request.naturalistic and any(s.narration.strip() for s in scenes):
-                    await d.narrator.validate(job.request.voice, language, delivery)
+                if (job.request.naturalistic or job.request.voice_clone) and any(s.narration.strip() for s in scenes):
+                    await narrator.validate(job.request.voice, language, delivery)
 
                 async def one(i: int, scene: Scene) -> Path | None:
                     nonlocal reused
@@ -620,9 +652,9 @@ class NarrateExecutor(Executor):
                             return None
                         if job.request.naturalistic:
                             local, accepted, seconds, was_reused = await fit_narration(
-                                team=d.team, narrator=d.narrator, store=d.store, job_id=job.job_id,
+                                team=d.team, narrator=narrator, store=d.store, job_id=job.job_id,
                                 work_dir=job.work_dir, scene_index=i, text=text,
-                                brief=job.storyboard.brief, voice=job.request.voice or d.settings.tts_voice,
+                                brief=job.storyboard.brief, voice=voice_name,
                                 delivery=delivery, budget=len(scene.shots) * job.clip_budget(d.settings.output_fps),
                             )
                             scene.narration = accepted
@@ -637,8 +669,8 @@ class NarrateExecutor(Executor):
                             op.reuse()
                             reused += 1
                         else:
-                            await d.narrator.synthesize(text, local, voice=job.request.voice,
-                                                        language=language)
+                            await narrator.synthesize(text, local, voice=job.request.voice,
+                                                      language=language)
                             await d.store.upload(job.job_id, narration_name(i), local)
                         return local
 
