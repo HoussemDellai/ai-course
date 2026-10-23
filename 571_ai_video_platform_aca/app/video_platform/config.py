@@ -37,7 +37,7 @@ class Settings:
     music_fade_seconds: float = 1.0
     output_fps: int = 24
     max_image_mb: int = 50
-    max_document_mb: int = 50
+    max_document_mb: int = 100
     libreoffice_path: str = "soffice"
     education_text_models: list[str] = field(default_factory=list)
     education_search_model: str = ""
@@ -78,7 +78,7 @@ class Settings:
             music_volume=float(e("MUSIC_VOLUME", "0.3")),
             music_fade_seconds=float(e("MUSIC_FADE_SECONDS", "1.0")),
             max_image_mb=int(e("MAX_IMAGE_MB", "50")),
-            max_document_mb=int(e("MAX_DOCUMENT_MB", "50")),
+            max_document_mb=int(e("MAX_DOCUMENT_MB", "100")),
             libreoffice_path=e("LIBREOFFICE_PATH", "soffice"),
             education_text_models=_list(e("EDUCATION_TEXT_MODELS", "")),
             education_search_model=e("EDUCATION_SEARCH_MODEL", ""),

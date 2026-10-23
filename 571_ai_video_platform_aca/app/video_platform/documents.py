@@ -103,8 +103,8 @@ def powerpoint_pages(data: bytes) -> list[DocumentPage]:
     try:
         with ZipFile(BytesIO(data)) as archive:
             files = archive.infolist()
-            if len(files) > 5000 or sum(f.file_size for f in files) > 200 * 1024 * 1024:
-                raise DocumentError("PowerPoint expanded content exceeds the 200 MB / 5,000-entry limit", 413)
+            if len(files) > 5000 or sum(f.file_size for f in files) > 500 * 1024 * 1024:
+                raise DocumentError("PowerPoint expanded content exceeds the 500 MB / 5,000-entry limit", 413)
             if any(f.flag_bits & 1 for f in files):
                 raise DocumentError("Encrypted PowerPoint files are not supported")
             if "ppt/presentation.xml" not in archive.namelist():
