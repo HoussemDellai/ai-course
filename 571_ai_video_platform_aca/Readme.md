@@ -100,8 +100,8 @@ API: set `"document": {"language": "en-US", "cinematic_cutaways": true}` and opt
 
 Limits and fidelity:
 
-- One file, up to `MAX_DOCUMENT_MB` (default 50 MB), and 1–60 pages/slides.
-  PowerPoint packages are limited to 200 MB expanded content and 5,000 ZIP entries.
+- One file, up to `MAX_DOCUMENT_MB` (default 100 MB), and 1–60 pages/slides.
+  PowerPoint packages are limited to 500 MB expanded content and 5,000 ZIP entries.
 - Modern `.pptx` is supported; legacy `.ppt` must first be saved as `.pptx` or PDF.
   Encrypted, malformed, macro-bearing, embedded OLE/ActiveX, and externally linked
   media/object presentations are rejected. Ordinary hyperlinks are allowed.
