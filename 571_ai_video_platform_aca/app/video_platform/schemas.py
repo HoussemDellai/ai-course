@@ -279,6 +279,36 @@ class VideoRequest(BaseModel):
         return self
 
 
+class VideoVariant(BaseModel):
+    """Explicit model/voice pair; all other options and uploads come from the shared request."""
+
+    model_config = ConfigDict(extra="forbid")
+    video_model: str = Field(min_length=1)
+    voice: str | None = None
+    voice_clone: VoiceCloneOptions | None = None
+
+
+class VideoBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request: VideoRequest
+    variants: list[VideoVariant] = Field(min_length=2, max_length=12)
+    execution: Literal["sequential", "auto"] = "sequential"
+
+    def requests(self) -> list[VideoRequest]:
+        return [
+            VideoRequest.model_validate({**self.request.model_dump(), **variant.model_dump()})
+            for variant in self.variants
+        ]
+
+
+class BatchMembership(BaseModel):
+    id: str
+    index: int
+    total: int
+    concurrency: int
+    previous_job_id: str | None = None
+
+
 class JobStatus(str, Enum):
     queued = "queued"
     researching = "researching"
@@ -303,6 +333,7 @@ class JobState(BaseModel):
     id: str
     status: JobStatus = JobStatus.queued
     request: VideoRequest
+    batch: BatchMembership | None = Field(default=None, exclude_if=lambda value: value is None)
     title: str | None = None
     clips_total: int = 0
     clips_done: int = 0
@@ -315,3 +346,11 @@ class JobState(BaseModel):
     @property
     def is_finished(self) -> bool:
         return self.status in (JobStatus.completed, JobStatus.failed)
+
+
+class VideoBatchState(BaseModel):
+    id: str
+    execution: Literal["sequential", "auto"]
+    concurrency: int
+    scheduling_note: str
+    jobs: list[JobState]

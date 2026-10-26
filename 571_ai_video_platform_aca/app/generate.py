@@ -20,7 +20,7 @@ from video_platform.api import create_services
 from video_platform.config import Settings
 from video_platform.images import sanitize_image
 from video_platform.jobs import JobManager
-from video_platform.schemas import NarrationDelivery, Pronunciation, VideoRequest, VoiceCloneOptions
+from video_platform.schemas import NarrationDelivery, Pronunciation, VideoBatchRequest, VideoRequest, VoiceCloneOptions
 from video_platform.education_schemas import DraftUpdate, EducationOptions
 from video_platform.document_schemas import DocumentOptions
 from video_platform.documents import validate_document
@@ -54,6 +54,9 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
                    help="Educational music placement (MiniMax-Music3); default: intro_outro")
     p.add_argument("--minutes", type=float, default=5.0)
     p.add_argument("--model", default=None, help="wan22, ltx2, ltx25 or hunyuan15")
+    p.add_argument("--variants", type=Path, help="JSON file containing 2-12 explicit video/voice variant objects")
+    p.add_argument("--batch-execution", choices=["sequential", "auto"], default="sequential",
+                   help="With --variants: sequential by default; auto uses independent video GPUs when safe")
     p.add_argument("--no-narration", action="store_true")
     p.add_argument("--naturalistic", action="store_true", help="opt in to continuity, measured narration and audio mixing")
     p.add_argument("--music", action="store_true", help="instrumental background music per scene (MiniMax-Music3)")
@@ -141,6 +144,21 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     ), args.document if args.use_case == "document" else args.image
 
 
+def parse_batch_request(argv: list[str], request: VideoRequest) -> VideoBatchRequest | None:
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--variants", type=Path)
+    p.add_argument("--batch-execution", choices=["sequential", "auto"], default="sequential")
+    args = p.parse_known_args(argv)[0]
+    if args.variants is None:
+        if args.batch_execution != "sequential":
+            p.error("--batch-execution requires --variants")
+        return None
+    batch = VideoBatchRequest(request=request, execution=args.batch_execution,
+                              variants=json.loads(args.variants.read_text(encoding="utf-8")))
+    batch.requests()  # validate overrides before opening service clients
+    return batch
+
+
 def parse_review_command(argv: list[str]) -> argparse.Namespace:
     """Review persisted jobs through the running API, including Blob-backed jobs."""
     p = argparse.ArgumentParser(description="Review an educational job; no automatic approval.")
@@ -201,6 +219,7 @@ async def main(argv: list[str] | None = None) -> None:
         await asyncio.to_thread(review_command, parse_review_command(argv))
         return
     request, input_path = parse_request(argv)
+    batch = parse_batch_request(argv, request)
     settings = Settings.from_env()
     document = None
     image = None
@@ -222,6 +241,22 @@ async def main(argv: list[str] | None = None) -> None:
             voice_sample = await validate_voice_sample(sample_path.read_bytes(), sample_path.name,
                                                        settings.max_voice_sample_bytes)
         extra = {"voice_sample": voice_sample} if voice_sample is not None else {}
+        if batch is not None:
+            result = await manager.create_batch(batch, image=image, document=document, **extra)
+            print(f"Batch {result.id}: {result.scheduling_note}")
+            try:
+                for state in result.jobs:
+                    print(f"Variant {state.batch.index + 1}: job {state.id}")
+                    await manager.wait(state.id)
+                    finished = await manager.get(state.id)
+                    if finished.status == "awaiting_review":
+                        print(f"awaiting_review: job {state.id}, revision {finished.draft_revision}. "
+                              "Start the API with the same storage to review each variant and resume the batch.")
+                        break
+                print((await manager.get_batch(result.id)).model_dump_json(indent=2))
+            finally:
+                await manager.shutdown()
+            return
         state = await manager.create(request, image=image, document=document, **extra)
         print(f"Job {state.id} started")
         await manager.wait(state.id)

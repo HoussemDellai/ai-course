@@ -9,6 +9,84 @@ The `555_comfyui_on_aca` folder is a read-only reference, never a deployment dep
 CPU/RAM sizing and real A100 workflow compatibility require profiling before deployment;
 local regression tests are not proof of live GPU compatibility.
 
+## Generate multiple video / voice model variants
+
+Enable **Generate multiple model variants** in the web composer. Add **2-12 explicit rows**,
+each choosing a video model and either an Azure Speech voice or a voice-cloning engine.
+Every row produces its own video, progress stream, operations, retry action and download.
+Rows share the prompt, duration, formatting, other options, uploads and one seed; creative
+planning runs independently, so this is not a frame-for-frame benchmark.
+The sidebar labels each variant's video/voice pair; each video links to its batch siblings.
+Single-video creation is unchanged when the option is off.
+
+This works for cinematic, educational and PowerPoint/PDF videos. Video-model choices affect
+generated motion (including document cinematic cutaways), not original document pages,
+presentation illustrations or Foundry-hosted motion. A document without cutaways can still
+compare different voices, but changing its video model does not change its page visuals.
+For cloned variants, choose the engine **per row**, then upload one shared voice sample and
+confirm consent in **Voice and delivery**. Only cloned variants receive the voice sample;
+Azure variants use their own optional voice short name or the configured default.
+Cloning language, license, memory and delivery restrictions below still apply.
+
+**Scheduling**
+
+- **Sequential** is the default: each variant finishes before the next begins. A failed
+  variant is reported as failed and does not prevent later variants from running.
+- Each educational variant pauses for its **own explicit approval**. A sequential batch
+  waits for that variant to be approved and completed before planning the next.
+- **Automatic** parallelism is opt-in and limited to
+  `min(MAX_CONCURRENT_JOBS, number of distinct COMFYUI_URLS, number of variants)`.
+  The URLs must address **independent GPU workers**, not aliases or a load-balanced URL for
+  the same worker. With one worker or `MAX_CONCURRENT_JOBS=1`, execution remains sequential.
+  Existing per-worker exclusion still allows only one render per worker, even when
+  overlapping videos each have several clips. Live worker availability is not inferred
+  from GPU-count telemetry; an unavailable configured worker fails normally rather than
+  silently dropping a variant.
+- Batches containing **any cloned voices stay sequential**, even in automatic mode.
+  The current single voice-clone service loads one engine at a time; concurrently loading
+  different voice models would evict one another. Parallel voice-model generation would
+  require independently routed voice GPU services, which this feature does not provision.
+- Batch membership, ordering, inputs and seed are persisted. Restarts recover queued work;
+  renewable per-lane leases prevent replicas/retries from overlapping a sequential batch.
+  Reduced worker/job capacity on restart also reduces batch execution concurrency.
+  Retrying a failed variant retains its batch membership and waits for its lane.
+
+**API:** `POST /api/video-batches` accepts JSON or the existing multipart fields (`request`,
+optional `image`, optional `voice_sample`). The multipart `request` contains a
+`VideoBatchRequest` JSON object. For documents use `POST /api/video-batches/document` with
+`request`, `document` and optional `voice_sample`. The shared request uses existing
+`VideoRequest` options; each variant **replaces** its video model, Azure voice and cloning
+options (omitted voice/cloning options mean the configured Azure voice, not inheritance).
+All variants are validated before any job starts.
+
+```json
+{
+  "request": {
+    "prompt": "A short documentary about a lighthouse",
+    "duration_minutes": 0.25
+  },
+  "execution": "sequential",
+  "variants": [
+    {"video_model": "wan22", "voice": "en-US-AndrewMultilingualNeural"},
+    {"video_model": "ltx25", "voice_clone": {"model": "chatterbox", "consent": true}}
+  ]
+}
+```
+
+This mixed example requires a multipart `voice_sample`. JSON-only requests work when all
+variants use Azure Speech (or no narration). A successful response is HTTP 202 with
+`id`, requested `execution`, effective `concurrency`, `scheduling_note` and `jobs`.
+`GET /api/video-batches/{id}` returns the persisted batch with current child job states.
+Each child uses the existing `/api/videos/{job_id}` progress, review, retry and media APIs.
+`GET /api/config` exposes the batch limit and configured parallel capacity.
+
+**CLI:** save the `variants` array above to a local JSON file and pass
+`python generate.py "A lighthouse documentary" --minutes 0.25 --variants variants.json`.
+For that mixed example also pass `--voice-sample me.wav --voice-consent`.
+Add `--batch-execution auto` to request safe parallelism; existing `--use-case`, document,
+education and voice-sample flags still apply. Educational CLI batches stop at the first
+review and print how to resume through the API using the same storage configuration.
+
 ## Optional voice cloning (zero-shot TTS)
 
 Every use case (cinematic, educational and PowerPoint/PDF) can speak its narration in a voice cloned

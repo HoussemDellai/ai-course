@@ -14,7 +14,7 @@ from video_platform import media
 from video_platform.api import create_app
 from video_platform.config import Settings
 from video_platform.jobs import JobManager
-from video_platform.schemas import JobStatus, NarrationDelivery, Pronunciation, VideoRequest, VoiceCloneOptions
+from video_platform.schemas import JobStatus, NarrationDelivery, Pronunciation, VideoBatchRequest, VideoRequest, VoiceCloneOptions
 from video_platform.speech import SpeechError
 from video_platform.storage import LocalArtifactStore
 from video_platform.video_models import VIDEO_MODELS
@@ -199,6 +199,50 @@ class FakeCloner:
 
     async def aclose(self):
         pass
+
+
+@requires_ffmpeg
+async def test_batch_uses_each_video_and_voice_model(tmp_path, monkeypatch):
+    from fakes import FakeComfy, tiny_model
+    from video_platform.video_models import RESOLUTIONS
+
+    monkeypatch.setitem(RESOLUTIONS, "720p", (320, 180))
+    for key in ("wan22", "hunyuan15"):
+        monkeypatch.setitem(VIDEO_MODELS, key, tiny_model(VIDEO_MODELS[key], frames=16, fps=16))
+    settings = Settings(local_output_dir=tmp_path / "out", work_dir=tmp_path / "work",
+                        output_fps=12, clip_retries=0, voice_clone_url="http://clone")
+    store = LocalArtifactStore(settings.local_output_dir)
+    pool = FakeComfy(make_clip(tmp_path / "clip.mp4", 1, 16, 320, 176, audio=False)).pool()
+    cloner, azure = FakeCloner(), FakeNarrator(3)
+
+    def factory(manager):
+        return build_video_workflow(PipelineDeps(
+            settings=settings, team=FakeTeam(), comfy=pool, narrator=azure, store=store,
+            progress=manager.progress, ops=manager.recorder, cloner=cloner,
+        ))
+
+    manager = JobManager(settings, store, factory)
+    sample = make_wav(tmp_path / "sample.wav", 4).read_bytes()
+    batch = await manager.create_batch(VideoBatchRequest(
+        request=VideoRequest(prompt="A lighthouse keeper", duration_minutes=0.25),
+        variants=[{"video_model": key, "voice_clone": {"model": voice, "consent": True,
+                                                      "sample_transcript": "A voice sample"}}
+                  for key, voice in [("wan22", "chatterbox"), ("hunyuan15", "qwen3-tts")]],
+    ), voice_sample=sample)
+    try:
+        for state in batch.jobs:
+            await asyncio.wait_for(manager.wait(state.id), 120)
+            final = await manager.get(state.id)
+            assert final.status == JobStatus.completed, final.error
+            storyboard = json.loads(store.path(state.id, "storyboard.json").read_text())
+            assert storyboard["video_model"] == state.request.video_model
+            assert (await media.probe(store.path(state.id, "final.mp4")))[1]
+        assert [c["model"] for c in cloner.calls] == ["chatterbox"] * 2 + ["qwen3-tts"] * 2
+        assert all(c["sample"] == sample for c in cloner.calls)
+        assert azure.texts == []
+    finally:
+        await manager.shutdown()
+        await pool.aclose()
 
 
 @requires_ffmpeg

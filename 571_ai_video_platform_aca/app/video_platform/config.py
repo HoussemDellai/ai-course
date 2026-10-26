@@ -97,6 +97,11 @@ class Settings:
         )
 
     @property
+    def batch_parallel_capacity(self) -> int:
+        workers = len({url.strip().rstrip("/") for url in self.comfyui_urls if url.strip()})
+        return max(1, min(self.max_concurrent_jobs, workers))
+
+    @property
     def max_voice_sample_bytes(self) -> int:
         return self.max_voice_sample_mb * 1024 * 1024
 

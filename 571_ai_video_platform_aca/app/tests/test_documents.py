@@ -27,7 +27,7 @@ from video_platform.documents import (
     DocumentError, FoundryDocumentTeam, build_document_workflow, pdf_pages, powerpoint_pages, validate_document,
 )
 from video_platform.jobs import JobManager
-from video_platform.schemas import JobStatus, ShotPrompt, VideoRequest
+from video_platform.schemas import JobStatus, ShotPrompt, VideoBatchRequest, VideoRequest
 from video_platform.storage import LocalArtifactStore, read_json
 from video_platform.video_models import RESOLUTIONS
 from video_platform.workflow import PipelineDeps
@@ -108,6 +108,28 @@ def setup(tmp_path, monkeypatch):
 def request(**kwargs):
     return VideoRequest(prompt="Explain this document to a beginner", use_case="document",
                         duration_minutes=0.25, **kwargs)
+
+
+@requires_ffmpeg
+async def test_document_batch_produces_independent_narrated_videos(setup):
+    settings, store, _, _, factory, close = setup
+    manager = JobManager(settings, store, factory)
+    upload = validate_document(make_pdf(), "slides.pdf", settings.max_document_bytes)
+    batch = await manager.create_batch(VideoBatchRequest(request=request(), variants=[
+        {"video_model": "wan22", "voice": "voice-one"}, {"video_model": "ltx25", "voice": "voice-two"},
+    ]), document=upload)
+    try:
+        for state in batch.jobs:
+            await asyncio.wait_for(manager.wait(state.id), 90)
+            final = await manager.get(state.id)
+            assert final.status == JobStatus.completed, final.error
+            assert store.path(state.id, upload.key).read_bytes() == make_pdf()
+            duration, audio = await media.probe(store.path(state.id, "final.mp4"))
+            assert audio and duration > 4
+            assert await store.exists(state.id, "document/script.json")
+    finally:
+        await manager.shutdown()
+        await close()
 
 
 def test_document_schema_defaults_and_mode_guards():
