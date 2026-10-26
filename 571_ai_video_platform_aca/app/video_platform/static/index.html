@@ -313,7 +313,9 @@
             <legend>PowerPoint / PDF to narrated video</legend>
             <p class="muted">Preserves every slide/page in order, fitted without cropping. Narration uses extracted text
               and PowerPoint speaker notes. Document content goes to the configured text and Speech services, never web search.
-              Generation starts immediately; no educational review step. Scanned/image-only pages need text or speaker notes.</p>
+              Each page takes the time its narration needs, without equal scene lengths or target-duration padding
+              (up to 10 minutes total). Generation starts immediately; no educational review step.
+              Scanned/image-only pages need text or speaker notes.</p>
             <label for="documentInput">PowerPoint (.pptx) or PDF (.pdf) file</label>
             <input class="input" id="documentInput" type="file" accept=".pptx,.pdf" required>
             <label for="documentLanguage">Narration language locale</label>
@@ -339,7 +341,7 @@
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="3.5" width="9" height="9" rx="1.5"/><path d="M10.5 7 14.5 4.5v7L10.5 9"/></svg>
               <select id="model" aria-label="Video model"></select>
             </label>
-            <label class="pill" title="Duration in minutes">
+            <label class="pill" id="durationPill" title="Duration in minutes">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
               <input id="duration" type="number" min="0.25" max="10" step="0.25" value="5" aria-label="Duration in minutes"> min
             </label>
@@ -769,7 +771,7 @@
         const animated = $("documentAnimations").checked ? " Pages are animated with a gentle zoom and fades." : "";
         $("license").textContent = $("documentCinematic").checked
           ? "Original pages with 5-second GPU cinematic cutaways every 30 seconds. Narration stays continuous; no generated clip audio or music. Model license applies." + animated
-          : "Original pages, no GPU generation or music. Target duration may extend to fit the full narration, up to 10 minutes. PowerPoint animations become static slides; fonts may be substituted." + animated;
+          : "Original pages, no GPU generation or music. Each page follows its own narration length, without equal scene lengths or target-duration padding, up to 10 minutes total. PowerPoint animations become static slides; fonts may be substituted." + animated;
         return;
       }
       if ($("useCase").value === "educational") {
@@ -845,6 +847,11 @@
       $("educationControls").hidden = !educational; $("educationControls").disabled = !educational;
       $("documentControls").hidden = !document; $("documentControls").disabled = !document;
       $("documentInput").disabled = !document;
+      $("duration").disabled = document;
+      $("durationPill").classList.toggle("off", document);
+      $("durationPill").title = document
+        ? "Automatic: each page follows its narration length; no target-duration padding (up to 10 minutes total)"
+        : "Duration in minutes";
       $("resolution").querySelector('[value="720p"]').disabled = educational;
       for (const id of ["image", "naturalistic", "music", "narration"]) $(id).disabled = presentation;
       $("attachBtn").hidden = presentation;
@@ -892,6 +899,7 @@
           if (/\.pptx$/i.test(file.name) && !documentConfig.powerpoint_configured)
             throw new Error("PowerPoint rendering requires LibreOffice on the server. Export to PDF or configure LibreOffice.");
           body.use_case = "document"; body.narration = true; body.naturalistic = false; body.music = false;
+          delete body.duration_minutes;
           body.upscaler = "ffmpeg"; body.video_model = $("documentCinematic").checked ? body.video_model : null;
           body.document = {language: $("documentLanguage").value.trim(),
             cinematic_cutaways: $("documentCinematic").checked, animations: $("documentAnimations").checked};
@@ -1470,7 +1478,7 @@
           ${job.request.use_case !== "cinematic" && progressText(job) ? `<span>${esc(progressText(job))}</span>` : ""}
           <span>${esc(job.request.use_case === "document" ? `Document · ${job.request.document.filename}` : job.request.use_case === "educational" ? `Educational · ${job.request.education.style} · ${job.request.education.image_provider}` : model ? model.name : job.request.video_model)}</span>
           <span>·</span><span>${esc(formatText(job.request))}</span>
-          <span>·</span><span>${esc(job.request.duration_minutes)} min</span>
+          <span>·</span><span>${job.request.use_case === "document" ? "Narration-paced pages" : `${esc(job.request.duration_minutes)} min`}</span>
           ${job.duration_seconds ? `<span>·</span><span>${esc(fmtDur(job.duration_seconds))} rendered</span>` : ""}
           <span>·</span><span title="${esc(new Date(job.created_at).toLocaleString())}">${esc(ago(job.created_at))}</span>
           <span>·</span><code>${esc(job.id)}</code>
@@ -1493,7 +1501,7 @@
           ${job.request.document?.animations ? `<span class="chip"><span class="k">animations</span>zoom · fade</span>` : ""}
           ${job.request.document?.cinematic_cutaways ? `<span class="chip"><span class="k">cinematic cutaways</span>5s every 30s · ${esc(job.request.video_model)}</span>` : ""}
           <span class="chip"><span class="k">format</span>${esc(formatText(job.request))}</span>
-          <span class="chip"><span class="k">duration</span>${esc(job.request.duration_minutes)} min</span>
+          <span class="chip"><span class="k">duration</span>${job.request.use_case === "document" ? "per-page narration" : `${esc(job.request.duration_minutes)} min`}</span>
           <span class="chip"><span class="k">narration</span>${job.request.narration ? "on" : "off"}</span>
           ${job.request.music ? `<span class="chip"><span class="k">music</span>MiniMax-Music3</span>` : ""}
           ${job.request.education ? `<span class="chip"><span class="k">music</span>${esc(job.request.education.music_mode)} · MiniMax-Music3</span>` : ""}

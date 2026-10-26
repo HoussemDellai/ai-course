@@ -52,7 +52,8 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     p.add_argument("--audience", default=None)
     p.add_argument("--music-mode", choices=["off", "intro_outro", "background"], default=None,
                    help="Educational music placement (MiniMax-Music3); default: intro_outro")
-    p.add_argument("--minutes", type=float, default=5.0)
+    p.add_argument("--minutes", type=float, default=5.0,
+                   help="Target duration for cinematic/educational videos; document pages follow their narration")
     p.add_argument("--model", default=None, help="wan22, ltx2, ltx25 or hunyuan15")
     p.add_argument("--variants", type=Path, help="JSON file containing 2-12 explicit video/voice variant objects")
     p.add_argument("--batch-execution", choices=["sequential", "auto"], default="sequential",

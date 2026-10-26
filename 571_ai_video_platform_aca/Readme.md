@@ -140,6 +140,19 @@ Document content is processed by the configured text model and Azure Speech serv
 only upload files you are authorized to process. Unlike the educational scenario below,
 **document jobs render immediately, without an approval step**.
 
+### Content-driven page timing
+
+Each slide/page gets as much narration as its content needs: a title slide can be brief
+and a detailed slide can take longer. Narration is not written to equal per-page time
+budgets. Each page stays on screen for its measured speech plus the existing one-second
+lead/tail allowance, rounded up to a video frame. Short pages are not padded to reach a
+requested total, and speech is never truncated or sped up to equalize scenes.
+The duration control is disabled for documents; API `duration_minutes` and CLI `--minutes`
+remain accepted for compatibility but do not control new document timelines.
+The total is still limited to 10 minutes. Existing persisted jobs retain their original
+timing policy on resume/retry so completed page assets are not mixed with a new timeline.
+The same automatic timing applies to each document variant in a multi-model batch.
+
 ### Optional page animations
 
 Enable **Animate pages: gentle zoom and fade between pages** to add motion to PDF or
@@ -194,9 +207,9 @@ Limits and fidelity:
 - Animations, transitions and embedded audio/video are not played: slides become static
   images, including hidden slides. Fonts may be substituted by the server; PDF input
   offers more predictable visual fidelity. 4K output cannot restore missing source detail.
-- The duration is a target, not a narration cutoff. Speech is synthesized through the
-  existing REST transport, measured, and given a one-second lead/tail allowance per page.
-  The complete timeline is frame-aligned and may extend to fit the voice, but never
+- Speech is synthesized through the existing REST transport, measured, and given a
+  one-second lead/tail allowance per page. Each page follows its own speech length,
+  without equal time budgets or padding to a requested total. The complete timeline is frame-aligned, but never
   beyond 10 minutes. Overlong narration fails before video rendering; it is never
   truncated or accelerated. Voice and delivery controls work as for educational narration.
 
@@ -205,7 +218,7 @@ Limits and fidelity:
 Run from `app`, with the configured text model, Speech endpoint and storage:
 
 ```powershell
-python generate.py "Explain these slides to new engineers" --use-case document --document "C:\slides\training.pptx" --minutes 2
+python generate.py "Explain these slides to new engineers" --use-case document --document "C:\slides\training.pptx"
 python generate.py "Summarize each page clearly" --use-case document --document "C:\slides\guide.pdf" --language en-US --voice en-US-AndrewMultilingualNeural --resolution 1080p
 ```
 
