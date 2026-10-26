@@ -19,6 +19,7 @@ const elements = new Map();
 const el = id => {
   if (!elements.has(id)) elements.set(id, {
     value: "", disabled: false, checked: false, querySelector() {return {}},
+    classList: {toggle() {}},
   });
   return elements.get(id);
 };

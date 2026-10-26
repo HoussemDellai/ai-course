@@ -191,7 +191,11 @@ class VideoRequest(BaseModel):
     education: EducationOptions | None = None
     document: DocumentOptions | None = Field(default=None, exclude_if=lambda value: value is None)
     prompt: str = Field(min_length=3, max_length=4000)
-    duration_minutes: float = Field(default=5.0, ge=0.25, le=10.0)
+    duration_minutes: float = Field(
+        default=5.0, ge=0.25, le=10.0,
+        description="Requested duration for cinematic/educational videos. New document videos use each page's "
+                    "measured narration instead; this value does not pad or equalize document pages.",
+    )
     video_model: str | None = Field(default=None, description="wan22, ltx2, ltx25 or hunyuan15")
     narration: bool = True
     voice: str | None = None

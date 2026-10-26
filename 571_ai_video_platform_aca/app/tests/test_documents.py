@@ -28,7 +28,7 @@ from video_platform.documents import (
 )
 from video_platform.jobs import JobManager
 from video_platform.schemas import JobStatus, ShotPrompt, VideoBatchRequest, VideoRequest
-from video_platform.storage import LocalArtifactStore, read_json
+from video_platform.storage import LocalArtifactStore, read_json, write_json
 from video_platform.video_models import RESOLUTIONS
 from video_platform.workflow import PipelineDeps
 
@@ -74,7 +74,7 @@ class DocumentTeam:
     def __init__(self):
         self.pages = []
 
-    async def narrate(self, page, prompt, language, seconds):
+    async def narrate(self, page, prompt, language, seconds=None):
         self.pages.append((page, prompt, language, seconds))
         return PageNarration(title=f"Page {page.number}", narration=f"An explanation of page {page.number}.")
 
@@ -260,7 +260,7 @@ async def test_document_pipeline_preserves_pages_voice_timing_and_retries(setup,
     final = store.path(state.id, "final.mp4")
     assert await media.video_size(final) == ((160, 90) if orientation == "horizontal" else (90, 160))
     seconds, has_audio = await media.probe(final)
-    assert has_audio and abs(seconds - 15) < 0.1
+    assert has_audio and abs(seconds - 6.5) < 0.1
     levels = subprocess.run(
         ["ffmpeg", "-i", str(final), "-af", "volumedetect", "-f", "null", "-"],
         capture_output=True, text=True, check=True,
@@ -268,8 +268,9 @@ async def test_document_pipeline_preserves_pages_voice_timing_and_retries(setup,
     assert "max_volume:" in levels.stderr and "max_volume: -inf" not in levels.stderr
     assert narrator.texts == ["An explanation of page 1.", "An explanation of page 2."]
     timing = await read_json(store, state.id, "document/timing.json")
-    assert timing["durations"] == [7.5, 7.5]
-    for i, stamp in enumerate([1, 9]):
+    assert timing["durations"] == [3.25, 3.25]
+    assert all(page[3] is None for page in team.pages), "No equal per-page writing budget"
+    for i, stamp in enumerate([1, 4]):
         frame = final.parent / f"check_{i}.png"
         await media.run("ffmpeg", "-y", "-ss", str(stamp), "-i", str(final), "-frames:v", "1", str(frame))
         with Image.open(frame) as image:
@@ -285,6 +286,129 @@ async def test_document_pipeline_preserves_pages_voice_timing_and_retries(setup,
     assert len(team.pages) == len(narrator.texts) == 2
     assert any(op.status == "reused" for op in await manager.operations(state.id))
     await manager.shutdown()
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize("kind", ["pdf", "pptx"])
+@pytest.mark.parametrize("animations", [False, True])
+async def test_document_scenes_follow_unequal_narration_not_requested_duration(setup, monkeypatch, kind, animations):
+    settings, store, team, narrator, factory, close = setup
+    if kind == "pptx":
+        async def convert(source, settings):
+            output = source.with_suffix(".pdf")
+            output.write_bytes(make_pdf())
+            return output
+        monkeypatch.setattr(documents, "convert_powerpoint", convert)
+        monkeypatch.setattr("video_platform.jobs.office_available", lambda settings: True)
+    original_synthesize = narrator.synthesize
+
+    async def unequal_audio(text, dest, **kwargs):
+        narrator.seconds = 1.25 if "page 1" in text else 4.5
+        return await original_synthesize(text, dest, **kwargs)
+
+    monkeypatch.setattr(narrator, "synthesize", unequal_audio)
+    req = request(document={"animations": animations}).model_copy(update={"duration_minutes": 5})
+    data = make_pptx() if kind == "pptx" else make_pdf()
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(req, document=validate_document(data, f"slides.{kind}", settings.max_document_bytes))
+    try:
+        await manager.wait(state.id)
+        finished = await manager.get(state.id)
+        assert finished.status == JobStatus.completed, finished.error
+        timing = await read_json(store, state.id, "document/timing.json")
+        assert timing["narration_seconds"] == [1.25, 4.5]
+        assert timing["durations"] == [2.25, 5.5]
+        assert timing["total_seconds"] == 7.75, "Do not pad a short document to its 300s request"
+        assert all(p[3] is None for p in team.pages), "Do not ask the model for equal-length scripts"
+        for i, expected in enumerate(timing["durations"]):
+            actual = await media.video_duration(store.path(state.id, f"scenes/scene_{i:03d}.mp4"))
+            assert abs(actual - expected) < 1 / settings.output_fps + 0.001
+        assert abs(await media.video_duration(store.path(state.id, "final.mp4")) - 7.75) < 0.01
+        manifest = await read_json(store, state.id, "document/dependencies.json")
+        assert manifest["timing_policy"] == "narration-v1"
+        await manager.progress(state.id, JobStatus.failed, error="Interrupted")
+        await manager.retry(state.id)
+        await manager.wait(state.id)
+        assert (await manager.get(state.id)).status == JobStatus.completed
+        assert (await read_json(store, state.id, "document/timing.json")) == timing
+        assert len(team.pages) == len(narrator.texts) == 2
+    finally:
+        await manager.shutdown()
+        await close()
+
+
+@requires_ffmpeg
+async def test_short_document_does_not_generate_cutaways_to_fill_requested_minutes(setup):
+    settings, store, _, _, factory, close = setup
+    manager = JobManager(settings, store, factory)
+    req = request(document={"cinematic_cutaways": True}).model_copy(update={"duration_minutes": 5})
+    state = await manager.create(req, document=validate_document(make_pdf(), "slides.pdf", 10000))
+    try:
+        await manager.wait(state.id)
+        final = await manager.get(state.id)
+        assert final.status == JobStatus.completed, final.error
+        assert final.duration_seconds == 6.5
+        assert not await store.exists(state.id, "document/cinematic/timing.json")
+        assert not await store.exists(state.id, "clips/shot_000.mp4")
+    finally:
+        await manager.shutdown()
+        await close()
+
+
+@requires_ffmpeg
+async def test_persisted_legacy_document_keeps_its_budgets_and_timeline(setup, monkeypatch):
+    settings, store, team, narrator, factory, close = setup
+    manager = JobManager(settings, store, factory)
+    # Mark the freshly written manifest like a pre-release job, then restart before planning.
+    original_write = documents.write_json
+
+    async def legacy_manifest(store, job_id, name, value):
+        if name == "document/dependencies.json":
+            await original_write(store, job_id, name, {"fingerprint": value["fingerprint"]})
+            raise RuntimeError("Simulated pre-release restart")
+        await original_write(store, job_id, name, value)
+
+    monkeypatch.setattr(documents, "write_json", legacy_manifest)
+    state = await manager.create(request(), document=validate_document(make_pdf(), "legacy.pdf", 10000))
+    await manager.wait(state.id)
+    assert (await manager.get(state.id)).status == JobStatus.failed
+    monkeypatch.setattr(documents, "write_json", original_write)
+    try:
+        for _ in range(2):
+            await manager.retry(state.id)
+            await manager.wait(state.id)
+            final = await manager.get(state.id)
+            assert final.status == JobStatus.completed, final.error
+            timing = await read_json(store, state.id, "document/timing.json")
+            assert timing["durations"] == [7.5, 7.5]
+            assert final.duration_seconds == 15
+            assert (await read_json(store, state.id, "document/dependencies.json")).keys() == {"fingerprint"}
+            await manager.progress(state.id, JobStatus.failed, error="Retry completed legacy assets")
+        assert [p[3] for p in team.pages] == [7.5, 7.5]
+        assert len(narrator.texts) == 2
+    finally:
+        await manager.shutdown()
+        await close()
+
+
+@requires_ffmpeg
+async def test_unknown_document_timing_policy_is_rejected_instead_of_reusing_assets(setup):
+    settings, store, _, _, factory, close = setup
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(request(), document=validate_document(make_pdf(), "slides.pdf", 10000))
+    try:
+        await manager.wait(state.id)
+        manifest = await read_json(store, state.id, "document/dependencies.json")
+        manifest["timing_policy"] = "unknown-policy"
+        await write_json(store, state.id, "document/dependencies.json", manifest)
+        await manager.progress(state.id, JobStatus.failed, error="Interrupted")
+        await manager.retry(state.id)
+        await manager.wait(state.id)
+        failed = await manager.get(state.id)
+        assert failed.status == JobStatus.failed and "dependencies changed" in failed.error
+    finally:
+        await manager.shutdown()
+        await close()
 
 
 @requires_ffmpeg
@@ -438,10 +562,14 @@ async def test_narration_team_is_grounded_and_has_no_search_tools(monkeypatch):
     monkeypatch.setattr(documents, "_run_structured", run)
     team = FoundryDocumentTeam(object())
     page = documents.DocumentPage(number=1, text="Facts", notes="Emphasize the key point")
-    result = await team.narrate(page, "Explain clearly", "en-US", 20)
+    result = await team.narrate(page, "Explain clearly", "en-US")
     assert result.narration == "A concise explanation."
     assert "tools" not in captured and "untrusted" in captured["instructions"]
     assert captured["payload"]["page"]["notes"] == page.notes
+    assert "seconds" not in captured["payload"]
+    assert "different narration lengths" in captured["instructions"]
+    await team.narrate(page, "Legacy retry", "en-US", 20)
+    assert captured["payload"]["seconds"] == 20
     shot = await team.cutaway([page], [result.narration], "Explain clearly", "Model-specific guidance")
     assert shot.prompt and captured["name"] == "document-cinematic-director"
     assert captured["payload"]["model_guide"] == "Model-specific guidance"
@@ -510,9 +638,9 @@ async def test_document_pipeline_with_animations(setup):
     assert finished.status == "completed", finished.error
     final = store.path(state.id, "final.mp4")
     seconds, has_audio = await media.probe(final)
-    assert has_audio and abs(seconds - 15) < 0.1
+    assert has_audio and abs(seconds - 6.5) < 0.1
     assert await media.video_size(final) == (160, 90)
-    for i, stamp in enumerate([3, 11]):
+    for i, stamp in enumerate([1.5, 4.75]):
         frame = final.parent / f"anim_{i}.png"
         await media.run("ffmpeg", "-y", "-ss", str(stamp), "-i", str(final), "-frames:v", "1", str(frame))
         with Image.open(frame) as image:
@@ -526,10 +654,17 @@ async def test_document_pipeline_with_animations(setup):
 @pytest.mark.parametrize("fail_first,fps,orientation", [
     (False, 24, "horizontal"), (True, 12, "horizontal"), (False, 24, "vertical"),
 ])
-async def test_cinematic_cutaways_exact_windows_voice_and_retry(setup, fail_first, fps, orientation):
+async def test_cinematic_cutaways_exact_windows_voice_and_retry(setup, monkeypatch, fail_first, fps, orientation):
     settings, store, _, narrator, _, _ = setup
     settings = replace(settings, output_fps=fps)
     prompts, generations = [], []
+    synthesize = narrator.synthesize
+
+    async def unequal_audio(text, dest, **kwargs):
+        narrator.seconds = 30 if "page 1" in text else 33
+        return await synthesize(text, dest, **kwargs)
+
+    monkeypatch.setattr(narrator, "synthesize", unequal_audio)
 
     class Team(DocumentTeam):
         async def cutaway(self, pages, narration, prompt, guide):
@@ -559,8 +694,7 @@ async def test_cinematic_cutaways_exact_windows_voice_and_retry(setup, fail_firs
         ), team)
 
     manager = JobManager(settings, store, factory)
-    req = request(document={"cinematic_cutaways": True}, orientation=orientation).model_copy(
-        update={"duration_minutes": 65 / 60})
+    req = request(document={"cinematic_cutaways": True}, orientation=orientation)
     state = await manager.create(req, document=validate_document(make_pdf(), "deck.pdf", 10000))
     await manager.wait(state.id)
     if fail_first:
@@ -575,6 +709,7 @@ async def test_cinematic_cutaways_exact_windows_voice_and_retry(setup, fail_firs
     assert len(generations) == (3 if fail_first else 2)
     final, base = store.path(state.id, "final.mp4"), store.path(state.id, "document/base.mp4")
     assert await media.video_duration(final) == 65
+    assert (await read_json(store, state.id, "document/timing.json"))["durations"] == [31, 34]
     assert await media.video_size(final) == ((160, 90) if orientation == "horizontal" else (90, 160))
     for stamp, cinematic in [(29.75, False), (30, True), (34.75, True), (35, False),
                              (59.75, False), (60, True), (64.75, True)]:
