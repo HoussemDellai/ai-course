@@ -23,7 +23,7 @@ from video_platform.education_schemas import (
     TechnicalDiagram,
 )
 from video_platform.jobs import JobManager, ReviewConflict
-from video_platform.schemas import JobStatus, VideoRequest
+from video_platform.schemas import JobStatus, VideoBatchRequest, VideoRequest
 from video_platform.storage import LocalArtifactStore, read_json
 from video_platform.video_models import RESOLUTIONS, VIDEO_MODELS
 from video_platform.workflow import PipelineDeps
@@ -121,6 +121,33 @@ def request(**values):
         education={"public_topic": "Kubernetes Pods", "music_mode": "off"},
         **values,
     )
+
+
+@requires_ffmpeg
+async def test_sequential_education_batch_waits_for_each_review(setup):
+    settings, store, _, _, _, factory, close = setup
+    manager = JobManager(settings, store, factory)
+    batch = await manager.create_batch(VideoBatchRequest(request=request(), variants=[
+        {"video_model": "wan22"}, {"video_model": "ltx25"},
+    ]))
+    try:
+        for index, state in enumerate(batch.jobs):
+            await asyncio.wait_for(manager.wait(state.id), 90)
+            paused = await manager.get(state.id)
+            assert paused.status == JobStatus.awaiting_review
+            assert not await store.exists(state.id, "final.mp4")
+            if index == 0:
+                following = await manager.get(batch.jobs[1].id)
+                assert following.status == JobStatus.queued
+                assert not await store.exists(following.id, DRAFT)
+            await manager.review(state.id, paused.draft_revision, action="approve")
+            await asyncio.wait_for(manager.wait(state.id), 90)
+            final = await manager.get(state.id)
+            assert final.status == JobStatus.completed, final.error
+            assert (await media.probe(store.path(state.id, "final.mp4")))[1]
+    finally:
+        await manager.shutdown()
+        await close()
 
 
 def test_educational_defaults_and_validation():

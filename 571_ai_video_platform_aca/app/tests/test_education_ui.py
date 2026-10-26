@@ -22,7 +22,7 @@ const el = id => {
   });
   return elements.get(id);
 };
-const context = {$: el, setPhoto() {}, updateFormatControls() {}, updateDeliveryControls() {}};
+const context = {$: el, setPhoto() {}, updateFormatControls() {}, updateDeliveryControls() {}, renderVariants() {}};
 vm.createContext(context);
 vm.runInContext("let cinematicControls = null;\n" +
   source.slice(source.indexOf("    function updateEducationControls()"),

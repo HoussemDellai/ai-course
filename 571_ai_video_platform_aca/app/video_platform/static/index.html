@@ -378,6 +378,24 @@
               <span>Generate video</span>
             </button>
           </div>
+          <div style="padding: 12px">
+            <label class="pill"><input id="batchEnabled" type="checkbox"> Generate multiple model variants</label>
+            <fieldset class="education-controls" id="batchControls" hidden disabled>
+              <legend>Video and voice model pairs</legend>
+              <p class="muted small">Each row creates a separate video using the same prompt, options, uploads and seed.
+                Video models apply only to generated motion / cutaways, not original document pages or presentation illustrations.
+                Each educational variant requires its own review; sequential batches wait for approval and completion.</p>
+              <div id="variants"></div>
+              <button class="btn btn-sm" id="addVariant" type="button">Add variant</button>
+              <label for="batchExecution">Scheduling</label>
+              <select class="input" id="batchExecution">
+                <option value="sequential">Sequential (default)</option>
+                <option value="auto">Parallel when independent GPUs and job slots are configured</option>
+              </select>
+              <p class="muted small" id="batchNote">Cloned voices stay sequential because they share one GPU engine.
+                Choose cloning per row, then upload one shared voice sample and confirm consent under Voice and delivery.</p>
+            </fieldset>
+          </div>
           <details style="padding: 12px">
             <summary>Voice and delivery</summary>
             <label for="voice">Voice short name (blank uses the configured voice)</label>
@@ -388,7 +406,7 @@
                 <input id="cloneEnabled" type="checkbox"> Clone a voice from a sample
               </label>
               <div id="cloneFields" hidden>
-                <label for="cloneModel">Cloning model</label>
+                <label for="cloneModel" id="cloneModelLabel">Cloning model</label>
                 <select class="input" id="cloneModel" aria-label="Voice cloning model"></select>
                 <label for="cloneSample">Voice sample (.wav or .mp4, at least 3 seconds of clear speech)</label>
                 <input class="input" id="cloneSample" type="file" accept=".wav,.mp4,audio/wav,video/mp4">
@@ -537,6 +555,7 @@
 
     // ---------------------------------------------------------------- state
     let jobs = [], models = [];
+    let variants = [];
     let cur = null;                 // { id, job, ops: Map }
     let source = null, pollTimer = null, renderQueued = false, outcomeKey = "", userMsgKey = "";
     let outputs = new Map();        // artifact name -> { card, video, src } of the Outputs panel
@@ -668,6 +687,9 @@
         documentConfig = c.document || null;
         voiceCloneConfig = c.voice_clone || null;
         renderCloneControls();
+        renderVariants();
+        $("batchNote").textContent = `Automatic mode can overlap up to ${c.batch?.parallel_capacity || 1} variants.
+          Cloned voices stay sequential on the shared voice GPU. Choose cloning per row, then provide a shared sample and consent under Voice and delivery.`;
         $("documentCapabilities").textContent = documentConfig
           ? `Up to ${documentConfig.max_document_mb} MB and ${documentConfig.max_pages} pages. PDF rendering configured; PowerPoint ${documentConfig.powerpoint_configured ? "configured" : "requires LibreOffice"}; narration ${documentConfig.narration_configured ? "configured" : "missing"}.`
           : "Document capabilities are unavailable from this server.";
@@ -688,8 +710,60 @@
       if (!r.ok) return;
       models = await r.json();
       $("model").innerHTML = models.map(m => `<option value="${esc(m.key)}" ${m.default ? "selected" : ""}>${esc(m.name)}</option>`).join("");
+      renderVariants();
       showLicense();
     }
+    function usesCloning() {
+      return $("batchEnabled").checked ? variants.some(v => v.engine !== "azure") : $("cloneEnabled").checked;
+    }
+    function addVariant() {
+      if (variants.length >= 12) return;
+      const model = models[(models.findIndex(m => m.key === $("model").value) + variants.length + models.length) % models.length];
+      variants.push({video_model: model?.key || $("model").value,
+        engine: $("cloneEnabled").checked ? ($("cloneModel").value || "qwen3-tts") : "azure",
+        voice: $("voice").value.trim()});
+      renderVariants(); updateDeliveryControls();
+    }
+    function renderVariants() {
+      $("variants").innerHTML = variants.map((v, index) => `<fieldset>
+        <legend>Variant ${index + 1}</legend>
+        <label>Video model <select class="input" aria-label="Variant ${index + 1} video model" data-index="${index}" data-field="video_model" ${$("model").disabled ? "disabled" : ""}>
+          ${models.map(m => `<option value="${esc(m.key)}" ${m.key === v.video_model ? "selected" : ""}>${esc(m.name)} - ${esc(m.license)}</option>`).join("")}
+        </select></label>
+        <label>Voice engine <select class="input" aria-label="Variant ${index + 1} voice engine" data-index="${index}" data-field="engine">
+          <option value="azure" ${v.engine === "azure" ? "selected" : ""}>Azure Speech / configured voice</option>
+          ${(voiceCloneConfig?.models || []).map(m => `<option value="${esc(m.key)}" ${m.key === v.engine ? "selected" : ""} ${!voiceCloneConfig.configured || !$("narration").checked ? "disabled" : ""}>${esc(m.name)} - ${esc(m.license)}</option>`).join("")}
+        </select></label>
+        <label>Azure voice short name (blank uses configured voice)
+          <input class="input" aria-label="Variant ${index + 1} Azure voice" data-index="${index}" data-field="voice" value="${esc(v.voice)}" ${v.engine !== "azure" || !$("narration").checked ? "disabled" : ""}>
+        </label>
+        <button class="btn btn-sm" type="button" data-remove="${index}" ${variants.length <= 2 ? "disabled" : ""}>Remove variant</button>
+      </fieldset>`).join("");
+      $("addVariant").disabled = variants.length >= 12;
+    }
+    $("batchEnabled").onchange = () => {
+      $("batchControls").hidden = !$("batchEnabled").checked;
+      $("batchControls").disabled = !$("batchEnabled").checked;
+      if ($("batchEnabled").checked && variants.length === 0) { addVariant(); addVariant(); }
+      renderVariants(); updateDeliveryControls();
+    };
+    $("addVariant").onclick = addVariant;
+    $("variants").oninput = e => {
+      const {index, field} = e.target.dataset;
+      if (index !== undefined && field === "voice") variants[Number(index)].voice = e.target.value;
+    };
+    $("variants").onchange = e => {
+      const {index, field} = e.target.dataset;
+      if (index === undefined || !["video_model", "engine", "voice"].includes(field)) return;
+      variants[Number(index)][field] = e.target.value;
+      if (field === "engine") { renderVariants(); updateDeliveryControls(); }
+    };
+    $("variants").onclick = e => {
+      const button = e.target.closest("[data-remove]");
+      if (!button || variants.length <= 2) return;
+      variants.splice(Number(button.dataset.remove), 1);
+      renderVariants(); updateDeliveryControls();
+    };
     function showLicense() {
       if ($("useCase").value === "document") {
         const animated = $("documentAnimations").checked ? " Pages are animated with a gentle zoom and fades." : "";
@@ -725,9 +799,13 @@
     updateFormatControls();
     function updateDeliveryControls() {
       $("deliveryControls").disabled = !($("naturalistic").checked || ["educational", "document"].includes($("useCase").value)) || !$("narration").checked;
-      $("voice").disabled = !$("narration").checked || $("cloneEnabled").checked;
-      $("cloneEnabled").disabled = !$("narration").checked || !voiceCloneConfig?.configured;
-      $("cloneFields").hidden = !$("cloneEnabled").checked;
+      $("voice").disabled = !$("narration").checked || usesCloning() || $("batchEnabled").checked;
+      $("cloneEnabled").disabled = !$("narration").checked || !voiceCloneConfig?.configured || $("batchEnabled").checked;
+      $("cloneFields").hidden = !usesCloning();
+      $("cloneModel").disabled = $("batchEnabled").checked;
+      $("cloneModel").hidden = $("batchEnabled").checked;
+      $("cloneModelLabel").hidden = $("batchEnabled").checked;
+      showCloneNote();
     }
     function renderCloneControls() {
       $("cloneModel").innerHTML = (voiceCloneConfig?.models || []).map(m =>
@@ -739,12 +817,14 @@
       const m = (voiceCloneConfig?.models || []).find(m => m.key === $("cloneModel").value);
       $("cloneNote").textContent = !voiceCloneConfig?.configured
         ? "Voice cloning is not configured on this server."
+        : $("batchEnabled").checked
+        ? "The cloning engine and license are selected separately in each variant row above. All cloned variants use this shared sample and transcript. First use loads the engine on the GPU and can take several minutes; speaking style and rate are not supported."
         : m ? `Languages: ${Array.isArray(m.languages) ? m.languages.join(", ") : m.languages}. The first use of a model loads it on the GPU, which can take several minutes. Speaking style and rate are not supported; pronunciation hints and sentence pauses are.` : "";
     }
     $("cloneModel").onchange = showCloneNote;
     $("cloneEnabled").onchange = updateDeliveryControls;
     $("naturalistic").onchange = updateDeliveryControls;
-    $("narration").onchange = updateDeliveryControls;
+    $("narration").onchange = () => { renderVariants(); updateDeliveryControls(); };
     updateDeliveryControls();
     function updateEducationControls() {
       const educational = $("useCase").value === "educational";
@@ -771,6 +851,7 @@
       $("model").disabled = (document && !$("documentCinematic").checked) || (educational && ($("educationStyle").value === "presentation" || $("motionProvider").value !== "comfyui"));
       $("motionProvider").disabled = !educational || $("educationStyle").value === "presentation";
       updateFormatControls(); updateDeliveryControls();
+      renderVariants();
     }
     $("useCase").onchange = updateEducationControls;
     $("documentCinematic").onchange = updateEducationControls;
@@ -825,9 +906,10 @@
             style: $("speechStyle").value.trim() || null, pronunciations };
         }
         let voiceSample = null;
-        if ($("cloneEnabled").checked) {
+        if (usesCloning()) {
           voiceSample = $("cloneSample").files[0];
           if (!body.narration) throw new Error("Voice cloning requires narration.");
+          if (!voiceCloneConfig?.configured) throw new Error("Voice cloning is not configured on this server.");
           if (!voiceSample) throw new Error("Choose a voice sample (.wav or .mp4, at least 3 seconds).");
           if (!/\.(wav|mp4)$/i.test(voiceSample.name)) throw new Error("The voice sample must be a .wav or .mp4 file.");
           if (voiceSample.size > voiceCloneConfig.max_sample_mb * 1024 * 1024)
@@ -839,24 +921,32 @@
           body.voice_clone = { model: $("cloneModel").value, consent: true,
             sample_transcript: $("cloneTranscript").value.trim() || null };
         }
-        let opts = { method: "POST", body: JSON.stringify(body) };
+        const batching = $("batchEnabled").checked;
+        const payload = batching ? {request: body, execution: $("batchExecution").value || "sequential",
+          variants: variants.map(v => ({video_model: v.video_model || $("model").value,
+            voice: v.engine === "azure" ? (v.voice.trim() || null) : null,
+            voice_clone: v.engine === "azure" ? null : {...body.voice_clone, model: v.engine}}))} : body;
+        let opts = { method: "POST", body: JSON.stringify(payload) };
         if (body.use_case === "document" || photo || voiceSample) {
           const form = new FormData();
-          form.append("request", JSON.stringify(body));
+          form.append("request", JSON.stringify(payload));
           if (body.use_case === "document") form.append("document", $("documentInput").files[0]);
           else if (photo) form.append("image", photo, photo.name || "photo.png");
           if (voiceSample) form.append("voice_sample", voiceSample, voiceSample.name);
           opts = { method: "POST", body: form };
         }
-        const r = await api(body.use_case === "document" ? "/api/videos/document" : "/api/videos", opts);
+        const endpoint = batching ? "/api/video-batches" : "/api/videos";
+        const r = await api(endpoint + (body.use_case === "document" ? "/document" : ""), opts);
         if (r.status === 401) { $("keyPop").hidden = false; return; }
         if (!r.ok) { alert(await errorText(r)); return; }
-        const job = await r.json();
+        const result = await r.json();
+        const created = batching ? result.jobs : [result];
+        const job = created[0];
         $("prompt").value = ""; $("prompt").style.height = "";
         setPhoto(null);
         $("documentInput").value = "";
         $("cloneSample").value = ""; $("cloneConsent").checked = false;
-        jobs = [job, ...jobs.filter(j => j.id !== job.id)];
+        jobs = [...created, ...jobs.filter(j => !created.some(c => c.id === j.id))];
         location.hash = job.id;
         loadJobs();
       } catch (error) {
@@ -923,7 +1013,7 @@
           ${jobIcon(j.status)}
           <span class="ji-main">
             <span class="ji-title">${esc(j.title || j.request.prompt)}</span>
-            <span class="ji-meta">${esc(statusText(j))}${progress ? ` · ${esc(progress)}` : ""} · ${esc(ago(j.created_at))}</span>
+            <span class="ji-meta">${j.batch ? `Variant ${j.batch.index + 1}/${j.batch.total} · ${esc(j.request.video_model)} · ${esc(j.request.voice_clone?.model || j.request.voice || "Azure default")}<br>` : ""}${esc(statusText(j))}${progress ? ` · ${esc(progress)}` : ""} · ${esc(ago(j.created_at))}</span>
           </span>
         </a>`;
       }).join("") || `<div class="empty">No videos yet.</div>`;
@@ -1373,6 +1463,9 @@
       $("jobHead").innerHTML = `
         <h2>${esc(job.title || "Untitled video")}</h2>
         <div class="job-meta">
+          ${job.batch ? `<span>Batch ${esc(job.batch.id)} - variant ${job.batch.index + 1}/${job.batch.total}
+            - ${job.batch.concurrency === 1 ? "sequential" : `up to ${job.batch.concurrency} parallel`}
+            - ${esc(job.request.video_model)} / ${esc(job.request.voice_clone?.model || job.request.voice || "Azure default")}</span>` : ""}
           <span class="label ${statusClass}">${statusClass === "active" ? `<span class="icon">${ICONS.running}</span>` : ""}${esc(statusText(job))}</span>
           ${job.request.use_case !== "cinematic" && progressText(job) ? `<span>${esc(progressText(job))}</span>` : ""}
           <span>${esc(job.request.use_case === "document" ? `Document · ${job.request.document.filename}` : job.request.use_case === "educational" ? `Educational · ${job.request.education.style} · ${job.request.education.image_provider}` : model ? model.name : job.request.video_model)}</span>
@@ -1381,7 +1474,9 @@
           ${job.duration_seconds ? `<span>·</span><span>${esc(fmtDur(job.duration_seconds))} rendered</span>` : ""}
           <span>·</span><span title="${esc(new Date(job.created_at).toLocaleString())}">${esc(ago(job.created_at))}</span>
           <span>·</span><code>${esc(job.id)}</code>
-        </div>`;
+        </div>
+        ${job.batch ? `<nav aria-label="Batch variants">${jobs.filter(j => j.batch?.id === job.batch.id).sort((a, b) => a.batch.index - b.batch.index)
+          .map(j => `<a class="btn btn-sm" href="#${esc(j.id)}">Variant ${j.batch.index + 1}: ${esc(statusText(j))}</a>`).join(" ")}</nav>` : ""}`;
       // Re-rendered only when it changes, so the reference photo isn't fetched again on every live update.
       const userKey = `${job.id}|${key()}|${JSON.stringify(job.request)}`;
       if (userKey !== userMsgKey) {

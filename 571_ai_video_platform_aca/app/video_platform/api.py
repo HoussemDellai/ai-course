@@ -29,7 +29,7 @@ from .documents import (
     office_available, validate_document, validate_document_request,
 )
 from .operations import Operation
-from .schemas import JobState, VideoRequest
+from .schemas import JobState, VideoBatchRequest, VideoBatchState, VideoRequest
 from .storage import LocalArtifactStore, read_json
 from .video_models import VIDEO_MODELS
 from .version import __version__
@@ -88,6 +88,21 @@ CREATE_DOCUMENT_OPENAPI = {
             "voice_sample": VOICE_SAMPLE_OPENAPI,
         },
     }}}},
+}
+
+CREATE_BATCH_OPENAPI = {
+    "requestBody": {"required": True, "content": {
+        "application/json": {"schema": {"$ref": "#/components/schemas/VideoBatchRequest"}},
+        "multipart/form-data": {"schema": {
+            "type": "object", "required": ["request"],
+            "properties": {
+                "request": {"type": "string", "description": "VideoBatchRequest as JSON"},
+                "image": {"type": "string", "format": "binary"},
+                "document": {"type": "string", "format": "binary"},
+                "voice_sample": VOICE_SAMPLE_OPENAPI,
+            },
+        }},
+    }},
 }
 
 
@@ -287,7 +302,9 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
 
     @app.get("/api/config", dependencies=[Depends(require_api_key)])
     async def get_config():
-        return {"max_image_mb": settings.max_image_mb, "voice_clone": {
+        return {"max_image_mb": settings.max_image_mb,
+                "batch": {"max_variants": 12, "parallel_capacity": settings.batch_parallel_capacity,
+                          "cloned_voices_parallel": False}, "voice_clone": {
             "configured": bool(settings.voice_clone_url),
             "max_sample_mb": settings.max_voice_sample_mb,
             "min_sample_seconds": MIN_SAMPLE_SECONDS, "max_sample_seconds": MAX_SAMPLE_SECONDS,
@@ -325,20 +342,49 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         """Multipart document-to-video creation, with independent document upload limits."""
         return await submit_video(request, document_mode=True)
 
-    async def submit_video(request: Request, document_mode: bool = False):
+    @app.post("/api/video-batches", status_code=status.HTTP_202_ACCEPTED, response_model=VideoBatchState,
+              dependencies=[Depends(require_api_key)], openapi_extra=CREATE_BATCH_OPENAPI)
+    async def create_video_batch(request: Request):
+        """Submit explicit model/voice variants with shared options and optional photo/voice uploads."""
+        return await submit_video(request, batch_mode=True)
+
+    @app.post("/api/video-batches/document", status_code=status.HTTP_202_ACCEPTED, response_model=VideoBatchState,
+              dependencies=[Depends(require_api_key)], openapi_extra=CREATE_BATCH_OPENAPI)
+    async def create_document_batch(request: Request):
+        return await submit_video(request, document_mode=True, batch_mode=True)
+
+    @app.get("/api/video-batches/{batch_id}", response_model=VideoBatchState,
+             dependencies=[Depends(require_api_key)])
+    async def get_video_batch(batch_id: str, request: Request):
+        batch = await jobs(request).get_batch(batch_id)
+        if batch is None:
+            raise HTTPException(404, "Unknown video batch")
+        return batch
+
+    async def submit_video(request: Request, document_mode: bool = False, batch_mode: bool = False):
         image: bytes | None = None
         document: DocumentUpload | None = None
         voice_sample: bytes | None = None
         content_type = request.headers.get("content-type", "")
         try:
             if content_type.startswith("multipart/form-data"):
-                body, image, document, voice_sample = await read_multipart(request, document_mode)
+                raw, image, document, voice_sample = await read_multipart(request, document_mode)
             else:
                 if document_mode:
                     raise HTTPException(422, "Document videos require multipart 'request' and 'document' fields")
-                body = VideoRequest.model_validate_json(await request.body())
+                raw = await request.body()
+            if batch_mode:
+                batch = VideoBatchRequest.model_validate_json(raw)
+                if (batch.request.use_case == "document") != document_mode:
+                    raise HTTPException(422, "Use multipart POST /api/video-batches/document for document batches")
+                return await jobs(request).create_batch(batch, image=image, document=document, voice_sample=voice_sample)
+            body = VideoRequest.model_validate_json(raw)
         except ValidationError as e:
             raise RequestValidationError(e.errors(include_url=False)) from None
+        except (DocumentError, VoiceSampleError) as e:
+            raise HTTPException(e.status_code, str(e)) from None
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
         if (body.use_case == "document") != document_mode:
             raise HTTPException(422, "Use multipart POST /api/videos/document with use_case=document for document uploads")
         try:
@@ -364,7 +410,7 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
             raise HTTPException(e.status_code, str(e)) from None
 
     async def read_multipart(request: Request, document_mode: bool = False
-                             ) -> tuple[VideoRequest, bytes | None, DocumentUpload | None, bytes | None]:
+                             ) -> tuple[str, bytes | None, DocumentUpload | None, bytes | None]:
         max_bytes = settings.max_document_bytes if document_mode else settings.max_image_bytes
         max_mb = settings.max_document_mb if document_mode else settings.max_image_mb
         label = "document" if document_mode else "image"
@@ -390,8 +436,6 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
             raw = form.get("request")
             if not isinstance(raw, str):
                 raise HTTPException(422, "Missing 'request' form field (the VideoRequest as JSON)")
-            body = VideoRequest.model_validate_json(raw)
-
             def uploaded(name: str) -> UploadFile | None:
                 upload = form.get(name)
                 if upload is None or (isinstance(upload, UploadFile) and not upload.filename and upload.size == 0):
@@ -415,15 +459,15 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
             except VoiceSampleError as e:
                 raise HTTPException(e.status_code, str(e)) from None
         if main_data is None:
-            return body, None, None, voice_sample
+            return raw, None, None, voice_sample
         if document_mode:
             try:
                 document = await run_in_threadpool(validate_document, *main_data, max_bytes)
-                return body, None, document, voice_sample
+                return raw, None, document, voice_sample
             except DocumentError as e:
                 raise HTTPException(e.status_code, str(e)) from None
         try:
-            return body, await run_in_threadpool(sanitize_image, main_data[0], settings.max_image_bytes), None, voice_sample
+            return raw, await run_in_threadpool(sanitize_image, main_data[0], settings.max_image_bytes), None, voice_sample
         except ImageError as e:
             raise HTTPException(e.status_code, str(e)) from None
 
@@ -569,4 +613,16 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         url = await store.download_url(job_id, name)
         return RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT, headers=headers)
 
+    original_openapi = app.openapi
+
+    def openapi():
+        schema = original_openapi()
+        batch_schema = VideoBatchRequest.model_json_schema(ref_template="#/components/schemas/{model}")
+        schemas = schema.setdefault("components", {}).setdefault("schemas", {})
+        for name, definition in batch_schema.pop("$defs", {}).items():
+            schemas.setdefault(name, definition)
+        schemas["VideoBatchRequest"] = batch_schema
+        return schema
+
+    app.openapi = openapi
     return app

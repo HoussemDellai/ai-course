@@ -17,9 +17,12 @@ from .config import Settings
 from .documents import DocumentError, DocumentUpload, office_available, validate_document_request
 from .document_schemas import DocumentOptions
 from .operations import Operation, OperationRecorder, format_error, install_log_capture, load_operations
-from .schemas import JobState, JobStatus, VideoRequest, utcnow
+from .schemas import (
+    BatchMembership, JobState, JobStatus, VideoBatchRequest, VideoBatchState, VideoRequest, utcnow,
+)
 from .storage import LEASE_SECONDS, ArtifactStore, JobLock, read_json, write_json
 from .voice_clone import VOICE_SAMPLE, validate_voice_clone_request
+from .video_models import VIDEO_MODELS
 from .workflow import REFERENCE_IMAGE, VideoResult, new_video_job
 
 log = logging.getLogger(__name__)
@@ -51,12 +54,25 @@ class JobManager:
         self._state_lock = asyncio.Lock()
         self._recorders: dict[str, OperationRecorder] = {}
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
+        self._batch_locks: dict[str, asyncio.Lock] = {}
         install_log_capture()
 
     async def create(self, request: VideoRequest, image: bytes | None = None,
                      document: DocumentUpload | None = None, voice_sample: bytes | None = None) -> JobState:
         """Starts a job with a sanitized image or validated document, persisted before the job state."""
+        request = self._prepare_request(request, image, document, voice_sample)
+        state = JobState(id=uuid.uuid4().hex[:12], request=request)
+        await self._upload_inputs(state, image, document, voice_sample)
+        await self._save(state)
+        self._start(state.id)
+        return state
+
+    def _prepare_request(self, request: VideoRequest, image: bytes | None,
+                         document: DocumentUpload | None, voice_sample: bytes | None) -> VideoRequest:
         validate_voice_clone_request(request, self.settings, voice_sample is not None)
+        key = request.video_model or self.settings.default_video_model
+        if key not in VIDEO_MODELS:
+            raise ValueError(f"Unknown video_model '{key}'. Choose one of: {', '.join(VIDEO_MODELS)}")
         if request.use_case == "educational" and image is not None:
             raise ValueError("Educational videos do not accept reference photos")
         validate_education_request(request, self.settings)
@@ -72,9 +88,11 @@ class JobManager:
             raise DocumentError("Document uploads require the document use case")
         if request.seed is None:
             request = request.model_copy(update={"seed": random.randint(0, 2**40)})
-        request = request.model_copy(update={"reference_image": image is not None,
-                                             "voice_sample": voice_sample is not None})
-        state = JobState(id=uuid.uuid4().hex[:12], request=request)
+        return request.model_copy(update={"reference_image": image is not None, "video_model": key,
+                                          "voice_sample": voice_sample is not None})
+
+    async def _upload_inputs(self, state: JobState, image: bytes | None,
+                             document: DocumentUpload | None, voice_sample: bytes | None) -> None:
         if voice_sample is not None:
             local = self.settings.work_dir / state.id / VOICE_SAMPLE
             local.parent.mkdir(parents=True, exist_ok=True)
@@ -90,9 +108,53 @@ class JobManager:
             local.parent.mkdir(parents=True, exist_ok=True)
             local.write_bytes(image)
             await self.store.upload(state.id, REFERENCE_IMAGE, local)
-        await self._save(state)
-        self._start(state.id)
-        return state
+
+    async def create_batch(self, batch: VideoBatchRequest, image: bytes | None = None,
+                           document: DocumentUpload | None = None,
+                           voice_sample: bytes | None = None) -> VideoBatchState:
+        requests = batch.requests()
+        if voice_sample is not None and not any(r.voice_clone for r in requests):
+            raise ValueError("A voice sample requires at least one voice-cloning variant")
+        # Validate every variant before persisting or starting any of them.
+        requests = [self._prepare_request(r, image, document, voice_sample if r.voice_clone else None)
+                    for r in requests]
+        seed = batch.request.seed if batch.request.seed is not None else random.randint(0, 2**40)
+        concurrency = 1
+        note = "Variants run sequentially in the listed order."
+        if batch.execution == "auto":
+            if any(r.voice_clone for r in requests):
+                note = "Sequential: cloned voices share one GPU engine; overlapping models could evict each other."
+            else:
+                concurrency = min(self.settings.batch_parallel_capacity, len(requests))
+                note = (f"Up to {concurrency} variants overlap on independent ComfyUI workers."
+                        if concurrency > 1 else
+                        "Sequential: parallel variants require distinct COMFYUI_URLS and MAX_CONCURRENT_JOBS > 1.")
+        ids = [uuid.uuid4().hex[:12] for _ in requests]
+        states = [
+            JobState(id=job_id, request=r.model_copy(update={"seed": seed}),
+                     batch=BatchMembership(id=ids[0], index=index, total=len(ids), concurrency=concurrency,
+                                           previous_job_id=ids[index - concurrency] if index >= concurrency else None))
+            for index, (job_id, r) in enumerate(zip(ids, requests))
+        ]
+        for state in states:
+            await self._upload_inputs(state, image, document, voice_sample if state.request.voice_clone else None)
+        result = VideoBatchState(id=ids[0], execution=batch.execution, concurrency=concurrency,
+                                 scheduling_note=note, jobs=states)
+        # The manifest commits a complete set of inputs before any visible job can be resumed.
+        await write_json(self.store, result.id, "batch.json", result.model_dump(mode="json"))
+        for state in states:
+            await self._save(state)
+        for state in states:
+            self._start(state.id)
+        return result
+
+    async def get_batch(self, batch_id: str) -> VideoBatchState | None:
+        data = await read_json(self.store, batch_id, "batch.json")
+        if data is None:
+            return None
+        batch = VideoBatchState.model_validate(data)
+        batch.jobs = [await self.get(s.id) or s for s in batch.jobs]
+        return batch
 
     async def get(self, job_id: str) -> JobState | None:
         # Only jobs running in this process are authoritative in memory; others may be owned by another replica.
@@ -147,6 +209,15 @@ class JobManager:
         return state.model_copy(update={"status": JobStatus.queued, "error": None})
 
     async def resume_unfinished(self) -> None:
+        states = await self.list()
+        for state in states:
+            if state.batch is not None and state.batch.index == 0:
+                batch = await self.get_batch(state.batch.id)
+                if batch is None:
+                    raise RuntimeError(f"Missing manifest for batch {state.batch.id}")
+                for sibling in batch.jobs:
+                    if not await self.store.exists(sibling.id, "state.json"):
+                        await self._save(sibling)
         for state in await self.list():
             if state.status == JobStatus.awaiting_review and not await self.store.exists(state.id, APPROVAL):
                 continue
@@ -279,6 +350,40 @@ class JobManager:
                 return
 
     async def _run(self, job_id: str, from_failed: bool) -> None:
+        state = await self.get(job_id)
+        if state is None:
+            return
+        if state.batch is None:
+            await self._run_job(job_id, from_failed)
+            return
+        batch = state.batch
+        concurrency = min(batch.concurrency, self.settings.batch_parallel_capacity)
+        previous_id = batch.previous_job_id
+        if concurrency != batch.concurrency:
+            manifest = await self.get_batch(batch.id)
+            if manifest is None:
+                raise RuntimeError(f"Missing manifest for batch {batch.id}")
+            previous_id = manifest.jobs[batch.index - concurrency].id if batch.index >= concurrency else None
+        lane = f"{batch.id}-lane-{batch.index % concurrency}"
+        # Waiting variants must not consume job slots (including while a draft awaits approval).
+        while True:
+            previous = await self.get(previous_id) if previous_id else None
+            if previous_id is None or (previous is not None and previous.is_finished):
+                async with self._batch_locks.setdefault(lane, asyncio.Lock()):
+                    lock = await self.store.try_lock(lane)
+                    if lock is not None:
+                        keeper = asyncio.create_task(self._keep_lease(lock, asyncio.current_task()))
+                        try:
+                            await self._run_job(job_id, from_failed)
+                        finally:
+                            keeper.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await keeper
+                            await lock.release()
+                        return
+            await asyncio.sleep(0.5)
+
+    async def _run_job(self, job_id: str, from_failed: bool) -> None:
         async with self._slots:
             lock = await self.store.try_lock(job_id)
             if lock is None:
