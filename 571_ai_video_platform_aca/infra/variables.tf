@@ -37,9 +37,9 @@ variable "subscription_id" {
 # }
 
 variable "comfyui_worker_count" {
-  description = "Always-on A100 ComfyUI workers. Two enables parallel renders; drain and approve secondary deletion before reducing to one."
+  description = "Maximum always-on A100 ComfyUI workers. The secondary inventory entry is commented out; uncomment it and set 2 to restore parallel renders. Drain and approve secondary deletion before disabling it."
   type        = number
-  default     = 2
+  default     = 1
   validation {
     condition     = contains([1, 2], var.comfyui_worker_count)
     error_message = "comfyui_worker_count must be 1 or 2."
