@@ -1,6 +1,410 @@
 # Azure deployment plan: AI Video Platform 571
 
-Status: Deployed and verified (cinematic-cutaway update, 2026-10-20).
+Status: Deployed and verified (disable secondary A100 worker, 2026-10-27).
+
+## Current update: disable the second ACA A100 instance
+
+- User requests preserving the secondary worker definition as commented Terraform,
+  testing and merging a PR, then deploying the single-worker configuration.
+- Inspect worker creation and downstream URL wiring before choosing the smallest
+  consistent change. Preserve the primary A100, shared model storage, CPU app,
+  voice service, identities, permissions and existing jobs.
+- Confirmed target: rg-aivideo571, Italy North, subscription
+  ME-MngEnvMCAP752444-hodellai-1 (2524a5e1-00d7-43c2-a7cf-a87b79df2415).
+- User explicitly approved deletion of only comfyui-aivideo571-2, waiting for the
+  active job to finish, and narrow CLI deployment plus refresh-only state reconciliation.
+- Use an isolated branch/worktree to exclude concurrent local branding edits.
+- PR #29 merged at 723e80f: secondary inventory commented, default maximum count 1,
+  primary-only render/telemetry outputs and re-enable path documented/tested.
+- The previous active job is now completed. Re-check before every mutation;
+  neither worker may have a running/pending prompt.
+- Recipe: update only COMFYUI_URLS and GPU_STATS_URLS on the named CPU container,
+  wait for a healthy primary-only revision, check both queues again, delete only
+  the approved secondary app through Azure CLI, then apply a reviewed refresh-only
+  Terraform state plan. Keep existing application image 1.2.3; no image build.
+- A normal/targeted Terraform deletion also proposes removing the unrelated Defender
+  scanner storage rule. Neither destructive Terraform plan will be applied.
+- Rollback before deletion: restore the old two URL lists. After deletion: restore
+  the commented entry/count 2 and separately approve/provision the secondary again.
+
+### Section 7: Single-A100 validation proof
+
+All scoped validation checks pass (2026-10-27, about 10:30 CET):
+- Existing state/backend and readonly dependency lock initialized in isolated source.
+- Terraform format/schema and 9 mocked plan tests passed; 38 runtime/provisioning
+  tests passed. Merged app/IaC trees match the tested branch.
+- Full-plan structure verified: primary unchanged; two URL settings changed to
+  primary-only; secondary app deleted. Only additional drift is the known scanner
+  storage rule; never apply that change.
+- Live target verified against confirmed subscription and Italy North. Both
+  existing ComfyUI apps use GPU-NC24-A100; primary must remain unchanged.
+- Previous generating job completed. Fresh authenticated app list: 28 jobs
+  (19 completed, 8 failed, 1 awaiting review), no active generation.
+- Both `/queue` responses verified as valid lists with zero running/pending
+  prompts. Unverifiable/busy queues fail the preflight rather than default to idle.
+- Private baseline captures app/workers, all 21 resource-group resource IDs,
+  shared storage network rules and all job IDs/statuses.
+- CPU image confirmed 1.2.3; its only planned changes are COMFYUI_URLS and
+  GPU_STATS_URLS from both workers to the existing primary URL.
+- Static identity.tf unchanged. Live app identity retains resource-scoped AcrPull,
+  Foundry User, Speech User and Blob Data Contributor.
+- No application build required (infra/docs/tests only). App source/image,
+  shared NFS models/media and provisioning scripts remain unchanged.
+- Merged isolated source clean; Terraform format/schema rechecked successfully.
+- Deployment is explicitly limited to the approved CLI operations and subsequent
+  state-only refresh. Never apply either saved destructive Terraform plan, since
+  both include the unrelated Defender scanner-rule removal.
+
+### Single-A100 deployment results
+
+- PR #29 merged at 723e80f. Secondary inventory entry retained commented in
+  aca_comfyui.tf, with count default 1 and explicit restore instructions.
+- Waited for the existing generating job to complete. Rechecked no active jobs
+  and both ComfyUI queues as empty immediately before each mutation.
+- Updated only COMFYUI_URLS and GPU_STATS_URLS on the named video-platform CPU
+  container. New revision video-platform--0000017 is Healthy, Provisioned and
+  serving 100% traffic. Application image/version remains 1.2.3; no image rebuild.
+- After primary-only revision readiness and another drain check, deleted only
+  the explicitly approved comfyui-aivideo571-2 Container App via Azure CLI.
+- Resource inventory comparison proves exactly one ARM resource removed and
+  zero resources added. Primary A100 and voice service templates/revisions
+  unchanged; primary remains comfyui-aivideo571--0000002 and voice remains
+  voice-clone-aivideo571--0000002.
+- All 28 job IDs/statuses preserved. Shared storage network rules, including
+  Defender scanner access, are unchanged; shared NFS models/media remain retained.
+- Reviewed refresh-only Terraform plan had no resource_changes array (state
+  observations only). Applied to reconcile the approved external changes.
+  State now has 39 resources and only the primary ComfyUI instance.
+- Terraform comfyui_apps/comfyui_urls/gpu_stats_urls outputs each contain only
+  the primary. API GPU monitoring reports exactly one online worker.
+- Post-deployment normal plan has no worker/CPU changes or secondary recreation;
+  only the known unapplied Defender scanner-rule drift remains.
+- Live resource-scoped app roles remain correct. No paid generation submitted.
+- An initial refresh guard treated an absent mutation array as a null pipeline
+  item; corrected the guard and verified JSON before state-only apply.
+  Final API checks retried after the concurrent read-only plan released its state lock.
+- Private saved plans/snapshots and isolated worktree cleaned up after recording
+  verification. Unrelated local branding and original user edits preserved.
+- Application:
+  https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Current update: explicit 4K presentation quality, release 1.2.3
+
+- Merged PR #28 at 907d74b; user approved publishing/merge and image-only rollout.
+- Existing target confirmed: video-platform / rg-aivideo571, Italy North,
+  subscription ME-MngEnvMCAP752444-hodellai-1
+  (2524a5e1-00d7-43c2-a7cf-a87b79df2415).
+- Build only from the isolated merged Git worktree document-4k-release; exclude
+  local concurrent branding work. Keep all existing defaults, GPU capacity,
+  settings, workers, identities, storage and Defender scanner rule.
+- Recipe: scoped Terraform build marker using the same absolute existing state
+  backend and provider lock/mirror, then named CPU container image update via CLI.
+- New quality selector uses existing CPU PDFium/ffmpeg rendering. No new GPU,
+  infrastructure or paid generation. The 1080p default stays unchanged.
+- Verification before merge: 99 regressions passed, four actual UHD pipeline cases
+  (3840x2160 / 2160x3840), narration/animation/retry checks and browser submission.
+  PPT conversion stubbed locally due unavailable LibreOffice; PDFium/ffmpeg real.
+- Current live image 1.2.2, revision video-platform--0000015. Retain for rollback.
+
+### Section 7: Release 1.2.3 validation proof
+
+All scoped validation checks pass (2026-10-27, approximately 09:45 CET):
+- Isolated merged source 907d74b clean and branding-free; tested branch and merge
+  app trees match. Primary local branding edits remain untouched.
+- `terraform init` used readonly existing lockfile, installed local provider mirror
+  and explicit existing absolute backend state path. Existing state: 40 resources.
+- `terraform fmt -check -recursive` and `terraform validate` passed.
+  `terraform test`: 8 passed, 0 failed.
+- Fresh full plan structurally verified: only image 1.2.2 -> 1.2.3, local
+  image-build marker and the known Defender scanner-rule drift. Full plan not applied.
+- Saved private scoped build plan changes only terraform_data.build_app_image;
+  no cloud resource/secret changes. Target image verified as video-platform:1.2.3.
+- Python compile, pip check and whitespace checks passed. 99 regressions passed,
+  including actual UHD MP4 dimensions without test dimension scaling.
+- Browser PDF upload submitted 4k/vertical/ffmpeg successfully, shared controls
+  stay synchronized, and 1080p default/scenario round-trips are covered by tests.
+- Static identity.tf unchanged: resource-scoped AcrPull, Foundry User, Speech User
+  and Blob Data Contributor. Live roles verified; Defender access rule exists.
+- Baseline captured privately: 27 jobs (18 completed, 8 failed, 1 awaiting review),
+  zero active. Template, identities, registry and worker revisions saved for comparison.
+- Dockerfile and app-only context unchanged; no secrets/branding included.
+- Known PowerShell preflight-helper defect avoided via equivalent direct checks.
+- Verify live version, explicit selector, exact canvas text and preserved resources
+  after rollout; no paid generation requested.
+
+### Release 1.2.3 deployment results
+
+- Isolated scoped build succeeded: ACR build dnr, image
+  acr4aivideo571.azurecr.io/video-platform:1.2.3,
+  digest sha256:c18af2c1cb0d5c858dcd2f819738b48306ec03e7707957827f96b18a45d262a9.
+- Updated only named CPU container video-platform. Revision video-platform--0000016
+  Healthy, Provisioned, one replica and serving 100% traffic.
+- Health/OpenAPI report 1.2.3. Live browser verifies default 1080p and explicit
+  4K selector, landscape 3840 x 2160 / portrait 2160 x 3840 dimensions, synchronized
+  shared controls and no duplicate visible generic resolution selector.
+- Synthetic check inside the deployed container passed using real LibreOffice
+  conversion of a generated PowerPoint, PDFium rasterization and ffmpeg rendering:
+  UHD_VERIFIED 1.2.3 [[3840, 2160], [2160, 3840]].
+  No AI/Speech/GPU calls or production jobs; temporary outputs cleaned automatically.
+- All 27 existing jobs retain their IDs/statuses. Template/identity/registry
+  comparison verifies only the CPU image changed; all settings, sidecar and
+  GPU/voice ready revisions remain unchanged. Live roles and scanner access intact.
+- Post-deployment full plan from merged isolated source shows only the known
+  Defender storage-rule drift (0 add, 1 change, 0 destroy), not applied.
+- Branding stays local/excluded. Private plans/snapshots, runtime check script,
+  preview fixture and isolated worktree cleaned up after proof was recorded.
+- Endpoint:
+  https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Current update: always-visible step models and tools, release 1.2.2
+
+- Merged PR #27, main commit 99e2aab. User approved commit/push/merge and deployment.
+- Confirmed existing target: video-platform / rg-aivideo571, Italy North,
+  subscription ME-MngEnvMCAP752444-hodellai-1
+  (2524a5e1-00d7-43c2-a7cf-a87b79df2415).
+- Scope: CPU application image only; preserve existing jobs, GPU/voice workers,
+  sidecar, settings, identities, roles, storage and Defender scanner rule.
+- Concurrent branding edits are explicitly excluded. Build from the clean isolated
+  Git worktree at the merged commit, not the dirty primary workspace.
+- Recipe: Terraform image-build marker in isolated infrastructure checkout, using
+  the same explicit absolute local state backend as the primary deployment;
+  then named Azure CLI CPU container image update. No new infrastructure/capacity.
+- Use the existing provider dependency lock and local provider mirror for init.
+- Current live image 1.2.1 and ready revision video-platform--0000014.
+- Prior tests: 125 related regressions, 5 final UI checks and 23 clean isolated
+  release checks passed. Browser badges fit collapsed rows at 1280/375/320px.
+- Rollback: retain 1.2.1 image/revision and update only the CPU image if needed.
+- No paid generation submitted; no production job mutation.
+
+### Section 7: Release 1.2.2 validation proof
+
+All scoped validation checks pass (2026-10-27, about 08:00 CET):
+- Isolated checkout at merged main 99e2aab is clean and has no brand directory or
+  branding API changes. Shared UI/README were staged from exact isolated blobs;
+  concurrent branding remains unstaged in the primary worktree.
+- `terraform init` used the explicit existing backend
+  D:\projects\ai-course\571_ai_video_platform_aca\infra\state-571\terraform.tfstate,
+  copied existing dependency lock, readonly lockfile and installed local provider
+  mirror. Existing state has 40 resources; no alternate state/resources created.
+- Recursive format/schema checks passed; `terraform test`: 8 passed.
+- Fresh full plan structural comparison passed: only app image 1.2.1 -> 1.2.2,
+  local build marker replacement and known Defender scanner-rule drift.
+- Privately saved scoped build plan changes only terraform_data.build_app_image.
+  No cloud resources/secrets change during build. Full storage plan not applied.
+- Python compilation, pip dependency check, whitespace checks passed.
+  125 related regressions passed, 5 final UI checks passed, and 23 checks passed
+  from clean isolated release code. Pylance MCP timed out; no static-diagnostic
+  claim is made.
+- Real browser verified five collapsed-row badges, including a long deployment
+  name, at widths 1280/375/320px without clipping or expanded operation bodies.
+- Static identity.tf retains resource-scoped AcrPull, Foundry User, Speech User
+  and Blob Data Contributor. Live role assignments match; existing AcrPull valid.
+- Production baseline captured privately: 26 jobs (17 completed, 8 failed,
+  1 awaiting review), zero active; template, identities, registry and all
+  GPU/voice ready revisions saved for post-rollout comparison.
+- Live old image is 1.2.1 / ready revision video-platform--0000014.
+- Known preflight-helper PowerShell argument defect avoided using the equivalent
+  direct recipe checks. No unresolved template-variable/new JSON inputs apply.
+
+### Release 1.2.2 deployment results
+
+- Applied only the scoped build marker using the clean isolated checkout and
+  existing state backend. ACR build dnq succeeded.
+- Image: acr4aivideo571.azurecr.io/video-platform:1.2.2;
+  digest sha256:4112faa1c413674c5da9047a4f8da0748b27a822388077e94090e71a154949cb.
+- Updated only named CPU container video-platform. Revision video-platform--0000015
+  is Healthy and Provisioned, one replica, serving 100% traffic.
+- Health/OpenAPI report 1.2.2. Production HTML contains the badge renderer and
+  no concurrent branding asset references.
+- Browser verified the deployed renderer at 1280/375/320px using UI-only records:
+  Foundry deployment, ffmpeg, artifact storage and Chatterbox badges all fit in
+  collapsed rows with zero expanded bodies. No generation submitted; fixture
+  state was removed and the browser returned to the normal production composer.
+- All 26 existing production job IDs/statuses remain unchanged. Semantic comparison
+  confirms no settings, sidecar, identity or registry changes beyond the CPU image.
+  All GPU/voice revision names and runtime roles are unchanged.
+- Defender scanner rule remains intact. Fresh full plan from the primary
+  configuration reports only the known storage-rule drift (0 add, 1 change,
+  0 destroy), not applied.
+- Concurrent branding edits remain local, unstaged and excluded from this PR/image.
+  Temporary preview data, private plans/snapshots and isolated release worktree
+  are cleaned up after recording verification proof.
+- Endpoint:
+  https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Current update: narration-paced PDF/PowerPoint scenes, release 1.2.1
+
+- Mode: MODIFY the existing application only; merged PR #26, main commit 3ddc4dd.
+- User approved commit/push/merge and image-only deployment to existing
+  video-platform / rg-aivideo571, Italy North, subscription
+  ME-MngEnvMCAP752444-hodellai-1 (2524a5e1-00d7-43c2-a7cf-a87b79df2415).
+- Recipe: existing Terraform build marker plus named Azure CLI container image
+  update, as for 1.2.0. Existing education.tfvars/default workspace/backend.
+- Scope: build video-platform:1.2.1 in existing ACR, then update only the CPU
+  video-platform image. Preserve sidecar, env, identities, roles, storage,
+  GPU/voice workers, capacity, jobs and Defender storage-scanner access.
+- No paid AI/Speech/GPU generation or new infrastructure; no capacity increase.
+- Old persisted document jobs keep their legacy timing when resumed or retried.
+- Prior verification: 120 related tests plus 5 final UI/shared timing checks passed;
+  real ffmpeg unequal PDF/PPT scenes, legacy retries, cutaways and narration covered.
+- Rollback: retain image 1.2.0 and previous revision; revert only the named CPU image
+  if health or release verification fails.
+
+### Section 7: Release 1.2.1 validation proof
+
+All scoped validation checks pass (2026-10-26, about 21:49 CET):
+- Live Azure account matches confirmed subscription. Existing CPU ready revision
+  video-platform--0000013 serves version 1.2.0 in Italy North.
+- `terraform init -input=false -lockfile=readonly`, `terraform fmt -check -recursive`
+  and `terraform validate` passed. `terraform test`: 8 passed. State: 40 resources.
+- Fresh full plan inspected structurally: only CPU image 1.2.0 -> 1.2.1,
+  local build marker replacement and the known Defender storage-scanner rule drift.
+  No other app, storage or secret changes. Full plan will not be applied.
+- Saved scoped `terraform plan -var-file=education.tfvars
+  -target=terraform_data.build_app_image`: only local build marker replacement;
+  no cloud resource mutation/deletion. Stored privately outside the repository.
+- Known PowerShell preflight-helper argument bug remains; equivalent direct
+  recipe checks were run successfully instead. Windows arguments are quoted.
+- `python -m compileall -q video_platform generate.py` and `pip check` passed.
+  120 related tests passed; 5 final UI/shared timing compatibility checks passed.
+  Merged main matches tested branch. Pylance documents.py diagnostics empty and
+  narration signature call sites compatible.
+- Dockerfile/app-only context unchanged from verified 1.2.0 recipe; local
+  environment, tests and secrets are excluded by .dockerignore.
+- Static identity.tf retains resource-scoped AcrPull, Foundry User, Speech User
+  and Blob Data Contributor. Same four roles confirmed live.
+- Production baseline captured privately: 25 jobs (16 completed, 8 failed,
+  1 awaiting review), zero active. GPU/voice revision/template/identity/registry
+  snapshot saved for post-deployment comparison.
+- Deployed verification will check new health/version, document timing metadata/UI,
+  synthetic timing using deployed code without paid generation, unchanged jobs,
+  worker revisions and Defender storage access.
+
+### Release 1.2.1 deployment verification
+
+- Scoped build apply succeeded; ACR build dnp produced
+  video-platform:1.2.1, digest
+  sha256:7ff13b77ccb0bfae3093f44fcf3726ecaf9dce5ed6ce9fabb981e34f9369986a.
+- Named CPU image updated only. Revision video-platform--0000014 is Healthy,
+  Provisioned, one replica, serving 100% traffic; health/OpenAPI report 1.2.1.
+- Live UI confirms automatic document timing and disabled duration input;
+  switching back to cinematic restores the control. No jobs submitted.
+- Semantic app template/identity/registry comparison passed. All 25 production
+  job IDs/statuses and all GPU/voice revision names remain unchanged.
+- Live roles remain correct, and Defender storage-scanner access is preserved.
+  Fresh post-deploy full plan shows only the pre-existing scanner-rule drift
+  (0 add, 1 change, 0 destroy); it was not applied.
+- Synthetic deployed workflow check uses only temporary local artifacts,
+  LibreOffice/ffmpeg and synthetic audio, never AI/Speech/GPU endpoints.
+  Initial console attempts exposed Windows quoting/URL-length limits. Short
+  transfer commands work, but Azure then returned HTTP 429 with Retry-After 600.
+  After respecting the interval, the check completed successfully on deployed code:
+  PDF and PPTX each measured speech [1.25, 4.5], scene durations [2.25, 5.5],
+  and a playable 7.75-second final video despite a five-minute request.
+  Real LibreOffice conversion, PDF rendering, animations and ffmpeg assembly
+  were exercised. The transfer file and temporary synthetic outputs were removed.
+- Private saved plans, snapshots and local verification files were cleaned up
+  after validation results were recorded. No production jobs were created.
+- Endpoint:
+  https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+
+## Current update: multi-model video and voice variants, release 1.2.0
+
+- Mode: MODIFY the existing deployment; no new infrastructure.
+- Recipe: Terraform image-build marker plus Azure CLI app-image rollout,
+  using the existing Terraform backend/workspace with education.tfvars.
+- Confirmed target: existing video-platform in rg-aivideo571, Italy North,
+  subscription ME-MngEnvMCAP752444-hodellai-1
+  (2524a5e1-00d7-43c2-a7cf-a87b79df2415). User approved image-only deployment.
+- Existing environment: aca-env-aivideo571; default Terraform workspace.
+- Live ready revision before update: video-platform--0000012.
+- Existing endpoint:
+  https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+- Scope: build video-platform:1.2.0 in the existing ACR and update only the CPU
+  application image. Preserve GPU/voice workers, identities, roles, storage,
+  networking, sidecar and application settings; no paid generation jobs.
+- Parallel variants remain gated by existing job capacity and worker URLs;
+  do not increase capacity or ongoing GPU cost as part of this deployment.
+- Prior verification: full suite 386 passed, one reproduced pre-existing T4
+  infrastructure assertion failure; post-merge batch/UI/version checks 23 passed.
+- Pending: fresh IaC/schema/dependency/feature checks,
+  inspected image-only saved plan, live permissions/jobs, ACR build, healthy
+  revision, authenticated batch capability/UI verification and drift check.
+- Rollback: retain the previous image and revision; revert only the app image
+  if release health or feature verification fails.
+- User approved the narrower rollout after a fresh full plan revealed unrelated
+  storage drift: Terraform would remove the Azure Defender data-scanner
+  private-link access rule. Never apply that storage change.
+- Apply only a validated saved plan targeted to terraform_data.build_app_image,
+  then update only the named video-platform container image through Azure CLI.
+  Keep the sidecar and all other app settings unchanged. Existing scanner-rule
+  drift remains a separately reported issue, not a release failure.
+
+### Section 7: Release 1.2.0 validation proof
+
+All scoped release validation checks pass (2026-10-26, approximately 20:40-20:50 CET):
+- Azure CLI authenticated to the user-confirmed subscription; existing app,
+  environment, registry and default Terraform workspace confirmed live.
+- `terraform init -input=false -lockfile=readonly`, `terraform fmt -check -recursive`
+  and `terraform validate` passed.
+- `terraform test -no-color`: 8 passed, zero failures.
+- `terraform state list`: 40 resources; model-download job has no HF-token secret
+  to preserve. No credential values printed or changed.
+- Fresh full `terraform plan -var-file=education.tfvars` exposed unrelated Defender
+  storage-scanner rule drift. The full plan was rejected, not applied.
+- User approved targeted Terraform build plus named Azure CLI container rollout.
+- Fresh `terraform plan -var-file=education.tfvars -target=terraform_data.build_app_image`
+  saved privately as release-1.2.0-build.tfplan: only the local build marker is
+  replaced; existing ACR and resource group are unchanged. Zero cloud mutations.
+- Before/after full-plan app images show only video-platform:1.1.3 -> 1.2.0;
+  drawio-mcp remains pinned to the same digest. Live template/identity/registry
+  and GPU/voice revisions saved privately for post-rollout structural comparison.
+- `python -m compileall -q video_platform generate.py` passed; `pip check` reports
+  no broken requirements. Fresh focused batch/UI/version and all-use-case real
+  ffmpeg pipeline checks: 26 passed.
+- Dockerfile uses Python 3.12 and app-only build context; .dockerignore excludes
+  local environment, test outputs and secrets. Actual ACR build runs during deploy.
+- No unresolved Go-style template variables; no main.tfvars.json exists.
+- Static identity.tf verified least-privilege resource-scoped AcrPull, Foundry User,
+  Speech User and Blob Data Contributor. The same roles were confirmed live.
+- Current app has 20 jobs (12 completed, 7 failed, 1 awaiting review); none active.
+  No generation/review request was issued.
+- Preflight helper has a PowerShell argument-forwarding defect and returned CLI
+  usage text. Equivalent direct checks above passed. Quoted Terraform arguments
+  resolved the Windows parsing failure; state snapshot was retried after lock release.
+- Existing Defender scanner rule verified live and must remain untouched.
+
+### Release 1.2.0 deployment results
+
+- Validated targeted Terraform apply completed; ACR build dnn succeeded.
+- Image: acr4aivideo571.azurecr.io/video-platform:1.2.0;
+  digest sha256:d532625373aa0c5020236165eae97767407a7b69944c29a6b1b6ed9ab766d92c.
+- Only the named video-platform CPU container image was updated through Azure CLI.
+- Revision video-platform--0000013 is Healthy, Provisioned, running with one
+  replica and serving 100% traffic. Live health and OpenAPI report version 1.2.0.
+- Authenticated config reports max_variants=12, parallel_capacity=1 and
+  cloned_voices_parallel=false; voice cloning remains configured.
+- Live OpenAPI verifies all three batch endpoints and 2-12 variant bounds.
+  Live HTML and browser confirm the new control and two default variant rows.
+- Invalid one-variant submission returns HTTP 422 without creating a job;
+  unauthenticated config returns HTTP 401. No paid generation was submitted.
+- All 20 existing job IDs/statuses are unchanged. Semantic template comparison
+  confirms only the app image changed; sidecar, env/secret references, probes,
+  sizing, managed identity and registry configuration are preserved.
+  The CLI serializes two secret-env empty values differently, without changing
+  their secret references or effective configuration.
+- Both ComfyUI revisions and the voice-clone revision are unchanged.
+  All four expected resource-scoped runtime roles remain assigned.
+- Defender storage-scanner access remains intact. Post-deployment full Terraform
+  plan shows only that pre-existing scanner-rule drift: 0 add, 1 change, 0 destroy.
+  Do not apply that unrelated change without separate reconciliation.
+- Retained existing capacity: variants are sequential on this deployment until
+  MAX_CONCURRENT_JOBS is explicitly increased; no additional GPU resources/cost.
+- Previous application image 1.1.3 remains available for rollback.
+- Application:
+  https://video-platform.orangeground-c268819f.italynorth.azurecontainerapps.io
+- Private saved plans and rollout comparison snapshots were removed after proof
+  was recorded; no deployment credentials were committed or displayed.
 
 ## Current update: optional cinematic document cutaways
 

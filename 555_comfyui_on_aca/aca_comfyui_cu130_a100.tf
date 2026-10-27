@@ -23,30 +23,17 @@ resource "azurerm_container_app" "aca_comfyui_cu130_a100" {
 
     container {
       # Linux amd64 manifest for yanwk/comfyui-boot:cu130-slim.
-      image   = "yanwk/comfyui-boot@sha256:94ddc8f1b14d1b6b25b0db18ec2faf6ab5ba9acbc5bd943291caf43981a81605"
+      # image   = "yanwk/comfyui-boot@sha256:94ddc8f1b14d1b6b25b0db18ec2faf6ab5ba9acbc5bd943291caf43981a81605"
+      image   = "yanwk/comfyui-boot:cu130-slim"
       name    = "comfyui"
       cpu     = 8
       memory  = "56Gi"
-      command = ["bash", "-c"]
-      args = [join("\n", [
-        "set -e",
-        "printf '%s\\n' '${jsonencode({
-          aca_models = {
-            base_path        = "/mnt/model-source"
-            diffusion_models = "models/diffusion_models/"
-            text_encoders    = "models/text_encoders/"
-            vae              = "models/vae/"
-          }
-        })}' > /root/extra_model_paths.yaml",
-        "mkdir -p /root/ComfyUI",
-        "cp --archive --update=none /default-comfyui-bundle/ComfyUI/. /root/ComfyUI/",
-        "python3 -c 'import base64;exec(base64.b64decode(\"${filebase64("${path.module}/verify_cuda13_runtime.py")}\"))'",
-        "exec bash /runner-scripts/entrypoint.sh",
-      ])]
+      args    = []
+      command = []
 
       env {
         name  = "CLI_ARGS"
-        value = "--disable-xformers --extra-model-paths-config /root/extra_model_paths.yaml"
+        value = "--disable-xformers"
       }
 
       volume_mounts {

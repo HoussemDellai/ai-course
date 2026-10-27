@@ -1,0 +1,5 @@
+{"event":"dashboard/tab_navigation","properties":{"panel":"overview"},"timestamp":"2026-10-26T19:53:39.773Z"}
+{"event":"dashboard/tab_click","properties":{"panel":"assessment"},"timestamp":"2026-10-26T20:03:24.643Z"}
+{"event":"dashboard/tab_click","properties":{"panel":"plan"},"timestamp":"2026-10-26T20:03:25.325Z"}
+{"event":"dashboard/tab_click","properties":{"panel":"execution"},"timestamp":"2026-10-26T20:03:25.761Z"}
+{"event":"dashboard/tab_click","properties":{"panel":"activity"},"timestamp":"2026-10-26T20:03:26.360Z"}

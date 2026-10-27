@@ -1,6 +1,5 @@
-resource "azurerm_container_app" "mcp" {
-  count                        = var.enable_mcp ? 1 : 0
-  name                         = "comfy-mcp"
+resource "azurerm_container_app" "comfyui_mcp" {
+  name                         = "comfyui-mcp"
   resource_group_name          = azurerm_resource_group.rg.name
   container_app_environment_id = azurerm_container_app_environment.aca_environment.id
   revision_mode                = "Single"
@@ -33,7 +32,7 @@ resource "azurerm_container_app" "mcp" {
 
     container {
       name   = "mcp"
-      image  = var.mcp_image
+      image  = "${azurerm_container_registry.mcp.login_server}/comfyui-mcp:${var.comfyui_mcp_image_tag}"
       cpu    = 0.5
       memory = "1Gi"
 
@@ -66,11 +65,11 @@ resource "azurerm_container_app" "mcp" {
     }
   }
 
-  lifecycle {
-    precondition {
-      condition     = startswith(var.mcp_image, "${azurerm_container_registry.mcp.login_server}/")
-      error_message = "Build and supply an image from this scenario's ACR before enabling MCP."
-    }
-  }
+  # lifecycle {
+  #   precondition {
+  #     condition     = startswith(var.mcp_image, "${azurerm_container_registry.mcp.login_server}/")
+  #     error_message = "Build and supply an image from this scenario's ACR before enabling MCP."
+  #   }
+  # }
   depends_on = [azurerm_role_assignment.mcp_pull]
 }

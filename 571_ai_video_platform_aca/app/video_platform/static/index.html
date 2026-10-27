@@ -4,7 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0d1117">
   <title>AI Video Platform</title>
+  <link rel="icon" type="image/svg+xml" sizes="any" href="/brand/icon.svg">
   <style>
     :root {
       --bg: #0d1117; --bg-inset: #010409; --panel: #151b23; --panel-2: #212830; --hover: #656c7633;
@@ -36,8 +38,9 @@
 
     /* Top bar */
     .topbar { height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: var(--bg-inset); border-bottom: 1px solid var(--border); }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
-    .brand .logo { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #8957e5, #1f6feb); }
+    .brand { display: flex; align-items: center; flex: none; border-radius: 8px; }
+    .brand:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .brand .logo { display: block; width: 154px; height: 44px; }
     .crumb { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .crumb::before { content: "/"; margin: 0 8px; color: var(--subtle); }
     .crumb:empty { display: none; }
@@ -114,7 +117,7 @@
     /* Composer view */
     .compose-view { max-width: 768px; margin: 0 auto; padding: 12vh 24px 48px; }
     .hero { text-align: center; margin-bottom: 24px; }
-    .hero .logo { width: 48px; height: 48px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #8957e5, #1f6feb); }
+    .hero .logo { display: block; width: 72px; height: 72px; margin: 0 auto 20px; filter: drop-shadow(0 8px 20px #6045e833); }
     .hero h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
     .composer { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 12px; }
     .composer textarea { width: 100%; min-height: 96px; max-height: 320px; resize: none; border: 0; outline: none; background: transparent; line-height: 1.5; }
@@ -238,13 +241,18 @@
       .op-body { padding-left: 12px; }
       .send { width: 100%; }
     }
+    @media (max-width: 520px) {
+      .brand .logo { width: 40px; height: 40px; }
+    }
   </style>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#" title="New video">
-      <span class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="#fff"><path d="M8 0l1.6 4.8L14.4 6.4 9.6 8 8 12.8 6.4 8 1.6 6.4l4.8-1.6zM13 10l.8 2.2L16 13l-2.2.8L13 16l-.8-2.2L10 13l2.2-.8z"/></svg></span>
-      <span style="color: var(--fg)">AI Video Platform</span>
+    <a class="brand" href="#" title="New video" aria-label="AI Video Platform - New video">
+      <picture>
+        <source media="(max-width: 520px)" srcset="/brand/icon.svg">
+        <img class="logo" src="/brand/logo.svg" width="224" height="64" alt="AI Video Platform">
+      </picture>
     </a>
     <span class="crumb" id="crumb"></span>
     <span class="grow"></span>
@@ -282,7 +290,7 @@
     <main id="main">
       <section class="compose-view" id="composeView">
         <div class="hero">
-          <div class="logo"><svg width="24" height="24" viewBox="0 0 16 16" fill="#fff"><path d="M8 0l1.6 4.8L14.4 6.4 9.6 8 8 12.8 6.4 8 1.6 6.4l4.8-1.6zM13 10l.8 2.2L16 13l-2.2.8L13 16l-.8-2.2L10 13l2.2-.8z"/></svg></div>
+          <img class="logo" src="/brand/icon.svg" width="72" height="72" alt="" aria-hidden="true">
           <h1>What should we film today?</h1>
           <div class="muted">Prompt (and optionally a photo of a person or a scene) &rarr; creative brief, storyboard &amp; shot prompts &rarr; keyframes &rarr; ComfyUI clips &rarr; Azure AI Speech narration &rarr; ffmpeg</div>
         </div>

@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import APIKeyHeader, APIKeyQuery
+from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
@@ -268,6 +269,7 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         await close()
 
     app = FastAPI(title="AI Video Platform", version=__version__, lifespan=lifespan)
+    app.mount("/brand", StaticFiles(directory=STATIC_DIR / "brand"), name="brand")
     api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
     api_key_query = APIKeyQuery(name="key", auto_error=False)
 

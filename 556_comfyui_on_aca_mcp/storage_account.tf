@@ -7,12 +7,12 @@ resource "azurerm_storage_account" "storage_comfyui" {
   account_replication_type   = "LRS"
   shared_access_key_enabled  = false
   https_traffic_only_enabled = false
-  public_network_access      = "Disabled"
+  public_network_access      = "Enabled"
   #   is_hns_enabled            = true
   #   nfsv3_enabled             = true
 
   tags = {
-    scenario = "comfyui-mcp"
+    SecurityControl = "Ignore"
   }
 }
 

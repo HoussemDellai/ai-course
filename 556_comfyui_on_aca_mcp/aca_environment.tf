@@ -8,6 +8,10 @@ resource "azurerm_container_app_environment" "aca_environment" {
   public_network_access          = "Enabled"
   internal_load_balancer_enabled = false
 
+  identity {
+    type = "SystemAssigned"
+  }
+
   workload_profile {
     name                  = "Consumption"
     workload_profile_type = "Consumption"
@@ -26,11 +30,17 @@ resource "terraform_data" "add_a100_profile" {
   }
 }
 
-resource "azurerm_container_app_environment_storage" "models" {
-  name                         = "models-nfs"
+resource "azurerm_container_app_environment_storage" "storage_aca_comfyui_nfs" {
+  name                         = "storage-aca-comfyui-nfs"
   container_app_environment_id = azurerm_container_app_environment.aca_environment.id
-  share_name                   = "/${azurerm_storage_account.storage_comfyui.name}/${azurerm_storage_share.fileshare_comfyui.name}"
+  share_name                   = "/${azurerm_storage_account.storage_comfyui.name}/${azurerm_storage_share.fileshare_comfyui.name}" # azurerm_storage_share.fileshare_comfyui.name
   nfs_server_url               = "${azurerm_storage_account.storage_comfyui.name}.file.core.windows.net"
-  access_mode                  = "ReadOnly"
-  depends_on                   = [azurerm_private_endpoint.pe_storage_account]
+  access_mode                  = "ReadWrite" # "ReadOnly"
+}
+
+# role assignment to allow ACA environment to access the storage account File Share
+resource "azurerm_role_assignment" "aca_env_storage_blob_data_contributor" {
+  scope                = azurerm_storage_share.fileshare_comfyui.id # azurerm_storage_account.storage_comfyui.id
+  role_definition_name = "Storage File Data Privileged Contributor"
+  principal_id         = azurerm_container_app_environment.aca_environment.identity.0.principal_id
 }

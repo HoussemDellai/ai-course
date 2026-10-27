@@ -48,6 +48,11 @@ will fail until you explicitly provision the workflow's required models in the
 new NFS share. Neither deployment nor the read-only verifier submits a workflow.
 Outputs are local to the GPU replica and must be downloaded before scale-down.
 
+The CUDA 13 GPU container reserves 8 vCPU and 32 GiB RAM to support video
+workflows. It scales to zero and is capped at one replica because uploaded
+inputs, job history and generated outputs are replica-local. Video models must
+still be explicitly provisioned on the persistent NFS model storage.
+
 ## Important demo limitations and costs
 
 - **Both MCP and ComfyUI's public UI/API are unauthenticated.** Anyone who can

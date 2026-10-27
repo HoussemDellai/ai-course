@@ -3,10 +3,11 @@ resource "azurerm_container_app" "aca_comfyui_cu130_a100" {
   name                         = "comfyui-cu130-a100"
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
-  workload_profile_name        = "GPU-NC24-A100"
+  workload_profile_name        = "GPU-NC24-A100" # "GPU-NC8as-T4"
 
   ingress {
-    allow_insecure_connections = false
+    allow_insecure_connections = true
+    client_certificate_mode    = "ignore"
     external_enabled           = true
     target_port                = 8188
     transport                  = "auto"
@@ -18,47 +19,36 @@ resource "azurerm_container_app" "aca_comfyui_cu130_a100" {
   }
 
   template {
-    min_replicas = 0
-    max_replicas = 1
+    min_replicas                     = 0
+    max_replicas                     = 1
+    polling_interval_in_seconds      = 30
+    cooldown_period_in_seconds       = 300
+    termination_grace_period_seconds = 0
+    revision_suffix                  = ""
 
     container {
-      # Linux amd64 manifest for yanwk/comfyui-boot:cu130-slim.
-      image   = "yanwk/comfyui-boot@sha256:94ddc8f1b14d1b6b25b0db18ec2faf6ab5ba9acbc5bd943291caf43981a81605"
+      image   = "yanwk/comfyui-boot:cu130-slim"
       name    = "comfyui"
-      cpu     = 8
-      memory  = "56Gi"
-      command = ["bash", "-c"]
-      args = [join("\n", [
-        "set -e",
-        "printf '%s\\n' '${jsonencode({
-          aca_models = {
-            base_path        = "/mnt/model-source"
-            diffusion_models = "models/diffusion_models/"
-            text_encoders    = "models/text_encoders/"
-            vae              = "models/vae/"
-          }
-        })}' > /root/extra_model_paths.yaml",
-        "mkdir -p /root/ComfyUI",
-        "cp --archive --update=none /default-comfyui-bundle/ComfyUI/. /root/ComfyUI/",
-        "python3 -c 'import base64;exec(base64.b64decode(\"${filebase64("${path.module}/verify_cuda13_runtime.py")}\"))'",
-        "exec bash /runner-scripts/entrypoint.sh",
-      ])]
+      cpu     = 8      # 8 max for NC8as T4, 24 for NC24 A100
+      memory  = "32Gi" # "56Gi" max for NC8as T4, 220Gi for NC24 A100
+      args    = []
+      command = []
 
       env {
         name  = "CLI_ARGS"
-        value = "--disable-xformers --extra-model-paths-config /root/extra_model_paths.yaml"
+        value = "--disable-xformers"
       }
 
       volume_mounts {
-        name = "models-readonly"
-        path = "/mnt/model-source"
+        name = "storage-comfyui"
+        path = "/root/ComfyUI/"
       }
     }
 
     volume {
-      name         = "models-readonly"
-      storage_name = azurerm_container_app_environment_storage.models.name
-      storage_type = "NfsAzureFile"
+      name         = "storage-comfyui"
+      storage_name = azurerm_container_app_environment_storage.storage_aca_comfyui_nfs.name # azurerm_container_app_environment_storage.storage_aca_comfyui.name
+      storage_type = "NfsAzureFile"                                                         # "AzureFile" # AzureFile (SMB) or NfsAzureFile (NFS) # Volume with Nfs Azure File storage is only supported for container app on managed environment with custom VNet.
     }
   }
 

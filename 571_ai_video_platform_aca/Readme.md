@@ -26,6 +26,20 @@ tools; where a model/tool was not recorded, it says so rather than guessing from
 current deployment configuration. Custom ComfyUI image workflows are identified as
 ComfyUI without inventing their model name.
 
+## App icon and logo
+
+The app uses a cinematic play-frame mark with a violet-to-blue tile and a cyan AI spark.
+The [icon](app/video_platform/static/brand/icon.svg) is shared by the welcome screen,
+compact mobile header and SVG browser favicon. The full
+[logo](app/video_platform/static/brand/logo.svg) pairs the mark with the AI Video Platform
+wordmark for the desktop header. Both are scalable SVG assets; the wordmark is designed
+for dark backgrounds. The header link still opens a new video and keeps an accessible
+name when only the icon is shown on narrow screens.
+
+Assets are served publicly under `/brand/` so they load before an API key is entered;
+the video API still requires the configured key. They ship with the application image
+and need no external fonts or image services.
+
 ## Generate multiple video / voice model variants
 
 Enable **Generate multiple model variants** in the web composer. Add **2-12 explicit rows**,

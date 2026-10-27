@@ -54,6 +54,10 @@
       "headers": {
         "x-ms-apikey": "9dfe4e513169445fba9f0e3748deb544"
       }
+    },
+    "comfy-aca": {
+      "type": "http",
+      "url": "https://comfyui-mcp.ambitiousfield-e05b8ebf.swedencentral.azurecontainerapps.io/mcp"
     }
   }
 }

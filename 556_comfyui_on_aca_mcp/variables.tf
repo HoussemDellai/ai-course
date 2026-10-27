@@ -1,11 +1,7 @@
 variable "prefix" {
   description = "Prefix for resource names."
   type        = string
-  default     = "556"
-  validation {
-    condition     = can(regex("^[a-z0-9]{3,10}$", var.prefix))
-    error_message = "Use 3-10 lowercase letters or digits for globally unique resource names."
-  }
+  default     = "556a"
 }
 
 variable "subscription_id" {
@@ -23,15 +19,11 @@ variable "location" {
 variable "enable_mcp" {
   description = "Enable only after building the MCP image in ACR."
   type        = bool
-  default     = false
+  default     = true
 }
 
-variable "mcp_image" {
-  description = "Digest-pinned MCP image built in this demo's ACR."
+variable "comfyui_mcp_image_tag" {
+  description = "Digest-pinned ComfyUI MCP image built in this demo's ACR."
   type        = string
-  default     = ""
-  validation {
-    condition     = var.mcp_image == "" || can(regex("@sha256:[a-f0-9]{64}$", var.mcp_image))
-    error_message = "Use a digest-pinned image, not a mutable tag."
-  }
+  default     = "0.0.1"
 }

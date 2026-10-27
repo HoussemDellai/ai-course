@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="224" height="64" viewBox="0 0 224 64" role="img" aria-labelledby="title description">
+  <title id="title">AI Video Platform</title>
+  <desc id="description">The cinematic play icon beside the AI Video Platform wordmark, designed for dark backgrounds.</desc>
+  <defs>
+    <linearGradient id="tile" x1="4" y1="4" x2="60" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9b5cff"/>
+      <stop offset=".48" stop-color="#6045e8"/>
+      <stop offset="1" stop-color="#087fce"/>
+    </linearGradient>
+    <linearGradient id="play" x1="26" y1="22" x2="43" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dff6ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#tile)"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="16.25" fill="none" stroke="#ffffff" stroke-opacity=".2" stroke-width="1.5"/>
+  <path d="M17 33v-8a7 7 0 0 1 7-7h13" fill="none" stroke="#ffffff" stroke-opacity=".5" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M47 36v5a7 7 0 0 1-7 7H26" fill="none" stroke="#8eeaf8" stroke-opacity=".8" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M26 23.5c0-1.6 1.8-2.6 3.2-1.8L44 30.2c1.4.8 1.4 2.8 0 3.6l-14.8 8.5c-1.4.8-3.2-.2-3.2-1.8Z" fill="url(#play)"/>
+  <path d="m49 11 1.8 5.2L56 18l-5.2 1.8L49 25l-1.8-5.2L42 18l5.2-1.8Z" fill="#a5f3fc"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="78" y="32" fill="#f0f6fc" font-size="30" font-weight="700" letter-spacing="-1">AI Video</text>
+    <text x="80" y="51" fill="#a9b9d1" font-size="11" font-weight="600" letter-spacing="4">PLATFORM</text>
+  </g>
+</svg>
