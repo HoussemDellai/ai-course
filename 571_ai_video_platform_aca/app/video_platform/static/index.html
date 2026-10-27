@@ -322,6 +322,15 @@
             <input class="input" id="documentInput" type="file" accept=".pptx,.pdf" required>
             <label for="documentLanguage">Narration language locale</label>
             <input class="input" id="documentLanguage" value="en-US" pattern="[a-z]{2,3}-[A-Z]{2}" required>
+            <label for="documentResolution">Presentation video quality</label>
+            <select class="input" id="documentResolution">
+              <option value="720p">HD 720p</option>
+              <option value="1080p" selected>Full HD 1080p (default)</option>
+              <option value="4k">4K UHD (3840 x 2160)</option>
+            </select>
+            <p class="muted small" id="documentQualityNote">Pages render directly to the selected canvas using PDFium
+              and ffmpeg. 4K needs more CPU time and storage; no GPU upscaler is required.
+              Embedded low-resolution images cannot gain missing detail.</p>
             <label><input id="documentAnimations" type="checkbox"> Animate pages: gentle zoom and fade between pages</label>
             <p class="muted small">Optional, CPU only (no GPU cost). Each page eases in from 94% to full size with a fade
               in and out. Pages are never cropped; narration and total duration stay unchanged. These are generated
@@ -354,7 +363,7 @@
                 <option value="vertical">Vertical 9:16</option>
               </select>
             </label>
-            <label class="pill" title="Output resolution. The clips are rendered natively at about 720p; 1080p and 4K are upscaled">
+            <label class="pill" id="resolutionPill" title="Output resolution. The clips are rendered natively at about 720p; 1080p and 4K are upscaled">
               <select id="resolution" aria-label="Output resolution">
                 <option value="720p" selected>720p</option>
                 <option value="1080p">1080p</option>
@@ -781,10 +790,16 @@
     };
     function showLicense() {
       if ($("useCase").value === "document") {
+        const resolution = $("resolution").value || "1080p";
+        let [width, height] = RESOLUTION_SIZES[resolution];
+        if ($("orientation").value === "vertical") [width, height] = [height, width];
+        const canvas = `${RESOLUTION_TEXT[resolution]} · ${width} x ${height} canvas. `;
+        $("documentQualityNote").textContent = `${canvas}Original pages render directly at this size using PDFium and ffmpeg, fitted without cropping.
+          ${resolution === "4k" ? "4K needs more CPU time and storage. " : ""}No GPU upscaler is required; embedded low-resolution images cannot gain missing detail.`;
         const animated = $("documentAnimations").checked ? " Pages are animated with a gentle zoom and fades." : "";
-        $("license").textContent = $("documentCinematic").checked
+        $("license").textContent = canvas + ($("documentCinematic").checked
           ? "Original pages with 5-second GPU cinematic cutaways every 30 seconds. Narration stays continuous; no generated clip audio or music. Model license applies." + animated
-          : "Original pages, no GPU generation or music. Each page follows its own narration length, without equal scene lengths or target-duration padding, up to 10 minutes total. PowerPoint animations become static slides; fonts may be substituted." + animated;
+          : "Original pages, no GPU generation or music. Each page follows its own narration length, without equal scene lengths or target-duration padding, up to 10 minutes total. PowerPoint animations become static slides; fonts may be substituted." + animated);
         return;
       }
       if ($("useCase").value === "educational") {
@@ -809,7 +824,14 @@
       showLicense();
     }
     $("orientation").onchange = showLicense;
-    $("resolution").onchange = updateFormatControls;
+    $("resolution").onchange = () => {
+      if ($("useCase").value === "document") $("documentResolution").value = $("resolution").value;
+      updateFormatControls();
+    };
+    $("documentResolution").onchange = () => {
+      $("resolution").value = $("documentResolution").value;
+      updateFormatControls();
+    };
     $("upscaler").onchange = showLicense;
     updateFormatControls();
     function updateDeliveryControls() {
@@ -860,6 +882,13 @@
       $("educationControls").hidden = !educational; $("educationControls").disabled = !educational;
       $("documentControls").hidden = !document; $("documentControls").disabled = !document;
       $("documentInput").disabled = !document;
+      $("resolutionPill").hidden = document;
+      if (document) {
+        $("documentResolution").value ||= "1080p";
+        $("resolution").value = $("documentResolution").value;
+      } else if (educational && $("resolution").value === "720p") {
+        $("resolution").value = "1080p";
+      }
       $("duration").disabled = document;
       $("durationPill").classList.toggle("off", document);
       $("durationPill").title = document

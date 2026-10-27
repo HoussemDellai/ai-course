@@ -156,6 +156,26 @@ Document content is processed by the configured text model and Azure Speech serv
 only upload files you are authorized to process. Unlike the educational scenario below,
 **document jobs render immediately, without an approval step**.
 
+### 4K presentation video
+
+In the **PowerPoint / PDF** controls, choose **Presentation video quality → 4K UHD**.
+The output canvas is **3840 x 2160** horizontally or **2160 x 3840** vertically.
+The default remains **Full HD 1080p**; HD 720p is also available. The selector replaces
+the shared resolution control while the document scenario is active, and remembers
+the document choice when changing scenarios.
+
+Pages are rendered directly at the selected size with PDFium and assembled with
+ffmpeg, fitted without cropping. No SeedVR2/GPU upscaler is needed. 4K takes more CPU
+time, memory and storage; it cannot restore missing detail in embedded low-resolution
+images. Narration-paced page timing, animations and optional cinematic cutaways continue
+to work; cutaways still use the chosen video model's native rendering and are fitted
+to the final canvas. Document-only 4K does not provision or require another GPU.
+The choice also applies to all document variants in a multi-model batch.
+
+CLI: `python generate.py "Explain these slides" --use-case document --document slides.pdf --resolution 4k`.
+API: set `"resolution": "4k"` at the top level of the existing document `VideoRequest`
+(or the shared `request` in a batch); optionally set `"orientation": "vertical"`.
+
 ### Content-driven page timing
 
 Each slide/page gets as much narration as its content needs: a title slide can be brief
