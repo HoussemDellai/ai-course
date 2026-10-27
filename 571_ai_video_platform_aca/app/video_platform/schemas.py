@@ -216,7 +216,9 @@ class VideoRequest(BaseModel):
         default="horizontal", description="horizontal (16:9) or vertical (9:16, mobile).",
     )
     resolution: Literal["720p", "1080p", "4k"] = Field(
-        default="720p", description="Output resolution. Clips render natively at about 720p and are upscaled above it.",
+        default="720p", description="Output resolution. Document pages render directly to the selected canvas: "
+        "4k is 3840x2160 (2160x3840 vertical); document default is 1080p. Generated video clips render "
+        "natively at about 720p and are upscaled above it.",
     )
     upscaler: Literal["ffmpeg", "seedvr2"] = Field(
         default="ffmpeg", description="Upscaler for 1080p and 4K: ffmpeg (lanczos, fast) or seedvr2 (SeedVR2 7B on "

@@ -100,6 +100,7 @@ const submit = async () => {el("prompt").value = "Explain a lighthouse"; await e
   assert.equal(mixed.payload.variants[1].voice, null);
   assert.equal(mixed.payload.execution, "auto");
   el("useCase").value = "document"; el("useCase").onchange();
+  el("documentResolution").value = "4k"; el("documentResolution").onchange();
   assert.match(el("variants").innerHTML, /data-field="video_model" disabled/);
   el("documentLanguage").value = "en-US"; el("pronunciations").value = "";
   el("documentInput").files = [new File(["%PDF"], "slides.pdf")];
@@ -107,6 +108,7 @@ const submit = async () => {el("prompt").value = "Explain a lighthouse"; await e
   el("cloneConsent").checked = true; await submit();
   assert.equal(posts[2].url, "/api/video-batches/document");
   assert.equal(posts[2].payload.request.use_case, "document");
+  assert.equal(posts[2].payload.request.resolution, "4k");
   el("useCase").value = "educational"; el("useCase").onchange();
   el("publicTopic").value = "Public lighthouse optics"; el("educationStyle").value = "presentation";
   el("imageProvider").value = "comfyui"; el("motionProvider").value = "comfyui";

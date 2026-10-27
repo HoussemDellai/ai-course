@@ -365,7 +365,8 @@ class DocumentExecutor(Executor):
                              {"durations": durations, "narration_seconds": measured, "total_seconds": sum(durations)})
 
         scenes = []
-        async with ops.op(OpKind.step, "Render narrated document pages", step="document_render", tool="ffmpeg"):
+        async with ops.op(OpKind.step, "Render narrated document pages", step="document_render", tool="ffmpeg",
+                          resolution=f"{width}x{height}", fps=fps):
             await d.progress(job.job_id, JobStatus.generating)
             for i, duration in enumerate(durations):
                 name = f"scenes/scene_{i:03d}.mp4"
