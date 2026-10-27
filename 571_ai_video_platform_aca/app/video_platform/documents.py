@@ -26,7 +26,8 @@ from .operations import OpKind
 from .schemas import JobStatus, ShotPrompt, VideoRequest
 from .storage import read_json, write_json
 from .workflow import (
-    FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, make_submit_recorder, pending_resume, resolve_narrator,
+    FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, make_submit_recorder, narration_metadata,
+    pending_resume, resolve_narrator,
 )
 
 MAX_PAGES = 60
@@ -292,7 +293,8 @@ class DocumentExecutor(Executor):
             path = job.work_dir / name
             return path, await d.store.download(job.job_id, name, path)
 
-        async with ops.op(OpKind.step, "Read document pages", step="document_extract") as op:
+        async with ops.op(OpKind.step, "Read document pages", step="document_extract",
+                          tool="LibreOffice + python-pptx + PDFium" if key.endswith(".pptx") else "PDFium") as op:
             await d.progress(job.job_id, JobStatus.planning)
             metadata = await read_json(d.store, job.job_id, "document/pages.json")
             if metadata is None:
@@ -321,7 +323,8 @@ class DocumentExecutor(Executor):
             await d.progress(job.job_id, clips_total=len(pages), clips_done=0)
 
         script: list[PageNarration] = []
-        async with ops.op(OpKind.step, "Write page narration", step="document_plan"):
+        async with ops.op(OpKind.step, "Write page narration", step="document_plan",
+                          tool="Microsoft Foundry", model=d.settings.foundry_model):
             for i, page in enumerate(pages):
                 name = f"document/script/page_{i:03d}.json"
                 saved = await read_json(d.store, job.job_id, name)
@@ -335,13 +338,15 @@ class DocumentExecutor(Executor):
             await d.progress(job.job_id, title=Path(options.filename).stem)
 
         narration_paths, measured = [], []
-        async with ops.op(OpKind.step, "Measure document narration", step="document_narrate"):
+        async with ops.op(OpKind.step, "Measure document narration", step="document_narrate",
+                          **narration_metadata(job.request, d.settings)):
             await d.progress(job.job_id, JobStatus.narrating)
             for i, spoken in enumerate(script):
                 name = f"document/narration/page_{i:03d}.wav"
                 path, exists = await artifact(name)
                 async with ops.op(OpKind.narration, f"Narrate page {i + 1}: {spoken.title}",
-                                  detail=spoken.narration, scene=i) as op:
+                                  detail=spoken.narration, scene=i,
+                                  **narration_metadata(job.request, d.settings)) as op:
                     if exists:
                         op.reuse()
                     else:
@@ -360,7 +365,7 @@ class DocumentExecutor(Executor):
                              {"durations": durations, "narration_seconds": measured, "total_seconds": sum(durations)})
 
         scenes = []
-        async with ops.op(OpKind.step, "Render narrated document pages", step="document_render"):
+        async with ops.op(OpKind.step, "Render narrated document pages", step="document_render", tool="ffmpeg"):
             await d.progress(job.job_id, JobStatus.generating)
             for i, duration in enumerate(durations):
                 name = f"scenes/scene_{i:03d}.mp4"
@@ -381,7 +386,7 @@ class DocumentExecutor(Executor):
                     scenes.append(scene)
                 await d.progress(job.job_id, clips_done=i + 1)
 
-        async with ops.op(OpKind.step, "Assemble document video", step="document_assemble"):
+        async with ops.op(OpKind.step, "Assemble document video", step="document_assemble", tool="ffmpeg"):
             await d.progress(job.job_id, JobStatus.assembling)
             final = job.work_dir / FINAL_VIDEO
             if options.cinematic_cutaways and cutaway_starts(sum(durations), fps):
@@ -411,21 +416,26 @@ class DocumentExecutor(Executor):
         await write_json(d.store, job.job_id, "document/cinematic/timing.json",
                          {"starts": starts, "clip_seconds": 5, "interval_seconds": 30})
         async with ops.op(OpKind.step, "Generate cinematic cutaways", step="document_cinematic",
-                          model=job.model.display_name) as step:
+                          tool="ComfyUI + ffmpeg", model=job.model.display_name) as step:
             for i, start in enumerate(starts):
                 indices = [p for p in range(len(pages))
                            if bounds[p] < start + 5 and bounds[p + 1] > start]
                 prompt_key = f"document/cinematic/prompt_{i:03d}.json"
                 saved = await read_json(d.store, job.job_id, prompt_key)
-                prompt = ShotPrompt.model_validate(saved) if saved else await self.team.cutaway(
-                    [pages[p] for p in indices], [script[p].narration for p in indices],
-                    job.request.prompt, job.model.prompt_guide,
-                )
+                if saved:
+                    prompt = ShotPrompt.model_validate(saved)
+                else:
+                    async with ops.op(OpKind.agent, "document-cinematic-director", model=d.settings.foundry_model):
+                        prompt = await self.team.cutaway(
+                            [pages[p] for p in indices], [script[p].narration for p in indices],
+                            job.request.prompt, job.model.prompt_guide,
+                        )
                 await write_json(d.store, job.job_id, prompt_key, prompt.model_dump())
                 key = f"clips/shot_{i:03d}.mp4"
                 raw = job.work_dir / key
                 async with ops.op(OpKind.clip, f"Cinematic cutaway at {start:g}s",
-                                  detail=prompt.prompt, shot=i, start_seconds=start, seconds=5) as op:
+                                  detail=prompt.prompt, shot=i, start_seconds=start, seconds=5,
+                                  model=job.model.display_name) as op:
                     if await d.store.download(job.job_id, key, raw):
                         op.reuse()
                     else:

@@ -169,7 +169,7 @@
     /* Operations timeline */
     .timeline { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); overflow: hidden; }
     .timeline > .op + .op { border-top: 1px solid var(--border-muted); }
-    .op-row { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 12px; cursor: pointer; user-select: none; }
+    .op-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 40px; padding: 6px 12px; cursor: pointer; user-select: none; }
     .op-row:hover { background: var(--hover); }
     .op-row:focus-visible { outline: 2px solid var(--accent-emph); outline-offset: -2px; }
     .op-row.static { cursor: default; }
@@ -177,9 +177,11 @@
     .chev { width: 16px; height: 16px; color: var(--muted); transition: transform .12s; }
     .open > .op-row .chev { transform: rotate(90deg); }
     .chev.none { visibility: hidden; }
-    .op-title { font-weight: 600; white-space: nowrap; }
+    .op-heading { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .op-title { font-weight: 600; overflow-wrap: anywhere; }
+    .op-tools { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
     .op-summary { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .tool { flex: none; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border-muted); color: var(--muted); font-size: 11px; line-height: 18px; }
+    .tool { max-width: 100%; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border-muted); color: var(--muted); font-size: 11px; line-height: 18px; overflow-wrap: anywhere; }
     .dur { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
     .count { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .bar { flex: none; width: 96px; height: 6px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
@@ -502,7 +504,18 @@
       const showing = job.status === "generating" || ((educational || document) && ["processing", "assembling"].includes(job.status));
       return showing && job.clips_total ? `${job.clips_done}/${job.clips_total} ${document ? "pages" : educational ? "scenes" : "clips"}` : "";
     }
-    const TOOL = { agent: "Agent", keyframe: "ComfyUI", clip: "ComfyUI", upscale: "ComfyUI", narration: "Speech", music: "ComfyUI", ffmpeg: "ffmpeg", upload: "Storage" };
+    const TOOL = { agent: "Microsoft Foundry", keyframe: "ComfyUI", clip: "ComfyUI", upscale: "ComfyUI", narration: "Azure AI Speech", music: "ComfyUI", ffmpeg: "ffmpeg", upload: "Artifact storage" };
+    const STEP_TOOL = {
+      enhance_prompt: "Microsoft Foundry (model not recorded)", plan_storyboard: "Microsoft Foundry (model not recorded)",
+      generate_keyframes: "ComfyUI", generate_clips: "ComfyUI", process_shots: "ffmpeg",
+      narrate: "Azure AI Speech", prepare_narration: "Azure AI Speech", generate_music: "ComfyUI",
+      assemble: "ffmpeg", research: "Microsoft Foundry + web search (model not recorded)",
+      education_plan: "Microsoft Foundry (model not recorded)", education_narrate: "Azure AI Speech",
+      education_images: "Visual renderer (tool not recorded)", education_animate: "ffmpeg",
+      education_music: "ComfyUI", education_assemble: "ffmpeg", document_extract: "PDFium",
+      document_plan: "Microsoft Foundry (model not recorded)", document_narrate: "Azure AI Speech",
+      document_render: "ffmpeg", document_assemble: "ffmpeg", document_cinematic: "ComfyUI + ffmpeg",
+    };
     const DETAIL_LABEL = { agent: "Result", keyframe: "Edit prompt", clip: "Prompt", narration: "Narration", music: "Caption" };
     const HIDDEN_ATTRS = new Set(["step", "shot", "keyframe", "scene", "source", "source_urls", "artifact", "voice_artifact", "music_artifact"]);
     const RESOLUTION_SIZES = { "720p": [1280, 720], "1080p": [1920, 1080], "4k": [3840, 2160] };
@@ -1296,6 +1309,42 @@
       if (typeof v === "string") return v.replace(/^https?:\/\//, "");
       return typeof v === "object" ? JSON.stringify(v) : String(v);
     }
+    function operationLabel(op) {
+      const attrs = op.attrs || {}, request = cur?.job?.request || {};
+      const value = v => typeof v === "string" ? v.trim() : "";
+      let tool = value(attrs.tool), model = value(attrs.model), voice = value(attrs.voice);
+      if (!tool) {
+        tool = op.kind === "step" ? STEP_TOOL[attrs.step] : TOOL[op.kind];
+        if (op.kind === "step" && model) tool = tool?.replace(" (model not recorded)", "");
+        if (attrs.step === "document_extract" && request.document?.filename?.toLowerCase().endsWith(".pptx"))
+          tool = "LibreOffice + python-pptx + PDFium";
+        const narration = op.kind === "narration" || ["narrate", "prepare_narration", "education_narrate", "document_narrate"].includes(attrs.step);
+        if (narration && request.voice_clone) {
+          tool = "Voice-clone service"; model ||= request.voice_clone.model;
+        } else if (narration) voice ||= request.voice || "";
+        if (request.use_case === "educational" && op.kind === "keyframe")
+          tool = "Visual renderer (tool not recorded)";
+        if (request.use_case === "educational" && op.kind === "clip" && request.education?.motion_provider === "foundry")
+          tool = "Microsoft Foundry";
+      }
+      if (!model && ["keyframe", "clip", "music"].includes(op.kind)) {
+        const parent = cur?.ops?.get(op.parent_id);
+        const expected = {keyframe: "generate_keyframes", clip: "generate_clips", music: "generate_music"};
+        if (parent?.attrs.step === expected[op.kind]) model = value(parent.attrs.model);
+      }
+      return [tool || (model ? "AI model" : "Tool not recorded"), model, voice.startsWith("clone:") ? "" : voice]
+        .filter(Boolean).join(" · ");
+    }
+    function operationLabels(op, children) {
+      const descendants = (children.get(op.id) || []).flatMap(child => operationLabels(child, children));
+      const recorded = [op.attrs?.tool, op.attrs?.model, op.attrs?.voice].some(v => typeof v === "string" && v.trim());
+      const own = recorded || !descendants.length ? [operationLabel(op)] : [];
+      return [...new Set([...own, ...descendants])];
+    }
+    function renderToolBadges(op, children) {
+      return `<span class="op-tools" aria-label="AI models and tools">${operationLabels(op, children)
+        .map(label => `<span class="tool" title="${esc(label)}">${esc(label)}</span>`).join("")}</span>`;
+    }
     function renderOp(op, children) {
       const kids = (children.get(op.id) || []);
       const attrs = Object.entries(op.attrs).filter(([k, v]) => !HIDDEN_ATTRS.has(k) && v !== null && v !== "");
@@ -1308,7 +1357,7 @@
       const progress = op.progress_total ? `
         <span class="bar"><span style="width:${Math.round(100 * op.progress_done / op.progress_total)}%"></span></span>
         <span class="count">${op.progress_done}/${op.progress_total}</span>` : "";
-      const tool = op.kind !== "step" && TOOL[op.kind] ? `<span class="tool">${TOOL[op.kind]}</span>` : "";
+      const tool = renderToolBadges(op, children);
       let body = "";
       if (open) {
         body = `<div class="op-body">
@@ -1325,8 +1374,7 @@
         <div class="op-row ${hasBody ? "" : "static"}" ${hasBody ? `data-toggle="${esc(op.id)}" role="button" tabindex="0" aria-expanded="${open}"` : ""}>
           ${hasBody ? CHEVRON : CHEVRON.replace('class="chev"', 'class="chev none"')}
           ${icon(op.status)}
-          <span class="op-title">${esc(op.title)}</span>
-          ${tool}
+          <div class="op-heading"><span class="op-title">${esc(op.title)}</span>${tool}</div>
           <span class="op-summary">${esc(op.summary || "")}</span>
           <span class="grow"></span>
           ${progress}
@@ -1343,8 +1391,8 @@
     }
     function renderRun(steps, children, placeholders) {
       const rows = steps.map(op => renderOp(op, children));
-      for (const [, title] of placeholders) {
-        rows.push(`<div class="op pending"><div class="op-row">${CHEVRON.replace('class="chev"', 'class="chev none"')}${icon("pending")}<span class="op-title">${esc(title)}</span></div></div>`);
+      for (const [step, title] of placeholders) {
+        rows.push(`<div class="op pending"><div class="op-row">${CHEVRON.replace('class="chev"', 'class="chev none"')}${icon("pending")}<div class="op-heading"><span class="op-title">${esc(title)}</span>${renderToolBadges({kind: "step", attrs: {step}}, children)}</div></div></div>`);
       }
       return `<div class="timeline">${rows.join("")}</div>`;
     }

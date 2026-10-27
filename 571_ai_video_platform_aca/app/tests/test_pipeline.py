@@ -80,6 +80,13 @@ async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
                                                 "generate_clips", "process_shots", "narrate", "generate_music",
                                                 "assemble"]
     assert all(s.run == 1 for s in steps)
+    assert all(s.attrs.get("tool") for s in steps)
+    assert steps[0].attrs["model"] == settings.foundry_model
+    assert steps[1].attrs["model"] == settings.foundry_model
+    assert steps[3].attrs["model"] == VIDEO_MODELS[model_key].display_name
+    assert steps[4].attrs["tool"] == "ffmpeg"
+    assert steps[5].attrs["voice"] == settings.tts_voice
+    assert steps[-1].attrs["tool"] == "ffmpeg"
     skipped = {"generate_keyframes", "generate_music"}
     assert {s.attrs["step"]: s.status for s in steps if s.attrs["step"] in skipped} == {
         "generate_keyframes": OpStatus.skipped, "generate_music": OpStatus.skipped}
@@ -90,6 +97,7 @@ async def test_full_pipeline(settings, tmp_path, monkeypatch, model_key):
     assert team.images == [None] and not fake_comfy.uploads
     assert not any(o.kind == OpKind.keyframe for o in ops)
     clips = [o for o in ops if o.kind == OpKind.clip]
+    assert all(c.attrs["model"] == VIDEO_MODELS[model_key].display_name for c in clips)
     assert len(clips) == 6 and all(c.parent_id == step_ids["generate_clips"] for c in clips)
     assert all(c.status == OpStatus.succeeded and c.attrs["server"].startswith("http://comfy")
                and c.attrs["prompt_id"] and "keyframe" not in c.attrs for c in clips)

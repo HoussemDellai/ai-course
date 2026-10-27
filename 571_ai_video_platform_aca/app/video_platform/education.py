@@ -18,10 +18,10 @@ from .narration import fingerprint
 from .operations import OpKind
 from .schemas import CreativeBrief, JobStatus, Scene, VideoRequest
 from .storage import read_json, write_json
-from .video_models import VideoModel
+from .video_models import MUSIC_MODEL_NAME, UPSCALE_MODEL_NAME, VideoModel
 from .workflow import (
-    FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, gather_all, make_submit_recorder, pending_resume,
-    resolve_narrator,
+    FINAL_VIDEO, PipelineDeps, VideoJob, VideoResult, gather_all, make_submit_recorder, narration_metadata,
+    pending_resume, resolve_narrator,
 )
 
 DRAFT = "education/draft.json"
@@ -107,7 +107,9 @@ class EducationalExecutor(Executor):
             saved = await read_json(d.store, job.job_id, DRAFT)
             draft = EducationalDraft.model_validate(saved) if saved else None
             if draft is None or draft.revision < revision:
-                async with ops.op(OpKind.step, "Research public sources", step="research") as research_op:
+                async with ops.op(OpKind.step, "Research public sources", step="research",
+                                  tool="Microsoft Foundry + web search",
+                                  model=d.settings.education_search_model) as research_op:
                     await d.progress(job.job_id, JobStatus.researching)
                     report = await read_json(d.store, job.job_id, "education/research.json")
                     research = ResearchReport.model_validate(report) if report else await self.team.research(
@@ -118,7 +120,8 @@ class EducationalExecutor(Executor):
                     await write_json(d.store, job.job_id, "education/research.json",
                                      research.model_dump(mode="json"))
                     research_op.update(source_urls=[str(source.url) for source in research.sources])
-                async with ops.op(OpKind.step, "Plan educational storyboard", step="education_plan"):
+                async with ops.op(OpKind.step, "Plan educational storyboard", step="education_plan",
+                                  tool="Microsoft Foundry", model=options.text_model or d.settings.foundry_model):
                     await d.progress(job.job_id, JobStatus.planning)
                     draft = await self.team.plan(job.request.prompt, options, research,
                                                  job.request.duration_minutes * 60, revision)
@@ -145,14 +148,16 @@ class EducationalExecutor(Executor):
 
         narrations: list[Path] = []
         measured: list[float] = []
-        async with ops.op(OpKind.step, "Measure approved narration", step="education_narrate"):
+        async with ops.op(OpKind.step, "Measure approved narration", step="education_narrate",
+                          **narration_metadata(job.request, d.settings)):
             await d.progress(job.job_id, JobStatus.narrating)
             narrator = await resolve_narrator(d, job)
             if narrator is None:
                 raise ValueError("Educational videos require a configured Speech endpoint")
             for i, scene in enumerate(draft.scenes):
                 key, path, exists = await artifact(f"narration/scene_{i:03d}.wav")
-                async with ops.op(OpKind.narration, f"Narrate scene {i + 1}", detail=scene.narration) as op:
+                async with ops.op(OpKind.narration, f"Narrate scene {i + 1}", detail=scene.narration,
+                                  **narration_metadata(job.request, d.settings)) as op:
                     if exists:
                         op.reuse()
                     else:
@@ -171,13 +176,20 @@ class EducationalExecutor(Executor):
                               "total_seconds": sum(durations)})
 
         images: list[Path] = []
-        async with ops.op(OpKind.step, "Generate educational visual assets", step="education_images"):
+        image_tool = "Microsoft Foundry" if options.image_provider == "foundry" else "ComfyUI"
+        image_model = d.settings.foundry_image_model if options.image_provider == "foundry" else None
+        visual_tools = sorted({"draw.io MCP + exporter" if scene.diagram else image_tool for scene in draft.scenes})
+        async with ops.op(OpKind.step, "Generate educational visual assets", step="education_images",
+                          tool=" + ".join(visual_tools),
+                          model=image_model if any(scene.diagram is None for scene in draft.scenes) else None):
             await d.progress(job.job_id, JobStatus.keyframing, clips_total=len(draft.scenes), clips_done=0)
 
             async def render_image(i: int) -> Path:
                 scene = draft.scenes[i]
                 key, path, exists = await artifact(f"images/scene_{i:03d}.png")
-                async with ops.op(OpKind.keyframe, f"Visual {i + 1}: {scene.title}", detail=scene.image_prompt) as op:
+                async with ops.op(OpKind.keyframe, f"Visual {i + 1}: {scene.title}", detail=scene.image_prompt,
+                                  tool="draw.io MCP + exporter" if scene.diagram else image_tool,
+                                  model=None if scene.diagram else image_model) as op:
                     if exists:
                         op.reuse()
                         if scene.diagram is not None:
@@ -227,7 +239,12 @@ class EducationalExecutor(Executor):
                 images = [await render_image(i) for i in range(len(draft.scenes))]
 
         processed: list[Path] = []
-        async with ops.op(OpKind.step, "Animate educational scenes", step="education_animate"):
+        motion_tool = "Microsoft Foundry" if options.motion_provider == "foundry" else "ComfyUI"
+        motion_model = d.settings.foundry_video_model if options.motion_provider == "foundry" else job.model.display_name
+        has_motion = options.style != "presentation" and any(scene.diagram is None for scene in draft.scenes)
+        async with ops.op(OpKind.step, "Animate educational scenes", step="education_animate",
+                          tool=f"{motion_tool} + ffmpeg" if has_motion else "ffmpeg",
+                          model=motion_model if has_motion else None):
             await d.progress(job.job_id, JobStatus.generating)
             processed_assets = [await artifact(f"processed/scene_{i:03d}.mp4")
                                 for i in range(len(draft.scenes))]
@@ -244,7 +261,7 @@ class EducationalExecutor(Executor):
             async def render_motion(i: int, clip_index: int) -> Path:
                 key, path, exists = await artifact(f"clips/scene_{i:03d}_{clip_index:03d}.mp4")
                 async with ops.op(OpKind.clip, f"Motion scene {i + 1}, clip {clip_index + 1}",
-                                  scene=i, clip=clip_index, queued=True) as op:
+                                  scene=i, clip=clip_index, queued=True, tool=motion_tool, model=motion_model) as op:
                     if exists:
                         op.reuse()
                     else:
@@ -271,7 +288,7 @@ class EducationalExecutor(Executor):
             async def upscale_motion(i: int, clip_index: int) -> Path:
                 key, path, exists = await artifact(f"upscaled/scene_{i:03d}_{clip_index:03d}.mp4")
                 async with ops.op(OpKind.upscale, f"Upscale scene {i + 1}, clip {clip_index + 1}",
-                                  scene=i, clip=clip_index, queued=True) as op:
+                                  scene=i, clip=clip_index, queued=True, tool="ComfyUI", model=UPSCALE_MODEL_NAME) as op:
                     if exists:
                         op.reuse()
                     else:
@@ -336,7 +353,8 @@ class EducationalExecutor(Executor):
 
         music: dict[int, Path] = {}
         indices = music_indices(draft, options.music_mode)
-        async with ops.op(OpKind.step, "Score selected scenes (MiniMax-Music3)", step="education_music") as step:
+        async with ops.op(OpKind.step, "Score selected scenes (MiniMax-Music3)", step="education_music",
+                          tool="ComfyUI", model=MUSIC_MODEL_NAME) as step:
             if not indices:
                 step.skip("Music off")
             else:
@@ -352,12 +370,13 @@ class EducationalExecutor(Executor):
                     )
                     scenes = [Scene(title=draft.scenes[i].title, summary=draft.scenes[i].description,
                                     narration=draft.scenes[i].narration, shots=[]) for i in indices]
-                    plan = await d.team.score(brief, scenes, [durations[i] for i in indices])
+                    async with ops.op(OpKind.agent, "music-director", model=d.settings.foundry_model):
+                        plan = await d.team.score(brief, scenes, [durations[i] for i in indices])
                     saved_music = plan.model_dump()
                     await write_json(d.store, job.job_id, plan_key, saved_music)
                 async def render_music(cue_index: int, i: int) -> Path:
                     key, path, exists = await artifact(f"music/scene_{i:03d}.flac")
-                    async with ops.op(OpKind.music, f"Music for scene {i + 1}", scene=i) as op:
+                    async with ops.op(OpKind.music, f"Music for scene {i + 1}", scene=i, model=MUSIC_MODEL_NAME) as op:
                         if exists:
                             op.reuse()
                         else:
@@ -378,7 +397,7 @@ class EducationalExecutor(Executor):
                 music = dict(zip(indices, music_paths))
 
         assembled: list[Path] = []
-        async with ops.op(OpKind.step, "Assemble educational video", step="education_assemble"):
+        async with ops.op(OpKind.step, "Assemble educational video", step="education_assemble", tool="ffmpeg"):
             await d.progress(job.job_id, JobStatus.assembling)
             for i, video in enumerate(processed):
                 key, path, exists = await artifact(f"scenes/scene_{i:03d}.mp4")
