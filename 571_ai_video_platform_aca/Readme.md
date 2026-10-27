@@ -1,9 +1,10 @@
 # AI Video Platform on ACA GPU: cinematic, educational and document videos
 
 This independent `aivideo571` deployment runs the CPU orchestrator and GPU ComfyUI
-as separate Azure Container Apps. ComfyUI defaults to two independently addressed
-workers, each with one always-on A100 replica, sharing Premium Azure Files NFS
-model storage. Set `comfyui_worker_count = 1` for a single worker.
+as separate Azure Container Apps. ComfyUI uses one always-on A100 worker and Premium
+Azure Files NFS model storage. The second worker's inventory entry is retained as a
+comment in `infra/aca_comfyui.tf`; to restore it, uncomment that entry and set
+`comfyui_worker_count = 2` after reviewing quota and ongoing cost.
 The solution does not deploy a GPU VM.
 The `555_comfyui_on_aca` folder is a read-only reference, never a deployment dependency.
 CPU/RAM sizing and real A100 workflow compatibility require profiling before deployment;
@@ -124,7 +125,7 @@ Cloned voices support pronunciation hints and sentence pauses, but not Azure spe
 Only clone voices you are authorised to use: the request must set `voice_clone.consent` to `true`.
 
 The engines run in the `voice-clone-<prefix>` Container App (`voice_clone_server/`): a private,
-scale-to-zero GPU service (T4 by default, because the two ComfyUI workers use the A100 quota; engines run in
+scale-to-zero GPU service (T4 by default; ComfyUI uses A100 capacity, so select additional A100 capacity only when quota is available; engines run in
 fp16 there, set `voice_clone_workload_profile = "GPU-NC24-A100"` when quota is available) that loads one engine at a time, each in its own virtualenv, and caches
 weights on the shared NFS share. The **first use of a model after a cold start downloads and loads it,
 which can take several minutes**; the job waits (`VOICE_CLONE_LOAD_TIMEOUT_SECONDS`, default 1800).
@@ -806,7 +807,7 @@ for the configured Foundry model in its separate region (default `germanywestcen
 Explicitly confirm `subscription_id` and both regions before deployment; both Terraform
 providers and deployment helpers use that subscription.
 GPU quota is environment-specific and may require a request after environment creation.
-The default now requires capacity for two simultaneous A100 replicas. Verify quota,
+The default requires capacity for one A100 replica; restoring the secondary requires two. Verify quota,
 subnet IP capacity and possible rollout overlap before approving a deployment.
 
 ```powershell
@@ -865,7 +866,7 @@ Terraform creates:
 > `/gpu_stats` endpoint reveals GPU and container utilization. The platform API key does
 > not protect these separate endpoints. This is not a production-secure exposure model.
 
-- **GPU Container Apps**: two workers by default, each with one always-on A100 replica,
+- **GPU Container Apps**: one primary worker by default, with one always-on A100 replica,
   Single revision, digest-pinned yanwk boot runtime, probes and graceful termination.
 - **Premium NFS account/share**: persistent models, source, inputs and outputs, default
   1 TiB capacity. File access uses the private endpoint, not identity-based NFS mounting.
@@ -912,14 +913,14 @@ The web UI follows the GitHub Copilot app (dark theme). Your videos are listed i
 
 Each operation has a status and a duration, and shows the warnings logged while it ran. Retries keep the earlier runs, and steps resumed from saved artifacts show as *reused*. Below the timeline, the **Outputs** panel plays every intermediate video as soon as it's stored (generated shots, processed shots, assembled scenes, narration and music mixes), then the final video.
 
-The top bar shows GPU utilization/VRAM and ComfyUI container CPU/RAM for both workers,
+The top bar shows GPU utilization/VRAM and ComfyUI container CPU/RAM for each enabled worker,
 refreshed every 2 seconds. Each HTTPS base URL serves `/gpu_stats`; a ComfyUI extension samples
 off the event loop. CPU/RAM are cgroup usage and limits, not underlying host totals.
 Unavailable limits/metrics are reported explicitly, never as a false zero or host-sized
 allocation. Leave `GPU_STATS_URLS` empty to hide the badge.
 
 > [!IMPORTANT]
-> Both A100 replicas and their allocated CPU/RAM are billed while always on; Premium Files also
+> Each enabled A100 replica and its allocated CPU/RAM are billed while always on; Premium Files also
 > incurs persistent charges. Do not enable ordinary HTTP scale-to-zero: submission
 > requests finish before GPU renders. Queue/history are in memory and do not survive
 > a restart or revision rollout. Persistent media and Blob checkpoints survive; existing
@@ -927,15 +928,19 @@ allocation. Leave `GPU_STATS_URLS` empty to hide the badge.
 
 ### Two-worker parallel rendering
 
-`comfyui_worker_count` accepts only `1` or `2` and defaults to `2`. Terraform keeps
-the original `comfyui-<prefix>` app as the primary and adds `comfyui-<prefix>-2`.
+The secondary worker is currently **disabled**: its `secondary` entry remains commented
+in `infra/aca_comfyui.tf`, and `comfyui_worker_count` defaults to `1`.
+To restore it, uncomment the entry and set `comfyui_worker_count = 2`; changing the
+count alone does not recreate a commented-out worker. The configuration still accepts
+only `1` or `2`. Terraform keeps the original `comfyui-<prefix>` app as the primary
+and, only when enabled in the inventory, adds `comfyui-<prefix>-2`.
 A `moved` block preserves the existing primary resource in state; inspect a fresh
 plan to confirm it is not replaced. Both workers use the existing A100 profile,
 image and CPU/RAM allocation. The CPU orchestrator stays at one replica and
 `MAX_CONCURRENT_JOBS` is unchanged: this accelerates independent work in one video.
 
-- Terraform sets `COMFYUI_URLS` and `GPU_STATS_URLS` to both app URLs in primary,
-  secondary order. `comfyui_urls`, `gpu_stats_urls` and `comfyui_apps` are list
+- Terraform sets `COMFYUI_URLS` and `GPU_STATS_URLS` to the enabled app URLs: currently
+  the primary only, or primary then secondary when restored. `comfyui_urls`, `gpu_stats_urls` and `comfyui_apps` are list
   outputs. The old singular outputs still identify only the primary worker.
 - The pool allows one render per worker, up to two concurrently. Uploads, prompt
   submission, history polling and downloads stay on the chosen endpoint.
@@ -953,12 +958,16 @@ image and CPU/RAM allocation. The CPU orchestrator stays at one replica and
   `/root/ComfyUI/workers/secondary`. User directories (including ComfyUI's database)
   are separate, and temporary files are container-local. The provisioner creates
   the directories with runtime ownership before publishing the ready marker.
-- Provisioning checks **both known existing apps**, even when disabling the
-  secondary. A busy, unreachable or unverifiable queue blocks provisioning.
+- Provisioning checks apps listed in the worker inventory. Before commenting out
+  or disabling an existing worker, separately check **both existing apps**.
+  A busy, unreachable or unverifiable queue blocks a safe rollout.
   This is a preflight snapshot, not an atomic drain: stop new submissions and wait
   for all platform jobs and both queues to finish before provisioning or rollout.
-- To return to one worker, drain first, set `comfyui_worker_count = 1`, inspect the
-  fresh plan and separately approve deletion of the secondary app. Removing or
+- To return to one worker, drain first, comment the secondary inventory entry and
+  set `comfyui_worker_count = 1`, inspect the fresh plan and separately approve
+  deletion of the secondary app. Update the CPU app's worker/telemetry URLs before
+  deletion so it cannot submit to a removed worker. Shared NFS models and worker
+  media remain on the existing share. Removing or
   restarting a worker loses its in-memory queue/history; unfinished work may need
   rerendering. Persisted video artifacts remain available.
 
@@ -1124,7 +1133,8 @@ Independent-worker regressions prove overlapping renders with a maximum of one
 per endpoint, colliding prompt-ID routing, upload affinity and resume ownership.
 Educational regressions cover parallel illustrations/motion/music, staged SeedVR2,
 out-of-order completion with ordered assembly, monotonic progress, persisted reuse,
-and unchanged Foundry scheduling. Mocked Terraform plans cover one/two workers,
+and unchanged Foundry scheduling. Mocked Terraform plans cover primary-only wiring,
+explicit one-worker mode and the commented secondary remaining disabled even with a count of two,
 invalid counts, stable primary naming, distinct URL wiring and compatible outputs.
 
 Naturalistic regression tests cover controls and SSML escaping, language/style validation,

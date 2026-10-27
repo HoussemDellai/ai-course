@@ -28,8 +28,8 @@ run "isolated_gpu_architecture" {
     error_message = "Deployment must not adopt the copied 570 resource group."
   }
   assert {
-    condition     = length(azurerm_container_app.comfyui) == 2 && alltrue([for app in azurerm_container_app.comfyui : app.template[0].min_replicas == 1 && app.template[0].max_replicas == 1])
-    error_message = "Each of the two ComfyUI workers must have exactly one stable always-on replica."
+    condition     = keys(azurerm_container_app.comfyui) == ["primary"] && alltrue([for app in azurerm_container_app.comfyui : app.template[0].min_replicas == 1 && app.template[0].max_replicas == 1])
+    error_message = "Only the primary ComfyUI A100 must remain, with one stable always-on replica."
   }
   assert {
     condition     = alltrue([for app in azurerm_container_app.comfyui : app.workload_profile_name == "GPU-NC24-A100"])
@@ -59,28 +59,23 @@ run "stable_worker_names_and_wiring" {
       ingress = { fqdn = "primary.test" }
     }
   }
-  override_resource {
-    target          = azurerm_container_app.comfyui["secondary"]
-    override_during = plan
-    values = {
-      ingress = { fqdn = "secondary.test" }
-    }
-  }
-
   assert {
-    condition     = output.comfyui_urls == ["https://primary.test", "https://secondary.test"]
-    error_message = "Workers must have distinct deterministic endpoints."
+    condition     = output.comfyui_urls == ["https://primary.test"] && output.gpu_stats_urls == ["https://primary.test"]
+    error_message = "Rendering and telemetry must expose only the primary worker endpoint."
   }
   assert {
-    condition     = output.comfyui_apps == ["comfyui-aivideo571", "comfyui-aivideo571-2"] && output.comfyui_app == "comfyui-aivideo571"
+    condition     = output.comfyui_apps == ["comfyui-aivideo571"] && output.comfyui_app == "comfyui-aivideo571"
     error_message = "The existing primary name and legacy output must remain stable."
   }
   assert {
     condition = alltrue([
-      for env in azurerm_container_app.app.template[0].container[0].env :
-      env.value == join(",", local.comfyui_urls) if contains(["COMFYUI_URLS", "GPU_STATS_URLS"], env.name)
+      for name in ["COMFYUI_URLS", "GPU_STATS_URLS"] :
+      one(flatten([
+        for container in azurerm_container_app.app.template[0].container :
+        [for env in container.env : env.value if env.name == name] if container.name == "video-platform"
+      ])) == "https://primary.test"
     ])
-    error_message = "Rendering and telemetry must use every stable worker endpoint."
+    error_message = "Both CPU app worker settings must contain exactly the primary URL, never the disabled secondary."
   }
   assert {
     condition     = output.comfyui_url == output.comfyui_urls[0] && output.gpu_stats_url == output.gpu_stats_urls[0]
@@ -103,6 +98,17 @@ run "one_worker_configuration" {
   assert {
     condition     = keys(azurerm_container_app.comfyui) == ["primary"] && length(output.comfyui_urls) == 1
     error_message = "One-worker mode must retain only the existing primary."
+  }
+}
+
+run "commented_secondary_stays_disabled" {
+  command = plan
+  variables {
+    comfyui_worker_count = 2
+  }
+  assert {
+    condition     = keys(azurerm_container_app.comfyui) == ["primary"] && length(output.comfyui_urls) == 1
+    error_message = "A count override alone must not recreate the commented secondary worker."
   }
 }
 

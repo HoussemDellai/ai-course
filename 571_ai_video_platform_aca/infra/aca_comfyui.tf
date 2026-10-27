@@ -1,7 +1,8 @@
 locals {
   comfyui_worker_names = {
-    primary   = "comfyui-${var.prefix}"
-    secondary = "comfyui-${var.prefix}-2"
+    primary = "comfyui-${var.prefix}"
+    # To restore the second A100, uncomment this entry and set comfyui_worker_count = 2.
+    # secondary = "comfyui-${var.prefix}-2"
   }
   comfyui_workers = {
     for key, name in local.comfyui_worker_names : key => name
