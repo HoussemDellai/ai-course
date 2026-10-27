@@ -93,6 +93,12 @@ async def resolve_narrator(d: PipelineDeps, job: VideoJob) -> Narrator | CloneNa
     return CloneNarrator(d.cloner, options, sample, transcript)
 
 
+def narration_metadata(request: VideoRequest, settings: Settings) -> dict[str, str]:
+    if request.voice_clone:
+        return {"tool": "Voice-clone service", "model": CLONE_MODELS[request.voice_clone.model].name}
+    return {"tool": "Azure AI Speech", "voice": request.voice or settings.tts_voice}
+
+
 @dataclass
 class VideoJob:
     """Message flowing through the workflow; each executor enriches it."""
@@ -276,7 +282,8 @@ class EnhancePromptExecutor(Executor):
     async def run(self, job: VideoJob, ctx: WorkflowContext[VideoJob]) -> None:
         d = self.deps
         ops = d.ops(job.job_id)
-        async with ops.op(OpKind.step, "Enhance prompt", step=self.id) as step:
+        async with ops.op(OpKind.step, "Enhance prompt", step=self.id,
+                          tool="Microsoft Foundry", model=d.settings.foundry_model) as step:
             await d.progress(job.job_id, JobStatus.enhancing)
             if job.request.naturalistic:
                 if (await read_json(d.store, job.job_id, "naturalistic.json") is None
@@ -317,7 +324,8 @@ class PlanStoryboardExecutor(Executor):
         d = self.deps
         ops = d.ops(job.job_id)
         model = d.settings.foundry_model
-        async with ops.op(OpKind.step, "Plan storyboard", step=self.id) as step:
+        async with ops.op(OpKind.step, "Plan storyboard", step=self.id,
+                          tool="Microsoft Foundry", model=model) as step:
             await d.progress(job.job_id, JobStatus.planning)
             saved = await read_json(d.store, job.job_id, "storyboard.json")
             if saved:
@@ -386,7 +394,7 @@ class GenerateKeyframesExecutor(Executor):
         assert job.storyboard is not None
         d = self.deps
         ops = d.ops(job.job_id)
-        async with ops.op(OpKind.step, "Generate keyframes", step=self.id, model=KEYFRAME_MODEL_NAME,
+        async with ops.op(OpKind.step, "Generate keyframes", step=self.id, tool="ComfyUI", model=KEYFRAME_MODEL_NAME,
                           servers=d.comfy.size) as step:
             reference = await load_reference(d, job)
             if reference is None:
@@ -412,7 +420,8 @@ class GenerateKeyframesExecutor(Executor):
             # Storyboards written without keyframe prompts (should not happen) fall back to the clip prompt.
             prompt = shots[i].keyframe_prompt or shots[i].prompt
             async with ops.op(OpKind.keyframe, f"Keyframe {i + 1}/{len(shots)}", summary=scene_titles[i],
-                              detail=prompt, queued=True, seed=job.seed + i, shot=i) as op:
+                              detail=prompt, queued=True, seed=job.seed + i, shot=i,
+                              model=KEYFRAME_MODEL_NAME) as op:
                 if local.exists() or await d.store.download(job.job_id, keyframe_name(i), local):
                     op.reuse()
                     reused += 1
@@ -460,7 +469,7 @@ class GenerateClipsExecutor(Executor):
         done = reused = 0
         lock = asyncio.Lock()
 
-        async with ops.op(OpKind.step, "Generate clips", step=self.id, model=job.model.display_name,
+        async with ops.op(OpKind.step, "Generate clips", step=self.id, tool="ComfyUI", model=job.model.display_name,
                           servers=d.comfy.size, mode="image-to-video" if job.keyframes else "text-to-video",
                           resolution="x".join(map(str, job.render_size))) as step:
             step.progress(0, len(shots))
@@ -472,7 +481,8 @@ class GenerateClipsExecutor(Executor):
                 start_image = job.keyframes[i] if job.keyframes else None
                 extra = {"shot": i, "keyframe": True} if start_image else {"shot": i}
                 async with ops.op(OpKind.clip, f"Shot {i + 1}/{len(shots)}", summary=scene_titles[i],
-                                  detail=shots[i].prompt, queued=True, seed=job.seed + i, **extra) as op:
+                                  detail=shots[i].prompt, queued=True, seed=job.seed + i,
+                                  model=job.model.display_name, **extra) as op:
                     if local.exists() or await d.store.download(job.job_id, clip_name(i), local):
                         op.reuse()
                         reused += 1
@@ -532,6 +542,8 @@ class ProcessShotsExecutor(Executor):
         encoders = asyncio.Semaphore(s.ffmpeg_concurrency)  # a 10 min video has ~120 clips
 
         async with ops.op(OpKind.step, "Process shots", step=self.id, resolution=f"{width}x{height}",
+                          tool="ComfyUI + ffmpeg" if job.seedvr2 else "ffmpeg",
+                          model=UPSCALE_MODEL_NAME if job.seedvr2 else None,
                           fps=s.output_fps, upscaler=upscaler,
                           concurrency=s.ffmpeg_concurrency) as step:
             step.progress(0, len(shots))
@@ -542,7 +554,7 @@ class ProcessShotsExecutor(Executor):
                 local = job.work_dir / processed_name(i)
                 kind = OpKind.upscale if job.seedvr2 else OpKind.ffmpeg
                 async with ops.op(kind, f"Shot {i + 1}/{len(shots)}", summary=scene_titles[i], queued=job.seedvr2,
-                                  shot=i, source=clip_name(i)) as op:
+                                  shot=i, source=clip_name(i), model=UPSCALE_MODEL_NAME if job.seedvr2 else None) as op:
                     if local.exists() or await d.store.download(job.job_id, processed_name(i), local):
                         op.reuse()
                         reused += 1
@@ -621,7 +633,8 @@ class NarrateExecutor(Executor):
             return
         ops = d.ops(job.job_id)
         scenes = job.storyboard.scenes
-        async with ops.op(OpKind.step, "Narrate", step=self.id) as step:
+        async with ops.op(OpKind.step, "Narrate", step=self.id,
+                          **narration_metadata(job.request, d.settings)) as step:
             narrator = await resolve_narrator(d, job) if job.request.narration else None
             if job.request.naturalistic and job.request.narration and narrator is None:
                 raise SpeechError("Naturalistic narration requires a configured Speech endpoint, "
@@ -646,7 +659,8 @@ class NarrateExecutor(Executor):
                     # Storyboards saved before labels were stripped are cleaned here too (job retries).
                     text = strip_speaker_labels(scene.narration, names)
                     async with ops.op(OpKind.narration, f"Scene {i + 1}/{len(scenes)}", summary=scene.title,
-                                      detail=text, characters=len(text)) as op:
+                                      detail=text, characters=len(text),
+                                      **narration_metadata(job.request, d.settings)) as op:
                         if not text:
                             op.skip("No narration")
                             return None
@@ -711,7 +725,7 @@ class GenerateMusicExecutor(Executor):
         d = self.deps
         ops = d.ops(job.job_id)
         scenes = job.storyboard.scenes
-        async with ops.op(OpKind.step, "Generate music", step=self.id, model=MUSIC_MODEL_NAME,
+        async with ops.op(OpKind.step, "Generate music", step=self.id, tool="ComfyUI", model=MUSIC_MODEL_NAME,
                           servers=d.comfy.size) as step:
             if not job.request.music:
                 job.music = [None] * len(scenes)
@@ -746,7 +760,7 @@ class GenerateMusicExecutor(Executor):
             seconds = math.ceil(lengths[i] + 1.0)
             async with ops.op(OpKind.music, f"Scene {i + 1}/{len(scenes)}", summary=scene.title,
                               detail=plan.scenes[i].caption, queued=True, seed=job.seed + 10_000 + i,
-                              seconds=seconds, scene=i) as op:
+                              seconds=seconds, scene=i, model=MUSIC_MODEL_NAME) as op:
                 if local.exists() or await d.store.download(job.job_id, music_name(i), local):
                     op.reuse()
                     reused += 1
@@ -790,7 +804,7 @@ class AssembleExecutor(Executor):
         ops = d.ops(job.job_id)
         scenes = job.storyboard.scenes
         width, height = job.output_size
-        async with ops.op(OpKind.step, "Assemble video", step=self.id,
+        async with ops.op(OpKind.step, "Assemble video", step=self.id, tool="ffmpeg",
                           resolution=f"{width}x{height}", fps=s.output_fps) as step:
             await d.progress(job.job_id, JobStatus.assembling)
 

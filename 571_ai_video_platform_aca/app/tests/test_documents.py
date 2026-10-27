@@ -268,6 +268,14 @@ async def test_document_pipeline_preserves_pages_voice_timing_and_retries(setup,
     assert "max_volume:" in levels.stderr and "max_volume: -inf" not in levels.stderr
     assert narrator.texts == ["An explanation of page 1.", "An explanation of page 2."]
     timing = await read_json(store, state.id, "document/timing.json")
+    steps = {op.attrs["step"]: op for op in await manager.operations(state.id) if op.kind == "step"}
+    assert all(op.attrs.get("tool") for op in steps.values())
+    assert steps["document_extract"].attrs["tool"] == (
+        "LibreOffice + python-pptx + PDFium" if kind == "pptx" else "PDFium"
+    )
+    assert steps["document_plan"].attrs["model"] == settings.foundry_model
+    assert steps["document_narrate"].attrs["voice"] == settings.tts_voice
+    assert steps["document_render"].attrs["tool"] == steps["document_assemble"].attrs["tool"] == "ffmpeg"
     assert timing["durations"] == [3.25, 3.25]
     assert all(page[3] is None for page in team.pages), "No equal per-page writing budget"
     for i, stamp in enumerate([1, 4]):

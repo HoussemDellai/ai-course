@@ -9,6 +9,22 @@ The `555_comfyui_on_aca` folder is a read-only reference, never a deployment dep
 CPU/RAM sizing and real A100 workflow compatibility require profiling before deployment;
 local regression tests are not proof of live GPU compatibility.
 
+## Models and tools in the generation timeline
+
+Every step and operation shows model/tool badges directly in its header, including
+collapsed rows and pending cinematic steps. Badges wrap on narrow/mobile screens
+instead of being hidden with the optional operation summary. Parent steps also
+summarize the tools recorded on their nested operations.
+
+New jobs record the configured Foundry deployments, video/music/upscaling models,
+Azure Speech voice or cloning engine, document extraction tools, image/motion
+provider, diagram exporter and ffmpeg where applicable. Cached/skipped/failed
+operations retain their status: a badge identifies the operation's tool, not proof
+that a model ran again. For older jobs, the UI uses recorded child metadata and known
+tools; where a model/tool was not recorded, it says so rather than guessing from the
+current deployment configuration. Custom ComfyUI image workflows are identified as
+ComfyUI without inventing their model name.
+
 ## Generate multiple video / voice model variants
 
 Enable **Generate multiple model variants** in the web composer. Add **2-12 explicit rows**,
