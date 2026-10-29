@@ -935,6 +935,11 @@ allocation. Leave `GPU_STATS_URLS` empty to hide the badge. Set `GPU_STATS_WHEN_
 workers scale to zero: the platform then polls `/gpu_stats` only for a worker a job is using (or used in
 the last 30 s), so the badge reads "GPU idle" and never wakes an idle A100.
 
+Before every ComfyUI render the orchestrator waits for the worker to answer `/system_stats`
+(`COMFYUI_WARMUP_TIMEOUT_SECONDS`, default 2400 s, matching the worker's 40-minute startup probe), so a
+job that arrives while the worker is scaled to zero simply waits for it to start. The check is skipped
+for a worker that answered in the last minute and costs one request on an always-on worker.
+
 > [!IMPORTANT]
 > Each enabled A100 replica and its allocated CPU/RAM are billed while always on; Premium Files also
 > incurs persistent charges. Do not enable ordinary HTTP scale-to-zero: submission

@@ -24,6 +24,8 @@ class Settings:
     gpu_stats_urls: list[str] = field(default_factory=list)
     # False when the GPU servers scale to zero: live stats then never wake an idle server.
     gpu_stats_when_idle: bool = True
+    # How long a render waits for a ComfyUI worker scaled to zero to start (its startup probe allows 40 minutes).
+    comfyui_warmup_timeout_seconds: int = 2400
     default_video_model: str = "wan22"
     storage_account_url: str = ""
     storage_container: str = "videos"
@@ -67,6 +69,7 @@ class Settings:
             comfyui_urls=_list(e("COMFYUI_URLS", "http://127.0.0.1:8188")),
             gpu_stats_urls=_list(e("GPU_STATS_URLS", "")),
             gpu_stats_when_idle=e("GPU_STATS_WHEN_IDLE", "true").strip().lower() in {"1", "true", "yes", "on"},
+            comfyui_warmup_timeout_seconds=int(e("COMFYUI_WARMUP_TIMEOUT_SECONDS", "2400")),
             default_video_model=e("DEFAULT_VIDEO_MODEL", "wan22"),
             storage_account_url=e("STORAGE_ACCOUNT_URL", ""),
             storage_container=e("STORAGE_CONTAINER", "videos"),
