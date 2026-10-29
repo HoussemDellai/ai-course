@@ -13,6 +13,11 @@ resource "azurerm_storage_account" "storage_comfyui" {
     default_action = "Deny"
     bypass         = ["None"]
   }
+
+  # Microsoft Defender for Storage adds its data scanner as a private link access rule; keep it.
+  lifecycle {
+    ignore_changes = [network_rules[0].private_link_access]
+  }
 }
 
 resource "azurerm_storage_share" "fileshare_comfyui" {
