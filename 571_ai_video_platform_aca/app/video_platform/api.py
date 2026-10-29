@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from .config import Settings
-from .gpu import GpuMonitor
+from .gpu import GpuMonitor, ServerActivity
 from .images import ImageError, sanitize_image
 from .jobs import JobManager, ReviewConflict
 from .education import build_educational_workflow, validate_education_request
@@ -179,7 +179,7 @@ async def job_events(manager: JobManager, job_id: str, poll_seconds: float = SSE
         manager.unsubscribe(job_id, queue)
 
 
-def create_services(settings: Settings):
+def create_services(settings: Settings, activity: ServerActivity | None = None):
     """Wires the Azure clients. Uses managed identity in Azure and your az login locally."""
     from agent_framework.foundry import FoundryChatClient
     from azure.identity import DefaultAzureCredential
@@ -208,7 +208,7 @@ def create_services(settings: Settings):
         if settings.speech_endpoint
         else None
     )
-    comfy = ComfyUIPool.from_urls(settings.comfyui_urls)
+    comfy = ComfyUIPool.from_urls(settings.comfyui_urls, activity)
     cloner = (
         VoiceCloner(settings.voice_clone_url, settings.voice_clone_api_key, settings.voice_clone_load_timeout_seconds)
         if settings.voice_clone_url
@@ -257,10 +257,12 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        store, workflow_factory, close = services or create_services(settings)
+        activity = ServerActivity()
+        store, workflow_factory, close = services or create_services(settings, activity)
         app.state.jobs = JobManager(settings, store, workflow_factory)
         app.state.store = store
-        app.state.gpu = gpu_monitor or GpuMonitor(settings.gpu_stats_urls)
+        app.state.gpu = gpu_monitor or GpuMonitor(
+            settings.gpu_stats_urls, activity=None if settings.gpu_stats_when_idle else activity)
         resume_loop = asyncio.create_task(app.state.jobs.resume_forever())
         yield
         resume_loop.cancel()

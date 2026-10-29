@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 
+from .gpu import ServerActivity
 from .video_models import KEYFRAME_WORKFLOW, MUSIC_WORKFLOW, UPSCALE_WORKFLOW, VideoModel
 
 log = logging.getLogger(__name__)
@@ -176,16 +177,17 @@ class ComfyUIClient:
 class ComfyUIPool:
     """Spreads clips over one or more ComfyUI servers (each server renders one clip at a time)."""
 
-    def __init__(self, clients: list[ComfyUIClient]):
+    def __init__(self, clients: list[ComfyUIClient], activity: ServerActivity | None = None):
         if not clients:
             raise ValueError("At least one ComfyUI server is required")
         self._clients = clients
         self._busy: set[str] = set()
         self._cond = asyncio.Condition()
+        self.activity = activity
 
     @classmethod
-    def from_urls(cls, urls: list[str]) -> ComfyUIPool:
-        return cls([ComfyUIClient(u) for u in urls])
+    def from_urls(cls, urls: list[str], activity: ServerActivity | None = None) -> ComfyUIPool:
+        return cls([ComfyUIClient(u) for u in urls], activity)
 
     @property
     def size(self) -> int:
@@ -202,9 +204,13 @@ class ComfyUIPool:
             await self._cond.wait_for(lambda: self._pick(preferred) is not None)
             client = self._pick(preferred)
             self._busy.add(client.base_url)
+        if self.activity is not None:
+            self.activity.begin(client.base_url)
         try:
             yield client
         finally:
+            if self.activity is not None:
+                self.activity.end(client.base_url)
             async with self._cond:
                 self._busy.discard(client.base_url)
                 self._cond.notify_all()
