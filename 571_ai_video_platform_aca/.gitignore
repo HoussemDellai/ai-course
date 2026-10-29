@@ -3,6 +3,7 @@ infra/.terraform/
 infra/*.tfstate
 infra/*.tfstate.*
 infra/tfplan
+infra/tfplan-*
 infra/*.tfplan
 infra/state-571/
 infra/inherited-state/
