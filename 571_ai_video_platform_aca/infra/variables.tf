@@ -201,13 +201,13 @@ variable "voice_clone_workload_profile" {
 }
 
 variable "voice_clone_cpu" {
-  description = "Voice-clone container vCPU allocation (T4 profile: up to 8)."
+  description = "Voice-clone container vCPU allocation (T4 profile: up to 8). Observed peak is about 1.1 cores while cloning."
   type        = number
-  default     = 4
+  default     = 2
 }
 
 variable "voice_clone_memory_gib" {
-  description = "Voice-clone container system RAM in GiB (separate from GPU VRAM; T4 profile: up to 56); engines are loaded one at a time."
+  description = "Voice-clone container system RAM in GiB (separate from GPU VRAM; T4 profile: up to 56); engines are loaded one at a time. Observed peak is about 9 GiB, with every engine that fits a T4 exercised."
   type        = number
-  default     = 28
+  default     = 16
 }
