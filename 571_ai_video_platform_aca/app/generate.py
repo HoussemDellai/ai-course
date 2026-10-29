@@ -78,7 +78,8 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     p.add_argument("--voice-sample", type=Path, default=None,
                    help="voice cloning: .wav or .mp4 sample of the voice to clone (at least 3 seconds)")
     p.add_argument("--clone-model", choices=["qwen3-tts", "chatterbox", "openvoice-v2", "fish-s2-pro"], default=None,
-                   help="voice cloning model (default with --voice-sample: qwen3-tts)")
+                   help="voice model (default with --voice-sample: qwen3-tts); without --voice-sample it speaks "
+                        "in the bundled built-in voice")
     p.add_argument("--sample-transcript", default=None,
                    help="voice cloning: exact transcript of the sample (default: transcribed automatically)")
     p.add_argument("--voice-consent", action="store_true",
@@ -92,8 +93,12 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
             p.error("--voice-consent is required: confirm you have the right to clone the sampled voice")
         voice_clone = VoiceCloneOptions(model=args.clone_model or "qwen3-tts", consent=True,
                                         sample_transcript=args.sample_transcript)
-    elif args.clone_model or args.sample_transcript or args.voice_consent:
-        p.error("--clone-model, --sample-transcript and --voice-consent require --voice-sample")
+    elif args.sample_transcript or args.voice_consent:
+        p.error("--sample-transcript and --voice-consent require --voice-sample")
+    elif args.clone_model:
+        if args.voice or args.no_narration:
+            p.error("--clone-model cannot be combined with --voice or --no-narration")
+        voice_clone = VoiceCloneOptions(model=args.clone_model, builtin_voice=True)
     education = None
     if args.use_case == "document":
         if not args.document:

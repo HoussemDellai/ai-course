@@ -154,20 +154,30 @@ VoiceCloneModel = Literal["qwen3-tts", "chatterbox", "openvoice-v2", "fish-s2-pr
 
 
 class VoiceCloneOptions(BaseModel):
-    """Zero-shot voice cloning: the narration is spoken in the voice of an uploaded sample instead of Azure Speech."""
+    """Voice-model narration instead of Azure Speech: zero-shot cloning of an uploaded sample, or, with
+    `builtin_voice`, the model speaking in the platform's bundled default voice (no sample, no consent needed)."""
 
     model_config = ConfigDict(extra="forbid")
     model: VoiceCloneModel = Field(default="qwen3-tts", description="qwen3-tts, chatterbox, openvoice-v2 or fish-s2-pro")
+    builtin_voice: bool = Field(
+        default=False,
+        description="Use the bundled default voice with the chosen model instead of cloning an uploaded sample.",
+    )
     sample_transcript: str | None = Field(
         default=None, max_length=1000,
         description="Optional exact transcript of the sample. When omitted it is transcribed automatically.",
     )
     consent: bool = Field(
-        default=False, description="Must be true: confirms you have the right to clone the voice in the sample.",
+        default=False, description="Must be true when cloning an uploaded sample: confirms you have the right to "
+                                   "clone the voice in the sample.",
     )
 
     @model_validator(mode="after")
     def require_consent(self) -> VoiceCloneOptions:
+        if self.builtin_voice:
+            if self.sample_transcript or self.consent:
+                raise ValueError("The built-in voice takes no sample transcript or consent")
+            return self
         if not self.consent:
             raise ValueError("Voice cloning requires confirming that you have the right to clone the sampled voice")
         if self.sample_transcript is not None:

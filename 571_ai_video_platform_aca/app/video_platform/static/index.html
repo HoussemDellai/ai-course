@@ -413,8 +413,8 @@
                 <option value="sequential">Sequential (default)</option>
                 <option value="auto">Parallel when independent GPUs and job slots are configured</option>
               </select>
-              <p class="muted small" id="batchNote">Cloned voices stay sequential because they share one GPU engine.
-                Choose cloning per row, then upload one shared voice sample and confirm consent under Voice and delivery.</p>
+              <p class="muted small" id="batchNote">Voice-model variants stay sequential because they share one GPU engine.
+                Choose the voice engine per row; with no sample they use the built-in voice, otherwise upload one shared sample and confirm consent under Voice and delivery.</p>
             </fieldset>
           </div>
           <details style="padding: 12px">
@@ -422,14 +422,11 @@
             <label for="voice">Voice short name (blank uses the configured voice)</label>
             <input class="input" id="voice" type="text" placeholder="en-US-AndrewMultilingualNeural">
             <fieldset id="cloneControls" style="border: 0; padding: 8px 0">
-              <legend>Voice cloning (optional)</legend>
-              <label class="pill" title="Speak the narration in the voice of an uploaded sample (zero-shot TTS) instead of an Azure Speech voice">
-                <input id="cloneEnabled" type="checkbox"> Clone a voice from a sample
-              </label>
+              <legend>Voice model</legend>
+              <label for="cloneModel" id="cloneModelLabel">Voice engine (Azure Speech, or a model on the voice GPU)</label>
+              <select class="input" id="cloneModel" aria-label="Voice model"><option value="azure" selected>Azure Speech (voice name above)</option></select>
               <div id="cloneFields" hidden>
-                <label for="cloneModel" id="cloneModelLabel">Cloning model</label>
-                <select class="input" id="cloneModel" aria-label="Voice cloning model"></select>
-                <label for="cloneSample">Voice sample (.wav or .mp4, at least 3 seconds of clear speech)</label>
+                <label for="cloneSample">Voice sample to clone (optional; .wav or .mp4, at least 3 seconds of clear speech). Leave empty to use the built-in voice.</label>
                 <input class="input" id="cloneSample" type="file" accept=".wav,.mp4,audio/wav,video/mp4">
                 <label for="cloneTranscript">Exact transcript of the sample (optional; transcribed automatically when blank)</label>
                 <textarea class="input" id="cloneTranscript" rows="2" maxlength="1000"></textarea>
@@ -723,7 +720,7 @@
         renderCloneControls();
         renderVariants();
         $("batchNote").textContent = `Automatic mode can overlap up to ${c.batch?.parallel_capacity || 1} variants.
-          Cloned voices stay sequential on the shared voice GPU. Choose cloning per row, then provide a shared sample and consent under Voice and delivery.`;
+          Voice-model variants stay sequential on the shared voice GPU. Choose the voice engine per row; leave the sample empty for the built-in voice or provide a shared sample and consent under Voice and delivery.`;
         $("documentCapabilities").textContent = documentConfig
           ? `Up to ${documentConfig.max_document_mb} MB and ${documentConfig.max_pages} pages. PDF rendering configured; PowerPoint ${documentConfig.powerpoint_configured ? "configured" : "requires LibreOffice"}; narration ${documentConfig.narration_configured ? "configured" : "missing"}.`
           : "Document capabilities are unavailable from this server.";
@@ -747,14 +744,15 @@
       renderVariants();
       showLicense();
     }
+    const cloneEngine = () => $("cloneModel").value || "azure";
     function usesCloning() {
-      return $("batchEnabled").checked ? variants.some(v => v.engine !== "azure") : $("cloneEnabled").checked;
+      return $("batchEnabled").checked ? variants.some(v => v.engine !== "azure") : cloneEngine() !== "azure";
     }
     function addVariant() {
       if (variants.length >= 12) return;
       const model = models[(models.findIndex(m => m.key === $("model").value) + variants.length + models.length) % models.length];
       variants.push({video_model: model?.key || $("model").value,
-        engine: $("cloneEnabled").checked ? ($("cloneModel").value || "qwen3-tts") : "azure",
+        engine: cloneEngine(),
         voice: $("voice").value.trim()});
       renderVariants(); updateDeliveryControls();
     }
@@ -847,29 +845,29 @@
     function updateDeliveryControls() {
       $("deliveryControls").disabled = !($("naturalistic").checked || ["educational", "document"].includes($("useCase").value)) || !$("narration").checked;
       $("voice").disabled = !$("narration").checked || usesCloning() || $("batchEnabled").checked;
-      $("cloneEnabled").disabled = !$("narration").checked || !voiceCloneConfig?.configured || $("batchEnabled").checked;
+      $("cloneModel").disabled = !$("narration").checked || $("batchEnabled").checked;
       $("cloneFields").hidden = !usesCloning();
-      $("cloneModel").disabled = $("batchEnabled").checked;
       $("cloneModel").hidden = $("batchEnabled").checked;
       $("cloneModelLabel").hidden = $("batchEnabled").checked;
       showCloneNote();
     }
     function renderCloneControls() {
-      $("cloneModel").innerHTML = (voiceCloneConfig?.models || []).map(m =>
-        `<option value="${esc(m.key)}">${esc(m.name)} · ${esc(m.license)}</option>`).join("");
+      const configured = voiceCloneConfig?.configured;
+      $("cloneModel").innerHTML = `<option value="azure">Azure Speech (voice name above)</option>` +
+        (voiceCloneConfig?.models || []).map(m =>
+          `<option value="${esc(m.key)}" ${configured ? "" : "disabled"}>${esc(m.name)} · ${esc(m.license)}</option>`).join("");
       showCloneNote();
       updateDeliveryControls();
     }
     function showCloneNote() {
       const m = (voiceCloneConfig?.models || []).find(m => m.key === $("cloneModel").value);
       $("cloneNote").textContent = !voiceCloneConfig?.configured
-        ? "Voice cloning is not configured on this server."
+        ? "Voice models are not configured on this server."
         : $("batchEnabled").checked
-        ? "The cloning engine and license are selected separately in each variant row above. All cloned variants use this shared sample and transcript. First use loads the engine on the GPU and can take several minutes; speaking style and rate are not supported."
-        : m ? `Languages: ${Array.isArray(m.languages) ? m.languages.join(", ") : m.languages}. The first use of a model loads it on the GPU, which can take several minutes. Speaking style and rate are not supported; pronunciation hints and sentence pauses are.` : "";
+        ? "The voice engine and license are selected separately in each variant row above. Without a sample every model speaks in the built-in voice; with one, all model variants clone it. First use loads the engine on the GPU and can take several minutes; speaking style and rate are not supported."
+        : m ? `Languages: ${Array.isArray(m.languages) ? m.languages.join(", ") : m.languages}. Without a sample the model speaks in the built-in voice. The first use of a model loads it on the GPU, which can take several minutes. Speaking style and rate are not supported; pronunciation hints and sentence pauses are.` : "";
     }
-    $("cloneModel").onchange = showCloneNote;
-    $("cloneEnabled").onchange = updateDeliveryControls;
+    $("cloneModel").onchange = () => { updateDeliveryControls(); };
     $("naturalistic").onchange = updateDeliveryControls;
     $("narration").onchange = () => { renderVariants(); updateDeliveryControls(); };
     updateDeliveryControls();
@@ -967,19 +965,22 @@
         }
         let voiceSample = null;
         if (usesCloning()) {
-          voiceSample = $("cloneSample").files[0];
-          if (!body.narration) throw new Error("Voice cloning requires narration.");
-          if (!voiceCloneConfig?.configured) throw new Error("Voice cloning is not configured on this server.");
-          if (!voiceSample) throw new Error("Choose a voice sample (.wav or .mp4, at least 3 seconds).");
-          if (!/\.(wav|mp4)$/i.test(voiceSample.name)) throw new Error("The voice sample must be a .wav or .mp4 file.");
-          if (voiceSample.size > voiceCloneConfig.max_sample_mb * 1024 * 1024)
-            throw new Error(`The voice sample must be ${voiceCloneConfig.max_sample_mb} MB or less.`);
-          if (!$("cloneConsent").checked) throw new Error("Confirm that you have the right to clone this voice.");
+          voiceSample = $("cloneSample").files[0] || null;
+          if (!body.narration) throw new Error("Voice models require narration.");
+          if (!voiceCloneConfig?.configured) throw new Error("Voice models are not configured on this server.");
+          if (voiceSample) {
+            if (!/\.(wav|mp4)$/i.test(voiceSample.name)) throw new Error("The voice sample must be a .wav or .mp4 file.");
+            if (voiceSample.size > voiceCloneConfig.max_sample_mb * 1024 * 1024)
+              throw new Error(`The voice sample must be ${voiceCloneConfig.max_sample_mb} MB or less.`);
+            if (!$("cloneConsent").checked) throw new Error("Confirm that you have the right to clone this voice.");
+          }
           if (body.delivery && (body.delivery.rate_percent !== 0 || body.delivery.style))
-            throw new Error("Cloned voices do not support speaking style or rate; clear them or turn off cloning.");
+            throw new Error("Voice models do not support speaking style or rate; clear them or choose Azure Speech.");
           body.voice = null;
-          body.voice_clone = { model: $("cloneModel").value, consent: true,
-            sample_transcript: $("cloneTranscript").value.trim() || null };
+          const engine = $("batchEnabled").checked ? variants.find(v => v.engine !== "azure").engine : cloneEngine();
+          body.voice_clone = voiceSample
+            ? { model: engine, consent: true, sample_transcript: $("cloneTranscript").value.trim() || null }
+            : { model: engine, builtin_voice: true };
         }
         const batching = $("batchEnabled").checked;
         const payload = batching ? {request: body, execution: $("batchExecution").value || "sequential",
@@ -1582,7 +1583,7 @@
         ${job.request.reference_image ? `<img class="ref-photo" alt="Reference photo" src="/api/videos/${encodeURIComponent(job.id)}/image?key=${encodeURIComponent(key())}">` : ""}
         <div class="chips">
           ${job.request.reference_image ? `<span class="chip"><span class="k">mode</span>photo to video</span>` : ""}
-          ${job.request.voice_clone ? `<span class="chip"><span class="k">voice</span>cloned · ${esc(job.request.voice_clone.model)}</span>` : ""}
+          ${job.request.voice_clone ? `<span class="chip"><span class="k">voice</span>${job.request.voice_clone.builtin_voice ? "built-in" : "cloned"} · ${esc(job.request.voice_clone.model)}</span>` : ""}
           ${job.request.naturalistic ? `<span class="chip"><span class="k">direction</span>naturalistic</span>` : ""}
           <span class="chip"><span class="k">${job.request.document ? "document" : job.request.education ? "style" : "model"}</span>${esc(job.request.document ? job.request.document.filename : job.request.education ? job.request.education.style : job.request.video_model)}</span>
           ${job.request.document?.animations ? `<span class="chip"><span class="k">animations</span>zoom · fade</span>` : ""}

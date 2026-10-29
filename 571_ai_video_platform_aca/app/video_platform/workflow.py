@@ -38,7 +38,7 @@ from .schemas import (
 )
 from .speech import Narrator, SpeechError
 from .voice_clone import (
-    CLONE_MODELS, VOICE_SAMPLE, VOICE_SAMPLE_TRANSCRIPT, CloneNarrator, VoiceCloner,
+    CLONE_MODELS, VOICE_SAMPLE, VOICE_SAMPLE_TRANSCRIPT, CloneNarrator, VoiceCloner, default_voice,
 )
 from .storage import ArtifactStore, read_json, write_json
 from .video_models import (
@@ -74,6 +74,9 @@ async def resolve_narrator(d: PipelineDeps, job: VideoJob) -> Narrator | CloneNa
         return d.narrator
     if d.cloner is None:
         raise SpeechError("Voice cloning requires a configured VOICE_CLONE_URL")
+    if options.builtin_voice:
+        sample, transcript = default_voice()
+        return CloneNarrator(d.cloner, options, sample, transcript if CLONE_MODELS[options.model].uses_transcript else "")
     sample = job.work_dir / VOICE_SAMPLE
     if not (sample.exists() or await d.store.download(job.job_id, VOICE_SAMPLE, sample)):
         raise SpeechError("The uploaded voice sample is missing from job storage")

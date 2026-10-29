@@ -55,8 +55,9 @@ This works for cinematic, educational and PowerPoint/PDF videos. Video-model cho
 generated motion (including document cinematic cutaways), not original document pages,
 presentation illustrations or Foundry-hosted motion. A document without cutaways can still
 compare different voices, but changing its video model does not change its page visuals.
-For cloned variants, choose the engine **per row**, then upload one shared voice sample and
-confirm consent in **Voice and delivery**. Only cloned variants receive the voice sample;
+For voice-model variants, choose the engine **per row**; leave the shared sample empty for the built-in
+voice, or upload one shared voice sample and confirm consent in **Voice and delivery**. Only cloned variants
+receive the voice sample; built-in-voice variants never do;
 Azure variants use their own optional voice short name or the configured default.
 Cloning language, license, memory and delivery restrictions below still apply.
 
@@ -119,11 +120,17 @@ Add `--batch-execution auto` to request safe parallelism; existing `--use-case`,
 education and voice-sample flags still apply. Educational CLI batches stop at the first
 review and print how to resume through the API using the same storage configuration.
 
-## Optional voice cloning (zero-shot TTS)
+## Optional voice models and voice cloning (zero-shot TTS)
 
-Every use case (cinematic, educational and PowerPoint/PDF) can speak its narration in a voice cloned
-from a short sample instead of an Azure Speech voice. It is **off by default**. In the web UI open
-**Voice and delivery → Clone a voice from a sample**, choose a model, upload a `.wav` or `.mp4`
+Every use case (cinematic, educational and PowerPoint/PDF) can speak its narration with a voice model
+instead of an Azure Speech voice. It is **off by default**. In the web UI open **Voice and delivery →
+Voice model** and pick a model from the dropdown (the default entry is Azure Speech). Two modes:
+
+- **Built-in voice (no cloning):** leave the sample empty and the model speaks in the platform's bundled
+  default voice (`app/video_platform/assets/default_voice.wav`, a recording synthesized with Azure AI Speech, with
+  its exact transcript in `default_voice.txt`). No consent is needed. API/CLI: `"voice_clone": {"model": "chatterbox", "builtin_voice": true}`
+  or `--clone-model chatterbox` without `--voice-sample`.
+- **Cloned voice:** upload a `.wav` or `.mp4`
 (at least 3 seconds of clear speech; only the first 30 seconds are used; up to `MAX_VOICE_SAMPLE_MB`,
 default 25 MB), tick the consent box and generate. Without a transcript, the sample is transcribed
 automatically with Azure AI Speech when the selected model benefits from one.
@@ -137,7 +144,8 @@ automatically with Azure AI Speech when the selected model benefits from one.
 
 The job fails before rendering when the narration language is not supported by the chosen model.
 Cloned voices support pronunciation hints and sentence pauses, but not Azure speaking style or rate.
-Only clone voices you are authorised to use: the request must set `voice_clone.consent` to `true`.
+Only clone voices you are authorised to use: a cloned request must set `voice_clone.consent` to `true`
+(not needed with `builtin_voice`).
 
 The engines run in the `voice-clone-<prefix>` Container App (`voice_clone_server/`): a private,
 scale-to-zero GPU service (T4 by default; engines run in fp16 there) that loads one engine at a time, each in

@@ -21,7 +21,7 @@ from .schemas import (
     BatchMembership, JobState, JobStatus, VideoBatchRequest, VideoBatchState, VideoRequest, utcnow,
 )
 from .storage import LEASE_SECONDS, ArtifactStore, JobLock, read_json, write_json
-from .voice_clone import VOICE_SAMPLE, validate_voice_clone_request
+from .voice_clone import VOICE_SAMPLE, clones_sample, validate_voice_clone_request
 from .video_models import VIDEO_MODELS
 from .workflow import REFERENCE_IMAGE, VideoResult, new_video_job
 
@@ -113,10 +113,10 @@ class JobManager:
                            document: DocumentUpload | None = None,
                            voice_sample: bytes | None = None) -> VideoBatchState:
         requests = batch.requests()
-        if voice_sample is not None and not any(r.voice_clone for r in requests):
+        if voice_sample is not None and not any(clones_sample(r) for r in requests):
             raise ValueError("A voice sample requires at least one voice-cloning variant")
         # Validate every variant before persisting or starting any of them.
-        requests = [self._prepare_request(r, image, document, voice_sample if r.voice_clone else None)
+        requests = [self._prepare_request(r, image, document, voice_sample if clones_sample(r) else None)
                     for r in requests]
         seed = batch.request.seed if batch.request.seed is not None else random.randint(0, 2**40)
         concurrency = 1
@@ -137,7 +137,7 @@ class JobManager:
             for index, (job_id, r) in enumerate(zip(ids, requests))
         ]
         for state in states:
-            await self._upload_inputs(state, image, document, voice_sample if state.request.voice_clone else None)
+            await self._upload_inputs(state, image, document, voice_sample if clones_sample(state.request) else None)
         result = VideoBatchState(id=ids[0], execution=batch.execution, concurrency=concurrency,
                                  scheduling_note=note, jobs=states)
         # The manifest commits a complete set of inputs before any visible job can be resumed.
