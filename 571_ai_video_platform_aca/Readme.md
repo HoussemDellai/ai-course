@@ -931,7 +931,9 @@ The top bar shows GPU utilization/VRAM and ComfyUI container CPU/RAM for each en
 refreshed every 2 seconds. Each HTTPS base URL serves `/gpu_stats`; a ComfyUI extension samples
 off the event loop. CPU/RAM are cgroup usage and limits, not underlying host totals.
 Unavailable limits/metrics are reported explicitly, never as a false zero or host-sized
-allocation. Leave `GPU_STATS_URLS` empty to hide the badge.
+allocation. Leave `GPU_STATS_URLS` empty to hide the badge. Set `GPU_STATS_WHEN_IDLE=false` when the
+workers scale to zero: the platform then polls `/gpu_stats` only for a worker a job is using (or used in
+the last 30 s), so the badge reads "GPU idle" and never wakes an idle A100.
 
 > [!IMPORTANT]
 > Each enabled A100 replica and its allocated CPU/RAM are billed while always on; Premium Files also

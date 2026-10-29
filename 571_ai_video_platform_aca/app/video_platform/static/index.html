@@ -658,8 +658,10 @@
         const host = `${cpus.length ? ` · CPU ${Math.round(avg(cpus.map(h => pct(h.cpu_percent))))}%` : ""}${memories.length ? ` · RAM ${Math.round(avg(memories.map(h => pct(memPct(h)))))}%` : ""}`;
         $("gpuText").textContent = `GPU ${Math.round(util)}% · ${gb(used)}/${gb(total)} GB${host}`;
         $("gpuMeter").style.width = `${util}%`;
+      } else if (servers.length && servers.every(s => s.idle)) {
+        $("gpuText").textContent = "GPU idle · scales to zero";
+        $("gpuMeter").style.width = "0%";
       } else {
-        $("gpuText").textContent = "GPU offline";
         $("gpuMeter").style.width = "0%";
       }
       if (!$("gpuPop").hidden) renderGpuPop();
@@ -690,7 +692,7 @@
       $("gpuPop").innerHTML = servers.map(s => `
         <div class="gpu-server">
           <div class="gpu-server-head">${s.online ? icon("succeeded") : icon("cancelled")}<span>${esc(s.name)}</span></div>
-          ${s.online ? "" : `<div class="muted small">ComfyUI is unreachable. Check the ACA revision and logs.</div>`}
+          ${s.online ? "" : s.idle ? `<div class="muted small">Idle: ComfyUI scales to zero when no job renders, and starts when one needs it. Live stats appear while it renders.</div>` : `<div class="muted small">ComfyUI is unreachable. Check the ACA revision and logs.</div>`}
           ${s.online && s.host ? hostCard(s) : ""}
           ${s.gpus.map(g => {
             const u = pct(g.utilization_gpu), m = memPct(g);

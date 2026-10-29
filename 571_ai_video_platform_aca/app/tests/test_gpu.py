@@ -4,11 +4,13 @@ import importlib.util
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from video_platform.api import create_app
+from video_platform.comfyui import ComfyUIClient, ComfyUIPool
 from video_platform.config import Settings
-from video_platform.gpu import GpuMonitor
+from video_platform.gpu import GpuMonitor, ServerActivity
 from video_platform.storage import LocalArtifactStore
 
 EXPORTER = Path(__file__).resolve().parents[2] / "infra" / "scripts" / "gpu_stats_exporter.py"
@@ -144,3 +146,76 @@ def test_api_gpu(tmp_path):
     app = create_app(settings, services=(store, lambda manager: None, close))
     with TestClient(app) as client:
         assert client.get("/api/gpu?key=secret").json()["enabled"] is False
+
+
+def test_server_activity_tracks_busy_servers_and_a_short_grace_period():
+    now = [100.0]
+    activity = ServerActivity(grace_seconds=30, clock=lambda: now[0])
+    assert not activity.is_active("http://vm1:8188")
+    activity.begin("http://vm1:8188/")
+    activity.begin("http://vm1:8188")
+    activity.end("http://vm1:8188")
+    assert activity.is_active("http://vm1:8188") and not activity.is_active("http://vm2:8188")
+    activity.end("http://vm1:8188")
+    now[0] += 29
+    assert activity.is_active("http://vm1:8188")
+    now[0] += 2
+    assert not activity.is_active("http://vm1:8188")
+    activity.end("http://vm1:8188")  # unbalanced end never makes the counter negative
+    activity.begin("http://vm1:8188")
+    assert activity.is_active("http://vm1:8188")
+
+
+async def test_monitor_never_contacts_idle_servers_so_they_can_scale_to_zero():
+    contacted = []
+
+    def handler(request: httpx.Request):
+        contacted.append(request.url.host)
+        return httpx.Response(200, json=STATS)
+
+    activity = ServerActivity(grace_seconds=0)
+    m = monitor(handler, urls=["http://vm1:8189", "http://vm2:8189"], cache_seconds=0, activity=activity)
+    idle = await m.snapshot()
+    assert contacted == []
+    assert all(s["idle"] is True and s["online"] is False and s["error"] is None and s["gpus"] == []
+               for s in idle["servers"])
+
+    activity.begin("http://vm1:8189")
+    busy, idle_again = (await m.snapshot())["servers"]
+    assert contacted == ["vm1"]
+    assert busy["online"] is True and "idle" not in busy
+    assert idle_again["idle"] is True
+
+
+async def test_pool_marks_the_rendering_server_active():
+    activity = ServerActivity(grace_seconds=0)
+    pool = ComfyUIPool([ComfyUIClient("http://comfy0:8188", httpx.AsyncClient())], activity)
+    assert not activity.is_active("http://comfy0:8188")
+    async with pool.acquire() as client:
+        assert activity.is_active(client.base_url)
+    assert not activity.is_active("http://comfy0:8188")
+    with pytest.raises(RuntimeError):
+        async with pool.acquire():
+            raise RuntimeError("render failed")
+    assert not activity.is_active("http://comfy0:8188")
+
+
+def test_gpu_stats_when_idle_setting(monkeypatch):
+    monkeypatch.delenv("GPU_STATS_WHEN_IDLE", raising=False)
+    assert Settings.from_env().gpu_stats_when_idle is True
+    monkeypatch.setenv("GPU_STATS_WHEN_IDLE", "false")
+    assert Settings.from_env().gpu_stats_when_idle is False
+
+
+def test_api_gpu_skips_idle_servers_when_configured(tmp_path):
+    settings = Settings(local_output_dir=tmp_path / "out", work_dir=tmp_path / "work", api_key="secret",
+                        gpu_stats_urls=["http://vm1:8189"], gpu_stats_when_idle=False)
+    store = LocalArtifactStore(settings.local_output_dir)
+
+    async def close():
+        pass
+
+    app = create_app(settings, services=(store, lambda manager: None, close))
+    with TestClient(app) as client:
+        server = client.get("/api/gpu?key=secret").json()["servers"][0]
+        assert server["idle"] is True and server["online"] is False
