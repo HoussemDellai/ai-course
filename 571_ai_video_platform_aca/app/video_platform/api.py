@@ -35,7 +35,7 @@ from .storage import LocalArtifactStore, read_json
 from .video_models import VIDEO_MODELS
 from .version import __version__
 from .voice_clone import (
-    CLONE_MODELS, MAX_SAMPLE_SECONDS, MIN_SAMPLE_SECONDS, VoiceCloner, VoiceSampleError,
+    A100_CLONE_MODELS, CLONE_MODELS, MAX_SAMPLE_SECONDS, MIN_SAMPLE_SECONDS, VoiceCloner, VoiceSampleError,
     validate_voice_clone_request, validate_voice_sample,
 )
 from .workflow import FINAL_VIDEO, REFERENCE_IMAGE, PipelineDeps, build_video_workflow, keyframe_name
@@ -210,7 +210,8 @@ def create_services(settings: Settings, activity: ServerActivity | None = None):
     )
     comfy = ComfyUIPool.from_urls(settings.comfyui_urls, activity, settings.comfyui_warmup_timeout_seconds)
     cloner = (
-        VoiceCloner(settings.voice_clone_url, settings.voice_clone_api_key, settings.voice_clone_load_timeout_seconds)
+        VoiceCloner(settings.voice_clone_url, settings.voice_clone_api_key, settings.voice_clone_load_timeout_seconds,
+                    model_urls={model: settings.voice_clone_a100_url for model in A100_CLONE_MODELS})
         if settings.voice_clone_url
         else None
     )
