@@ -36,6 +36,16 @@ def test_comfyui_scales_to_zero_by_default_and_telemetry_follows():
     assert 'http_scale_rule {' in comfyui and 'concurrent_requests = "10"' in comfyui
 
 
+def test_voice_clone_is_right_sized_for_a_t4_that_scales_to_zero():
+    variables = (INFRA / "variables.tf").read_text()
+    cpu = variables.split('variable "voice_clone_cpu" {')[1].split("}")[0]
+    memory = variables.split('variable "voice_clone_memory_gib" {')[1].split("}")[0]
+    assert "default     = 2" in cpu and "default     = 16" in memory
+    voice = (INFRA / "voice_clone.tf").read_text()
+    assert "min_replicas                     = 0" in voice
+    assert 'cpu    = var.voice_clone_cpu' in voice and 'memory = "${var.voice_clone_memory_gib}Gi"' in voice
+
+
 def test_deployment_is_independent_and_gpu_only():
     providers = (INFRA / "providers.tf").read_text()
     variables = (INFRA / "variables.tf").read_text()
