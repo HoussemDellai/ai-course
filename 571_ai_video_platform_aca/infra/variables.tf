@@ -46,6 +46,16 @@ variable "comfyui_worker_count" {
   }
 }
 
+variable "comfyui_min_replicas" {
+  description = "Minimum replicas of each A100 ComfyUI worker. 0 scales the A100 to zero when no job renders (billed only while running; a job arriving at zero waits several minutes for the worker to start). 1 keeps one worker always on."
+  type        = number
+  default     = 0
+  validation {
+    condition     = contains([0, 1], var.comfyui_min_replicas)
+    error_message = "comfyui_min_replicas must be 0 or 1."
+  }
+}
+
 variable "comfyui_memory_gib" {
   description = "A100 container system RAM in GiB, separate from GPU VRAM. Validate with real enabled workflows."
   type        = number

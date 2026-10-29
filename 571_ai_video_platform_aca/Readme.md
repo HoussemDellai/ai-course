@@ -1,7 +1,8 @@
 # AI Video Platform on ACA GPU: cinematic, educational and document videos
 
 This independent `aivideo571` deployment runs the CPU orchestrator and GPU ComfyUI
-as separate Azure Container Apps. ComfyUI uses one always-on A100 worker and Premium
+as separate Azure Container Apps. ComfyUI uses one A100 worker that scales to zero when no job
+renders (`comfyui_min_replicas`, default `0`) and Premium
 Azure Files NFS model storage. The second worker's inventory entry is retained as a
 comment in `infra/aca_comfyui.tf`; to restore it, uncomment that entry and set
 `comfyui_worker_count = 2` after reviewing quota and ongoing cost.
@@ -880,7 +881,8 @@ Terraform creates:
 > `/gpu_stats` endpoint reveals GPU and container utilization. The platform API key does
 > not protect these separate endpoints. This is not a production-secure exposure model.
 
-- **GPU Container Apps**: one primary worker by default, with one always-on A100 replica,
+- **GPU Container Apps**: one primary worker by default, with one A100 replica that scales to zero
+  when idle (`comfyui_min_replicas = 1` keeps it always on),
   Single revision, digest-pinned yanwk boot runtime, probes and graceful termination.
 - **Premium NFS account/share**: persistent models, source, inputs and outputs, default
   1 TiB capacity. File access uses the private endpoint, not identity-based NFS mounting.
@@ -941,11 +943,18 @@ job that arrives while the worker is scaled to zero simply waits for it to start
 for a worker that answered in the last minute and costs one request on an always-on worker.
 
 > [!IMPORTANT]
-> Each enabled A100 replica and its allocated CPU/RAM are billed while always on; Premium Files also
-> incurs persistent charges. Do not enable ordinary HTTP scale-to-zero: submission
-> requests finish before GPU renders. Queue/history are in memory and do not survive
-> a restart or revision rollout. Persistent media and Blob checkpoints survive; existing
-> retry/resume handles unknown prompts by rerendering. Restart/update only between jobs.
+> The A100 replica and its allocated CPU/RAM are billed only while it runs (about $3/h with 2 vCPU /
+> 32 GiB); Premium Files also incurs persistent charges. With `comfyui_min_replicas = 0` (default) the
+> worker stops after the default 300 s of HTTP inactivity and starts on the next request. While a render
+> is submitted the orchestrator polls `/history` every 3 s, which keeps the worker alive; between steps
+> that do not need it (narration, LLM calls) it may stop, and the next render waits for the cold start
+> (several minutes: dependencies, CUDA check, model load from NFS). Set `comfyui_min_replicas = 1` to
+> keep it always on. Documents and presentations without cinematic cutaways never start the A100.
+> `terraform apply` provisioning checks the ComfyUI queue over HTTP: if it fails because the worker is
+> cold, that request starts it; rerun the apply once it is up.
+> Queue/history are in memory and do not survive a restart, scale-down or revision rollout. Persistent
+> media and Blob checkpoints survive; existing retry/resume handles unknown prompts by rerendering.
+> Restart/update only between jobs.
 
 ### Two-worker parallel rendering
 

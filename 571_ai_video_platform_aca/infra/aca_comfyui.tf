@@ -38,7 +38,7 @@ resource "azurerm_container_app" "comfyui" {
   }
 
   template {
-    min_replicas                     = 1
+    min_replicas                     = var.comfyui_min_replicas
     max_replicas                     = 1
     termination_grace_period_seconds = 600
 

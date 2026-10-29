@@ -117,6 +117,10 @@ resource "azurerm_container_app" "app" {
         value = join(",", local.comfyui_urls)
       }
       env {
+        name  = "GPU_STATS_WHEN_IDLE"
+        value = var.comfyui_min_replicas == 0 ? "false" : "true"
+      }
+      env {
         name  = "DEFAULT_VIDEO_MODEL"
         value = var.default_video_model
       }

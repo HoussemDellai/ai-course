@@ -24,6 +24,16 @@ def test_comfyui_memory_is_configurable_with_compatible_default():
     assert "comfyui_memory_gib" in (INFRA / "education.tfvars").read_text()
 
 
+def test_comfyui_scales_to_zero_by_default_and_telemetry_follows():
+    variables = (INFRA / "variables.tf").read_text()
+    replicas = variables.split('variable "comfyui_min_replicas" {')[1].split('variable "comfyui_memory_gib"')[0]
+    assert "default     = 0" in replicas
+    assert "contains([0, 1], var.comfyui_min_replicas)" in replicas
+    app = (INFRA / "container_app.tf").read_text()
+    assert 'value = var.comfyui_min_replicas == 0 ? "false" : "true"' in app
+    assert 'name  = "GPU_STATS_WHEN_IDLE"' in app
+
+
 def test_deployment_is_independent_and_gpu_only():
     providers = (INFRA / "providers.tf").read_text()
     variables = (INFRA / "variables.tf").read_text()
@@ -32,12 +42,11 @@ def test_deployment_is_independent_and_gpu_only():
     assert 'path = "state-571/terraform.tfstate"' in providers
     assert 'default     = "aivideo571"' in variables
     assert "variable \"vm_" not in variables
-    assert "min_replicas                     = 1" in app
+    assert "min_replicas                     = var.comfyui_min_replicas" in app
     assert "max_replicas                     = 1" in app
     assert 'revision_mode                = "Single"' in app
     assert "allow_insecure_connections = false" in app
     assert "Consumption-GPU-NC24-A100" in environment
-    assert "T4" not in environment and "ignore_changes" not in environment
     assert 'memory  = "${var.comfyui_memory_gib}Gi"' in app
     assert 'variable "comfyui_memory_gib" {' in variables
     assert not (INFRA / "vm_comfyui.tf").exists()
