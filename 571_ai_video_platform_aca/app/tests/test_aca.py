@@ -32,6 +32,8 @@ def test_comfyui_scales_to_zero_by_default_and_telemetry_follows():
     app = (INFRA / "container_app.tf").read_text()
     assert 'value = var.comfyui_min_replicas == 0 ? "false" : "true"' in app
     assert 'name  = "GPU_STATS_WHEN_IDLE"' in app
+    comfyui = (INFRA / "aca_comfyui.tf").read_text()
+    assert 'http_scale_rule {' in comfyui and 'concurrent_requests = "10"' in comfyui
 
 
 def test_deployment_is_independent_and_gpu_only():
