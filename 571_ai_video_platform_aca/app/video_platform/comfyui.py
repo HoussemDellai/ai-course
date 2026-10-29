@@ -24,6 +24,8 @@ _PLACEHOLDER = re.compile(r"^\{\{(\w+)\}\}$")
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mkv", ".mov")
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
 AUDIO_EXTENSIONS = (".flac", ".wav", ".mp3", ".opus")
+# A server that answered /system_stats this recently is not checked again before the next render.
+READY_RECHECK_SECONDS = 60.0
 
 SubmittedCallback = Callable[[str, str], Awaitable[None]]  # (server base URL, prompt_id)
 
@@ -80,6 +82,7 @@ class ComfyUIClient:
         self._http = http or httpx.AsyncClient(timeout=httpx.Timeout(60.0, read=300.0))
         self.poll_interval = poll_interval
         self.client_id = str(uuid.uuid4())
+        self._ready_at = float("-inf")
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -116,6 +119,30 @@ class ComfyUIClient:
             await self._http.post(f"{self.base_url}/interrupt")
         except httpx.HTTPError:
             pass
+
+    async def wait_ready(self, timeout: float, interval: float = 5.0) -> None:
+        """Waits until the server answers /system_stats.
+
+        A worker scaled to zero needs minutes to start (the ingress answers 502-504 meanwhile)."""
+        loop = asyncio.get_running_loop()
+        if loop.time() - self._ready_at < READY_RECHECK_SECONDS:
+            return
+        deadline = loop.time() + timeout
+        started = loop.time()
+        while True:
+            try:
+                r = await self._http.get(f"{self.base_url}/system_stats", timeout=15.0)
+                if r.status_code == 200:
+                    self._ready_at = loop.time()
+                    if loop.time() - started >= interval:
+                        log.info("ComfyUI %s ready after %.0f s", self.base_url, loop.time() - started)
+                    return
+                error = f"HTTP {r.status_code}"
+            except httpx.HTTPError as e:
+                error = type(e).__name__
+            if loop.time() >= deadline:
+                raise ComfyUIError(f"ComfyUI {self.base_url} did not become ready within {timeout:.0f}s ({error})")
+            await asyncio.sleep(interval)
 
     async def download(self, file: dict[str, str], dest: Path) -> Path:
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -177,17 +204,25 @@ class ComfyUIClient:
 class ComfyUIPool:
     """Spreads clips over one or more ComfyUI servers (each server renders one clip at a time)."""
 
-    def __init__(self, clients: list[ComfyUIClient], activity: ServerActivity | None = None):
+    def __init__(self, clients: list[ComfyUIClient], activity: ServerActivity | None = None,
+                 warmup_timeout: float = 0.0):
         if not clients:
             raise ValueError("At least one ComfyUI server is required")
         self._clients = clients
         self._busy: set[str] = set()
         self._cond = asyncio.Condition()
         self.activity = activity
+        # Seconds to wait for a server (possibly scaled to zero) to start before a render; 0 disables the wait.
+        self.warmup_timeout = warmup_timeout
 
     @classmethod
-    def from_urls(cls, urls: list[str], activity: ServerActivity | None = None) -> ComfyUIPool:
-        return cls([ComfyUIClient(u) for u in urls], activity)
+    def from_urls(cls, urls: list[str], activity: ServerActivity | None = None,
+                  warmup_timeout: float = 0.0) -> ComfyUIPool:
+        return cls([ComfyUIClient(u) for u in urls], activity, warmup_timeout)
+
+    async def _ready(self, client: ComfyUIClient) -> None:
+        if self.warmup_timeout > 0:
+            await client.wait_ready(self.warmup_timeout)
 
     @property
     def size(self) -> int:
@@ -329,6 +364,7 @@ class ComfyUIPool:
             async with self.acquire(preferred=resume["server"]) as client:
                 if client.base_url == resume["server"]:
                     try:
+                        await self._ready(client)
                         if await client.prompt_state(resume["prompt_id"]) != "unknown":
                             return await client.collect(resume["prompt_id"], dest, timeout, extensions)
                     except (ComfyUIError, httpx.HTTPError) as e:
@@ -340,6 +376,7 @@ class ComfyUIPool:
             attempt_params = dict(params, seed=seed if attempt == 0 else random.randint(0, 2**48))
             async with self.acquire() as client:
                 try:
+                    await self._ready(client)
                     if input_image is not None:
                         # Every server has its own input folder: upload to the one that renders this attempt.
                         attempt_params[input_key] = await client.upload_image(input_image, upload_subfolder)

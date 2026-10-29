@@ -208,7 +208,7 @@ def create_services(settings: Settings, activity: ServerActivity | None = None):
         if settings.speech_endpoint
         else None
     )
-    comfy = ComfyUIPool.from_urls(settings.comfyui_urls, activity)
+    comfy = ComfyUIPool.from_urls(settings.comfyui_urls, activity, settings.comfyui_warmup_timeout_seconds)
     cloner = (
         VoiceCloner(settings.voice_clone_url, settings.voice_clone_api_key, settings.voice_clone_load_timeout_seconds)
         if settings.voice_clone_url
