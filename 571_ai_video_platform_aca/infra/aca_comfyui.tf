@@ -42,6 +42,13 @@ resource "azurerm_container_app" "comfyui" {
     max_replicas                     = 1
     termination_grace_period_seconds = 600
 
+    # Without a rule ACA has no signal to scale the worker in or out at all: scale from/to zero on HTTP traffic
+    # (the orchestrator polls /history while a render runs, which keeps the worker alive).
+    http_scale_rule {
+      name                = "http"
+      concurrent_requests = "10"
+    }
+
     container {
       name    = "comfyui"
       image   = var.comfyui_image
