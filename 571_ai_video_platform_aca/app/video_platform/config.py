@@ -54,6 +54,8 @@ class Settings:
     comfy_image_workflow: str = ""
     education_font: str = ""
     voice_clone_url: str = ""
+    # Second deployment of the voice-clone service on an A100, for engines that don't fit the default GPU.
+    voice_clone_a100_url: str = ""
     voice_clone_api_key: str = ""
     max_voice_sample_mb: int = 25
     voice_clone_load_timeout_seconds: int = 1800
@@ -97,6 +99,7 @@ class Settings:
             comfy_image_workflow=e("COMFY_IMAGE_WORKFLOW", ""),
             education_font=e("EDUCATION_FONT", ""),
             voice_clone_url=e("VOICE_CLONE_URL", "").rstrip("/"),
+            voice_clone_a100_url=e("VOICE_CLONE_A100_URL", "").rstrip("/"),
             voice_clone_api_key=e("VOICE_CLONE_API_KEY", ""),
             max_voice_sample_mb=int(e("MAX_VOICE_SAMPLE_MB", "25")),
             voice_clone_load_timeout_seconds=int(e("VOICE_CLONE_LOAD_TIMEOUT_SECONDS", "1800")),

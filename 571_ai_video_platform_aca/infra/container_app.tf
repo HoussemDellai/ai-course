@@ -145,6 +145,13 @@ resource "azurerm_container_app" "app" {
         }
       }
       dynamic "env" {
+        for_each = local.voice_clone_a100_enabled ? [1] : []
+        content {
+          name  = "VOICE_CLONE_A100_URL"
+          value = local.voice_clone_a100_url
+        }
+      }
+      dynamic "env" {
         for_each = var.voice_clone_enabled ? [1] : []
         content {
           name        = "VOICE_CLONE_API_KEY"

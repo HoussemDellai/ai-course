@@ -83,3 +83,12 @@ output "voice_clone_url" {
   description = "Private URL inside the Container Apps environment."
   value       = var.voice_clone_enabled ? local.voice_clone_url : null
 }
+
+output "voice_clone_a100_app" {
+  value = local.voice_clone_a100_enabled ? azurerm_container_app.voice_clone_a100[0].name : null
+}
+
+output "voice_clone_a100_url" {
+  description = "Private URL of the A100 voice-clone service (Fish Audio S2 Pro) inside the Container Apps environment."
+  value       = local.voice_clone_a100_enabled ? local.voice_clone_a100_url : null
+}

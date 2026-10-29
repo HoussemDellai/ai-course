@@ -19,7 +19,8 @@ from video_platform.speech import SpeechError
 from video_platform.storage import LocalArtifactStore
 from video_platform.video_models import VIDEO_MODELS
 from video_platform.voice_clone import (
-    CLONE_MODELS, VOICE_SAMPLE, VOICE_SAMPLE_TRANSCRIPT, CloneNarrator, VoiceCloner, VoiceSampleError,
+    A100_CLONE_MODELS, CLONE_MODELS, VOICE_SAMPLE, VOICE_SAMPLE_TRANSCRIPT, CloneNarrator, VoiceCloner,
+    VoiceSampleError,
     supports_language, validate_voice_sample,
 )
 from video_platform.workflow import PipelineDeps, build_video_workflow
@@ -389,3 +390,36 @@ async def test_cloner_restarts_engine_after_service_restart():
     await cloner.ensure_ready("qwen3-tts")
     assert events == ["start", "start"]
     await cloner.aclose()
+
+
+async def test_fish_is_routed_to_the_a100_deployment_and_other_engines_stay_on_the_default():
+    hosts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hosts.append((request.url.host, request.url.path))
+        assert request.headers["x-api-key"] == "key"
+        if request.method == "POST":
+            return httpx.Response(202, json={})
+        return httpx.Response(200, json={"state": "ready"})
+
+    cloner = service(handler, model_urls={"fish-s2-pro": "http://clone-a100/"})
+    assert cloner.url_for("fish-s2-pro") == "http://clone-a100" and cloner.url_for("qwen3-tts") == "http://clone"
+    await cloner.ensure_ready("fish-s2-pro")
+    await cloner.ensure_ready("chatterbox")
+    assert hosts == [("clone-a100", "/v1/models/fish-s2-pro/start"), ("clone-a100", "/v1/models/fish-s2-pro"),
+                     ("clone", "/v1/models/chatterbox/start"), ("clone", "/v1/models/chatterbox")]
+    await cloner.aclose()
+
+
+async def test_without_an_a100_url_every_engine_uses_the_default_deployment():
+    assert A100_CLONE_MODELS == {"fish-s2-pro"}
+    cloner = service(lambda r: httpx.Response(200, json={}), model_urls={"fish-s2-pro": ""})
+    assert cloner.url_for("fish-s2-pro") == "http://clone"
+    await cloner.aclose()
+
+
+def test_a100_url_setting(monkeypatch):
+    monkeypatch.delenv("VOICE_CLONE_A100_URL", raising=False)
+    assert Settings.from_env().voice_clone_a100_url == ""
+    monkeypatch.setenv("VOICE_CLONE_A100_URL", "https://clone-a100.internal/")
+    assert Settings.from_env().voice_clone_a100_url == "https://clone-a100.internal"

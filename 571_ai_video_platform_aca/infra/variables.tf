@@ -195,7 +195,7 @@ variable "voice_clone_enabled" {
 }
 
 variable "voice_clone_workload_profile" {
-  description = "GPU workload profile of the voice-clone service; it scales to zero when idle. The ComfyUI workers use the whole A100 quota (2), so the default is the T4 profile: engines run in fp16 there. Use GPU-NC24-A100 when A100 quota is available."
+  description = "GPU workload profile of the default voice-clone service; it scales to zero when idle. The default is the cheap T4 profile: engines run in fp16 there, except Fish Audio S2 Pro, which needs 24 GiB and runs in the separate A100 service (voice_clone_a100_enabled)."
   type        = string
   default     = "GPU-NC8as-T4"
 }
@@ -210,4 +210,22 @@ variable "voice_clone_memory_gib" {
   description = "Voice-clone container system RAM in GiB (separate from GPU VRAM; T4 profile: up to 56); engines are loaded one at a time. Observed peak is about 9 GiB, with every engine that fits a T4 exercised."
   type        = number
   default     = 16
+}
+
+variable "voice_clone_a100_enabled" {
+  description = "Deploy a second voice-clone service on a serverless A100 (scaled to zero) for Fish Audio S2 Pro, which does not fit the T4. Needs serverless A100 quota beyond the ComfyUI worker. Requires voice_clone_enabled."
+  type        = bool
+  default     = true
+}
+
+variable "voice_clone_a100_cpu" {
+  description = "vCPU of the A100 voice-clone container (A100 profile: up to 24)."
+  type        = number
+  default     = 4
+}
+
+variable "voice_clone_a100_memory_gib" {
+  description = "System RAM in GiB of the A100 voice-clone container (A100 profile: up to 220); Fish S2 Pro loads its 4.4B-parameter weights through system memory."
+  type        = number
+  default     = 32
 }

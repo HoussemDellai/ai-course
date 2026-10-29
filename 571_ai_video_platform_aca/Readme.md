@@ -140,15 +140,18 @@ Cloned voices support pronunciation hints and sentence pauses, but not Azure spe
 Only clone voices you are authorised to use: the request must set `voice_clone.consent` to `true`.
 
 The engines run in the `voice-clone-<prefix>` Container App (`voice_clone_server/`): a private,
-scale-to-zero GPU service (T4 by default; ComfyUI uses A100 capacity, so select additional A100 capacity only when quota is available; engines run in
-fp16 there, set `voice_clone_workload_profile = "GPU-NC24-A100"` when quota is available) that loads one engine at a time, each in its own virtualenv, and caches
-weights on the shared NFS share. The **first use of a model after a cold start downloads and loads it,
-which can take several minutes**; the job waits (`VOICE_CLONE_LOAD_TIMEOUT_SECONDS`, default 1800).
-Fish Audio S2 Pro needs a GPU with at least 24 GiB of memory, so it fails fast with a clear error on the
-default T4; set `voice_clone_workload_profile = "GPU-NC24-A100"` (requires A100 quota beyond the ComfyUI workers).
+scale-to-zero GPU service (T4 by default; engines run in fp16 there) that loads one engine at a time, each in
+its own virtualenv, and caches weights on the shared NFS share. The **first use of a model after a cold start
+downloads and loads it, which can take several minutes**; the job waits (`VOICE_CLONE_LOAD_TIMEOUT_SECONDS`, default 1800).
+Fish Audio S2 Pro needs a GPU with at least 24 GiB of memory, so it runs in a second app, `voice-clone-a100-<prefix>`:
+the same image on the serverless A100 profile, also private and scaled to zero (`voice_clone_a100_enabled`, default
+`true`; `voice_clone_a100_cpu` / `voice_clone_a100_memory_gib`). The orchestrator sends only `fish-s2-pro` there
+(`VOICE_CLONE_A100_URL`) and every other engine to the T4 app, so the A100 is billed only while a job clones a voice
+with Fish. It needs serverless A100 quota beyond the ComfyUI worker (ComfyUI can run at the same time, so two A100s
+in total); set `voice_clone_a100_enabled = false` if you have only one, and Fish then fails fast on the T4 with a clear error.
 Its weights are gated on Hugging Face: accept the license and set `hf_token`
 (`TF_VAR_hf_token`) if anonymous download is refused. Set `voice_clone_enabled = false` to skip the service; the option is
-then reported as not configured. The orchestrator reads `VOICE_CLONE_URL` and `VOICE_CLONE_API_KEY`.
+then reported as not configured. The orchestrator reads `VOICE_CLONE_URL`, `VOICE_CLONE_A100_URL` and `VOICE_CLONE_API_KEY`.
 
 CLI: `python generate.py "A documentary about bees" --voice-sample me.wav --clone-model chatterbox --voice-consent`
 (optional `--sample-transcript "..."`; works with `--use-case educational` and `document` too).

@@ -46,6 +46,8 @@ CLONE_MODELS: dict[str, CloneModelInfo] = {m.key: m for m in [
     CloneModelInfo("fish-s2-pro", "Fish Audio S2 Pro", "Fish Audio Research License (non-commercial)", None, True),
 ]}
 _LANGUAGE_ALIASES = {"nb": "no", "nn": "no", "iw": "he"}
+# Engines whose weights plus KV cache need more than the 16 GiB of the default T4 (see MIN_VRAM_GIB in the gateway).
+A100_CLONE_MODELS = frozenset({"fish-s2-pro"})
 
 
 def primary_language(language: str) -> str:
@@ -108,11 +110,16 @@ def validate_voice_clone_request(request, settings, has_sample: bool) -> None:
 
 
 class VoiceCloner:
-    """Async client of the voice-clone service (see voice_clone_server): start a model, then synthesize."""
+    """Async client of the voice-clone service (see voice_clone_server): start a model, then synthesize.
+
+    `model_urls` sends specific models to another deployment of the same service, e.g. Fish Audio S2 Pro to the
+    A100 one because it does not fit the default T4."""
 
     def __init__(self, url: str, api_key: str = "", load_timeout: float = 1800, poll_seconds: float = 5.0,
-                 retries: int = 8, retry_seconds: float = 5.0, transport: httpx.AsyncBaseTransport | None = None):
+                 retries: int = 8, retry_seconds: float = 5.0, transport: httpx.AsyncBaseTransport | None = None,
+                 model_urls: dict[str, str] | None = None):
         self.url = url.rstrip("/")
+        self.model_urls = {m: u.rstrip("/") for m, u in (model_urls or {}).items() if u}
         self.load_timeout = load_timeout
         self.poll_seconds = poll_seconds
         self.retries = retries
@@ -121,15 +128,19 @@ class VoiceCloner:
         self._client = httpx.AsyncClient(headers=headers, transport=transport,
                                          timeout=httpx.Timeout(300, connect=30))
 
+    def url_for(self, model: str) -> str:
+        return self.model_urls.get(model, self.url)
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+    async def _request(self, model: str, method: str, path: str, **kwargs) -> httpx.Response:
         """Retries while the scale-to-zero GPU replica starts (connection errors, 502/503/504)."""
+        url = self.url_for(model)
         last = "no response"
         for attempt in range(self.retries):
             try:
-                response = await self._client.request(method, self.url + path, **kwargs)
+                response = await self._client.request(method, url + path, **kwargs)
             except httpx.TransportError as exc:
                 last = f"{type(exc).__name__}: {exc}"
             else:
@@ -157,9 +168,9 @@ class VoiceCloner:
         deadline = time.monotonic() + self.load_timeout
         while True:
             # (Re)start the engine whenever the service has no record of loading it, e.g. after a replica restart.
-            self._check(await self._request("POST", f"/v1/models/{model}/start"), f"start of {info.name}")
+            self._check(await self._request(model, "POST", f"/v1/models/{model}/start"), f"start of {info.name}")
             while True:
-                response = await self._request("GET", f"/v1/models/{model}")
+                response = await self._request(model, "GET", f"/v1/models/{model}")
                 self._check(response, f"status of {info.name}")
                 status = response.json()
                 if status.get("state") == "ready":
@@ -178,7 +189,7 @@ class VoiceCloner:
         reference = sample.read_bytes()
         for attempt in range(2):
             response = await self._request(
-                "POST", "/v1/synthesize",
+                model, "POST", "/v1/synthesize",
                 data={"model": model, "text": text, "language": language, "ref_text": ref_text,
                       "pause_ms": str(pause_ms)},
                 files={"reference": ("reference.wav", reference, "audio/wav")},

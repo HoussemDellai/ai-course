@@ -159,3 +159,18 @@ async def test_comfyui_telemetry_route_is_nonblocking_and_reports_errors(monkeyp
     monkeypatch.setattr(asyncio, "to_thread", fail)
     response = await extension.gpu_stats(None)
     assert response.status == 503 and b"CUDA unavailable" in response.body
+
+
+def test_fish_runs_in_its_own_a100_app_that_scales_to_zero():
+    a100 = (INFRA / "voice_clone_a100.tf").read_text()
+    assert 'workload_profile_name        = "GPU-NC24-A100"' in a100
+    assert "min_replicas                     = 0" in a100
+    assert "http_scale_rule {" in a100
+    assert "external_enabled           = false" in a100
+    assert "image  = local.voice_clone_image" in a100 and 'value = "0"' in a100  # same image, bf16 (no --half)
+    assert "random_password.voice_clone_key[0].result" in a100
+    variables = (INFRA / "variables.tf").read_text()
+    assert variables.split('variable "voice_clone_a100_enabled" {')[1].split("}")[0].count("default     = true") == 1
+    orchestrator = (INFRA / "container_app.tf").read_text()
+    assert 'name  = "VOICE_CLONE_A100_URL"' in orchestrator
+    assert "voice_clone_a100_url" in (INFRA / "outputs.tf").read_text()
