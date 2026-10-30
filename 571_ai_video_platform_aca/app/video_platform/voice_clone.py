@@ -25,6 +25,9 @@ MIN_SAMPLE_SECONDS = 3.0
 MAX_SAMPLE_SECONDS = 30.0
 SAMPLE_RATE = 24000
 SAMPLE_SUFFIXES = {".wav", ".mp4"}
+ASSETS_DIR = Path(__file__).parent / "assets"
+DEFAULT_VOICE_SAMPLE = ASSETS_DIR / "default_voice.wav"
+DEFAULT_VOICE_TRANSCRIPT = ASSETS_DIR / "default_voice.txt"
 
 
 @dataclass(frozen=True)
@@ -97,13 +100,28 @@ async def validate_voice_sample(data: bytes, filename: str, max_bytes: int) -> b
         return output.read_bytes()
 
 
+def clones_sample(request) -> bool:
+    """True when the request's narration clones an uploaded sample (not Azure Speech, not the built-in voice)."""
+    return request.voice_clone is not None and not request.voice_clone.builtin_voice
+
+
+def default_voice() -> tuple[Path, str]:
+    """The bundled reference voice (a recording synthesized with Azure Speech) and its exact transcript."""
+    transcript = DEFAULT_VOICE_TRANSCRIPT.read_text(encoding="utf-8-sig").strip()
+    return DEFAULT_VOICE_SAMPLE, transcript
+
+
 def validate_voice_clone_request(request, settings, has_sample: bool) -> None:
     """The request, the upload and the deployment must agree on whether the voice is cloned."""
     if request.voice_clone is None:
         if has_sample:
             raise VoiceSampleError("A voice sample requires the voice_clone options (model and consent)")
         return
-    if not has_sample:
+    if request.voice_clone.builtin_voice:
+        if has_sample:
+            raise VoiceSampleError("A voice sample cannot be combined with the built-in voice; "
+                                   "omit builtin_voice to clone the sample")
+    elif not has_sample:
         raise VoiceSampleError("Voice cloning requires a voice sample upload (multipart 'voice_sample' field)")
     if not settings.voice_clone_url:
         raise VoiceSampleError("Voice cloning is not configured on this deployment (VOICE_CLONE_URL)", 503)

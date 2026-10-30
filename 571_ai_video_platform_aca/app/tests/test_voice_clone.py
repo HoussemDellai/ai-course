@@ -19,13 +19,14 @@ from video_platform.speech import SpeechError
 from video_platform.storage import LocalArtifactStore
 from video_platform.video_models import VIDEO_MODELS
 from video_platform.voice_clone import (
-    A100_CLONE_MODELS, CLONE_MODELS, VOICE_SAMPLE, VOICE_SAMPLE_TRANSCRIPT, CloneNarrator, VoiceCloner,
-    VoiceSampleError,
-    supports_language, validate_voice_sample,
+    A100_CLONE_MODELS, CLONE_MODELS, MIN_SAMPLE_SECONDS, MAX_SAMPLE_SECONDS, VOICE_SAMPLE, VOICE_SAMPLE_TRANSCRIPT,
+    CloneNarrator, VoiceCloner, VoiceSampleError, clones_sample, default_voice,
+    supports_language, validate_voice_clone_request, validate_voice_sample,
 )
 from video_platform.workflow import PipelineDeps, build_video_workflow
 
 CLONE = {"model": "chatterbox", "consent": True}
+BUILTIN = {"model": "chatterbox", "builtin_voice": True}
 
 
 def test_clone_options_require_consent_and_known_model():
@@ -328,6 +329,13 @@ def test_api_voice_sample_upload(tmp_path):
         assert created[-1][1] is not None and created[-1][0].voice_clone.model == "chatterbox"
         assert post(data={"request": request}, files={"x": ("x.txt", b"x")}).status_code == 422
         assert post(json={"prompt": "a lighthouse keeper", "voice_clone": CLONE}).status_code == 422, "needs a sample"
+        r = post(json={"prompt": "a lighthouse keeper", "voice_clone": BUILTIN})
+        assert r.status_code == 202, r.text
+        assert created[-1][1] is None and created[-1][0].voice_clone.builtin_voice
+        assert config["builtin_voice"] is True
+        r = post(files={"voice_sample": ("v.wav", wav)},
+                 data={"request": json.dumps({"prompt": "a lighthouse keeper", "voice_clone": BUILTIN})})
+        assert r.status_code == 422 and "built-in" in r.text
         plain = json.dumps({"prompt": "a lighthouse keeper"})
         assert post(files={"voice_sample": ("v.wav", wav)}, data={"request": plain}).status_code == 422
         no_consent = json.dumps({"prompt": "a lighthouse keeper", "voice_clone": {"model": "chatterbox"}})
@@ -339,7 +347,7 @@ def test_api_voice_sample_upload(tmp_path):
         big = make_wav(tmp_path / "big.wav", 60).read_bytes()
         assert len(big) > 1024 * 1024
         assert post(files={"voice_sample": ("big.wav", big)}, data={"request": request}).status_code == 413
-        assert len(created) == 1
+        assert len(created) == 2
 
     unconfigured = Settings(local_output_dir=tmp_path / "out", work_dir=tmp_path / "work")
     app = create_app(unconfigured, services=(store, lambda manager: None, no_close))
@@ -359,10 +367,112 @@ def test_cli_voice_cloning_options(tmp_path):
     assert voice_sample_path(argv) == sample
     assert voice_sample_path(["A documentary"]) is None
     assert parse_request(["A documentary", "--voice-sample", "me.wav", "--voice-consent"])[0].voice_clone.model == "qwen3-tts"
-    for bad in (["--voice-sample", "me.wav"], ["--clone-model", "chatterbox"],
+    for bad in (["--voice-sample", "me.wav"], ["--sample-transcript", "hi"], ["--voice-consent"],
+                ["--clone-model", "chatterbox", "--voice", "en-US-AndrewMultilingualNeural"],
                 ["--voice-sample", "me.wav", "--voice-consent", "--voice", "en-US-AndrewMultilingualNeural"]):
         with pytest.raises(SystemExit):
             parse_request(["A documentary", *bad])
+    builtin = parse_request(["A documentary", "--clone-model", "chatterbox"])[0].voice_clone
+    assert builtin.model == "chatterbox" and builtin.builtin_voice and not builtin.consent
+
+
+def test_builtin_voice_options_need_no_consent_or_sample():
+    options = VoiceCloneOptions(model="fish-s2-pro", builtin_voice=True)
+    assert options.builtin_voice and not options.consent
+    for extra in ({"consent": True}, {"sample_transcript": "hello"}):
+        with pytest.raises(ValidationError, match="built-in voice"):
+            VoiceCloneOptions(model="chatterbox", builtin_voice=True, **extra)
+    assert VideoRequest(prompt="a lighthouse", voice_clone=BUILTIN).voice_clone.builtin_voice
+    with pytest.raises(ValidationError, match="not both"):
+        VideoRequest(prompt="a lighthouse", voice_clone=BUILTIN, voice="en-US-AndrewMultilingualNeural")
+    with pytest.raises(ValidationError, match="requires narration"):
+        VideoRequest(prompt="a lighthouse", voice_clone=BUILTIN, narration=False)
+
+
+@requires_ffmpeg
+async def test_bundled_default_voice_is_a_valid_reference():
+    sample, transcript = default_voice()
+    seconds, has_audio = await media.probe(sample)
+    assert has_audio and MIN_SAMPLE_SECONDS <= seconds <= MAX_SAMPLE_SECONDS and transcript
+    assert await validate_voice_sample(sample.read_bytes(), sample.name, 10_000_000)
+
+
+def test_builtin_voice_request_validation():
+    configured = Settings(voice_clone_url="http://clone")
+    request = VideoRequest(prompt="a lighthouse", voice_clone=BUILTIN)
+    validate_voice_clone_request(request, configured, has_sample=False)
+    with pytest.raises(VoiceSampleError, match="cannot be combined"):
+        validate_voice_clone_request(request, configured, has_sample=True)
+    with pytest.raises(VoiceSampleError, match="not configured") as e:
+        validate_voice_clone_request(request, Settings(), has_sample=False)
+    assert e.value.status_code == 503
+    assert clones_sample(VideoRequest(prompt="a lighthouse", voice_clone=CLONE))
+    assert not clones_sample(request) and not clones_sample(VideoRequest(prompt="a lighthouse"))
+
+
+@requires_ffmpeg
+async def test_builtin_voice_job_uses_bundled_reference_without_upload(tmp_path, monkeypatch):
+    from fakes import FakeComfy, tiny_model
+    from video_platform.video_models import RESOLUTIONS
+
+    monkeypatch.setitem(RESOLUTIONS, "720p", (320, 180))
+    monkeypatch.setitem(VIDEO_MODELS, "wan22", tiny_model(VIDEO_MODELS["wan22"], frames=16, fps=16))
+    settings = Settings(local_output_dir=tmp_path / "out", work_dir=tmp_path / "work", output_fps=12,
+                        clip_retries=0, voice_clone_url="http://clone")
+    store = LocalArtifactStore(settings.local_output_dir)
+    pool = FakeComfy(make_clip(tmp_path / "clip.mp4", 1, 16, 320, 176, audio=False)).pool(servers=1)
+    cloner, azure = FakeCloner(), FakeNarrator(3.0)
+
+    def factory(manager):
+        return build_video_workflow(PipelineDeps(settings=settings, team=FakeTeam(), comfy=pool, narrator=azure,
+                                                 store=store, progress=manager.progress, ops=manager.recorder,
+                                                 cloner=cloner))
+
+    manager = JobManager(settings, store, factory)
+    sample, transcript = default_voice()
+    try:
+        state = await manager.create(VideoRequest(prompt="a lighthouse keeper", duration_minutes=0.25,
+                                                  video_model="wan22", voice_clone=BUILTIN))
+        assert state.request.voice_sample is False
+        await asyncio.wait_for(manager.wait(state.id), 120)
+        final = await manager.get(state.id)
+        assert final.status == JobStatus.completed, final.error
+        assert azure.texts == []
+        assert {c["model"] for c in cloner.calls} == {"chatterbox"} and cloner.ready == ["chatterbox"]
+        assert all(c["sample"] == sample.read_bytes() for c in cloner.calls)
+        assert not await store.exists(state.id, VOICE_SAMPLE)
+        # chatterbox ignores transcripts; qwen3-tts and fish-s2-pro use the bundled one
+        assert {c["ref_text"] for c in cloner.calls} == {""}
+        narrator = CloneNarrator(cloner, VoiceCloneOptions(model="qwen3-tts", builtin_voice=True), sample, transcript)
+        assert narrator.ref_text == transcript
+    finally:
+        await manager.shutdown()
+        await pool.aclose()
+
+
+@requires_ffmpeg
+async def test_batch_builtin_rows_ignore_the_shared_sample(tmp_path):
+    settings = Settings(local_output_dir=tmp_path / "out", work_dir=tmp_path / "work", voice_clone_url="http://clone")
+    manager = JobManager(settings, LocalArtifactStore(settings.local_output_dir), lambda m: None)
+    sample = make_wav(tmp_path / "s.wav", 4).read_bytes()
+    batch = VideoBatchRequest(
+        request=VideoRequest(prompt="a lighthouse keeper"),
+        variants=[{"video_model": "wan22", "voice_clone": BUILTIN},
+                  {"video_model": "ltx25", "voice_clone": {"model": "qwen3-tts", "consent": True}}])
+    uploads = []
+
+    async def record(state, image, document, voice_sample):
+        uploads.append((state.request.voice_clone.model, voice_sample))
+
+    manager._start, manager._upload_inputs = lambda job_id: None, record
+    manager._save = lambda state: asyncio.sleep(0)
+    await manager.create_batch(batch, voice_sample=sample)
+    assert uploads == [("chatterbox", None), ("qwen3-tts", sample)]
+    only_builtin = VideoBatchRequest(request=VideoRequest(prompt="a lighthouse keeper"), variants=[
+        {"video_model": "wan22", "voice_clone": BUILTIN}, {"video_model": "ltx25", "voice_clone": BUILTIN}])
+    with pytest.raises(ValueError, match="requires at least one voice-cloning"):
+        await manager.create_batch(only_builtin, voice_sample=sample)
+    await manager.shutdown()
 
 
 def test_settings_from_env_reads_voice_clone_configuration(monkeypatch):

@@ -313,6 +313,7 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
             "configured": bool(settings.voice_clone_url),
             "max_sample_mb": settings.max_voice_sample_mb,
             "min_sample_seconds": MIN_SAMPLE_SECONDS, "max_sample_seconds": MAX_SAMPLE_SECONDS,
+            "builtin_voice": True,
             "models": [{"key": m.key, "name": m.name, "license": m.license,
                         "languages": sorted(m.languages) if m.languages else "80+"}
                        for m in CLONE_MODELS.values()],

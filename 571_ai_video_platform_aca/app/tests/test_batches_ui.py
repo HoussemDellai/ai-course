@@ -48,6 +48,7 @@ const context = {
       const multipart = options.body instanceof FormData;
       const payload = JSON.parse(multipart ? options.body.get("request") : options.body);
       posts.push({url, payload, multipart, sample: multipart ? options.body.get("voice_sample") : null});
+      if (!payload.variants) return {ok: true, status: 202, json: async () => ({id: `single${posts.length}`, request: payload})};
       return {ok: true, status: 202, json: async () => ({id: "batch", concurrency: 1,
         jobs: payload.variants.map((v, i) => ({id: `job${posts.length}-${i}`,
           request: {...payload.request, ...v}}))})};
@@ -120,6 +121,19 @@ const submit = async () => {el("prompt").value = "Explain a lighthouse"; await e
   assert.equal(posts[3].payload.request.education.public_topic, "Public lighthouse optics");
   el("batchEnabled").checked = false; el("batchEnabled").onchange();
   assert.equal(el("batchControls").hidden, true);
+  el("cloneModel").value = "chatterbox"; el("cloneModel").onchange();
+  assert.equal(el("cloneFields").hidden, false, "Models are selectable without a sample");
+  assert.equal(el("cloneModel").disabled, false);
+  el("cloneSample").files = []; el("cloneConsent").checked = false; await submit();
+  assert.equal(alerts.length, 1, "Built-in voice needs no sample or consent: " + alerts.at(-1));
+  assert.equal(posts[4].url, "/api/videos");
+  assert.equal(posts[4].multipart, false);
+  assert.deepEqual(posts[4].payload.voice_clone, {model: "chatterbox", builtin_voice: true});
+  assert.equal(posts[4].payload.voice, null);
+  el("cloneModel").value = "azure"; el("cloneModel").onchange();
+  assert.equal(el("cloneFields").hidden, true);
+  await submit();
+  assert.equal(posts[5].payload.voice_clone, undefined);
   assert.equal(el("send").disabled, false);
 })().catch(error => {console.error(error); process.exitCode = 1});
 """
