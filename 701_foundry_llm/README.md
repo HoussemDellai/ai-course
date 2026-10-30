@@ -74,11 +74,17 @@ plans; reapplying that empty override is safe.
 
 The [EnsureRdpAccess function](functions/foundry-local-auth/EnsureRdpAccess/run.ps1)
 runs every five minutes (`RDP_TIMER_SCHEDULE = 0 */5 * * * *`) in the same
-Function App. It targets only these existing NSGs in `rg-vm-copilot`, subscription
-`2524a5e1-00d7-43c2-a7cf-a87b79df2415`:
+Function App. It discovers every NSG in the resource groups listed in
+[rdp-resource-groups.json](rdp-resource-groups.json), subscription
+`2524a5e1-00d7-43c2-a7cf-a87b79df2415`. Currently:
 
-- `vm-copilot-nsg`
-- `vnet-francecentral-1-snet-francecentral-1-nsg-francecentral`
+- `rg-vm-copilot`
+- `rg-vm-emulator`
+
+To target another resource group in that subscription, add its name to the JSON
+file, run `terraform apply` (which updates the `RDP_RESOURCE_GROUPS` app setting
+and the RBAC assignments), then rebuild and redeploy the package as described above
+only if the function code changed.
 
 It creates `Allow-RDP-Any`: inbound Allow TCP, source address/port `*`, destination
 address `*`, destination port `3389`, priority `100`. A matching allow rule,
@@ -95,10 +101,11 @@ before intentionally removing access. Azure Policy deny assignments still apply.
 
 The function uses the existing `Az.Accounts` module's `Invoke-AzRestMethod` and
 updates only the child security rule, not the NSG's entire rule collection.
-Managed identity has NSG read and child-rule read/write permissions assigned only
-on the two target NSGs. That Azure permission permits writing other security rules
-within those NSGs; it does not grant NSG deletion, VM administration, or RBAC
-changes. Both targets are attempted even if one fails, and any failure marks the
-invocation failed in Application Insights. `RDP_NSG_IDS` contains the two approved
-resource IDs; adding targets requires updating both the explicit allowlist and
-Terraform RBAC assignments.
+Managed identity has NSG read and child-rule read/write permissions assigned at
+scope of each listed resource group (via a custom role). That Azure permission
+permits writing other security rules within those groups' NSGs; it does not grant
+NSG deletion, VM administration, or RBAC changes. All discovered NSGs are attempted
+even if one fails (including a resource group that cannot be listed), and any
+failure marks the invocation failed in Application Insights. A listed resource
+group without NSGs only logs a warning. `RDP_RESOURCE_GROUPS` holds the names from
+the JSON file.

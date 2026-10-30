@@ -1,9 +1,11 @@
 locals {
-  governance_suffix     = substr(sha256(azurerm_resource_group.rg.id), 0, 8)
-  rdp_resource_group_id = "/subscriptions/2524a5e1-00d7-43c2-a7cf-a87b79df2415/resourceGroups/rg-vm-copilot"
-  rdp_nsg_ids = {
-    vm     = "${local.rdp_resource_group_id}/providers/Microsoft.Network/networkSecurityGroups/vm-copilot-nsg"
-    subnet = "${local.rdp_resource_group_id}/providers/Microsoft.Network/networkSecurityGroups/vnet-francecentral-1-snet-francecentral-1-nsg-francecentral"
+  governance_suffix = substr(sha256(azurerm_resource_group.rg.id), 0, 8)
+  subscription_id   = data.azurerm_client_config.current.subscription_id
+
+  # Resource groups whose NSGs get the RDP rule; edit rdp-resource-groups.json to extend.
+  rdp_resource_groups = toset(jsondecode(file("${path.module}/rdp-resource-groups.json")).resourceGroups)
+  rdp_resource_group_ids = {
+    for name in local.rdp_resource_groups : name => "/subscriptions/${local.subscription_id}/resourceGroups/${name}"
   }
 }
 
@@ -72,8 +74,8 @@ resource "azurerm_role_assignment" "governance_foundry" {
 
 resource "azurerm_role_definition" "governance_rdp" {
   name        = "NSG RDP Rule Maintenance ${var.prefix}-${local.governance_suffix}"
-  scope       = local.rdp_resource_group_id
-  description = "Read designated NSGs and manage their child security rules without replacing NSGs."
+  scope       = "/subscriptions/${local.subscription_id}"
+  description = "Read NSGs in designated resource groups and manage their child security rules without replacing NSGs."
 
   permissions {
     actions = [
@@ -83,11 +85,11 @@ resource "azurerm_role_definition" "governance_rdp" {
     ]
   }
 
-  assignable_scopes = [local.rdp_resource_group_id]
+  assignable_scopes = values(local.rdp_resource_group_ids)
 }
 
 resource "azurerm_role_assignment" "governance_rdp" {
-  for_each           = local.rdp_nsg_ids
+  for_each           = local.rdp_resource_group_ids
   scope              = each.value
   role_definition_id = azurerm_role_definition.governance_rdp.role_definition_resource_id
   principal_id       = azurerm_user_assigned_identity.governance.principal_id
@@ -156,7 +158,7 @@ resource "azurerm_function_app_flex_consumption" "governance" {
     "FOUNDRY_ACCOUNT_NAME"             = azurerm_cognitive_account.foundry.name
     "TIMER_SCHEDULE"                   = "0 */5 * * * *"
     "RDP_TIMER_SCHEDULE"               = "0 */5 * * * *"
-    "RDP_NSG_IDS"                      = jsonencode(values(local.rdp_nsg_ids))
+    "RDP_RESOURCE_GROUPS"              = jsonencode(sort(tolist(local.rdp_resource_groups)))
   }
 
   depends_on = [
