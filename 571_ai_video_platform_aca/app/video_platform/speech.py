@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Literal
 from xml.sax.saxutils import escape, quoteattr
@@ -26,13 +27,63 @@ class VoiceCapabilities(BaseModel):
     secondary_locales: list[str] = Field(default_factory=list, alias="SecondaryLocaleList")
     styles: list[str] = Field(default_factory=list, alias="StyleList")
     voice_type: str = Field(alias="VoiceType")
+    display_name: str = Field(default="", alias="DisplayName")
+    local_name: str = Field(default="", alias="LocalName")
+    gender: str = Field(default="", alias="Gender")
+    locale_name: str = Field(default="", alias="LocaleName")
+    status: str = Field(default="", alias="Status")
+
+    @property
+    def supports_delivery_controls(self) -> bool:
+        return self.voice_type == "Neural" and "HD" not in self.name
+
+    def summary(self) -> dict[str, object]:
+        """What the web UI needs to let a user choose this voice."""
+        return {
+            "name": self.name, "display_name": self.display_name or self.name, "local_name": self.local_name,
+            "gender": self.gender, "locale": self.locale, "locale_name": self.locale_name,
+            "secondary_locales": self.secondary_locales, "styles": self.styles, "type": self.voice_type,
+            "status": self.status, "delivery_controls": self.supports_delivery_controls,
+        }
+
+
+def fetch_voices(endpoint: str, credential: TokenCredential) -> list[VoiceCapabilities]:
+    token = credential.get_token("https://cognitiveservices.azure.com/.default")
+    try:
+        response = httpx.get(
+            endpoint.rstrip("/") + "/tts/cognitiveservices/voices/list",
+            headers={"Authorization": f"Bearer {token.token}"}, timeout=30,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise SpeechError(f"Could not load voice capabilities from the Speech endpoint: {exc}") from exc
+    return TypeAdapter(list[VoiceCapabilities]).validate_python(response.json())
+
+
+class VoiceCatalog:
+    """Every voice the Speech endpoint offers, cached so the web UI can list them without hammering the service."""
+
+    def __init__(self, endpoint: str, credential: TokenCredential, ttl_seconds: float = 6 * 3600):
+        self.endpoint = endpoint
+        self.credential = credential
+        self.ttl_seconds = ttl_seconds
+        self._voices: list[VoiceCapabilities] | None = None
+        self._loaded_at = 0.0
+        self._lock = asyncio.Lock()
+
+    async def voices(self) -> list[VoiceCapabilities]:
+        async with self._lock:
+            if self._voices is None or time.monotonic() - self._loaded_at >= self.ttl_seconds:
+                self._voices = await asyncio.to_thread(fetch_voices, self.endpoint, self.credential)
+                self._loaded_at = time.monotonic()
+            return self._voices
 
 
 def validate_delivery(voice: VoiceCapabilities, language: str, delivery: NarrationDelivery) -> None:
     locales = {v.lower() for v in [voice.locale, *voice.secondary_locales]}
     if language.lower() not in locales:
         raise SpeechError(f"Voice {voice.name} does not advertise language {language}; choose a compatible voice")
-    if voice.voice_type != "Neural" or "HD" in voice.name:
+    if not voice.supports_delivery_controls:
         raise SpeechError(f"Naturalistic delivery requires a standard neural voice, not {voice.name}")
     if delivery.style and delivery.style not in voice.styles:
         raise SpeechError(f"Voice {voice.name} does not support style {delivery.style!r}; "
@@ -78,16 +129,7 @@ class Narrator:
 
     def _validate(self, voice: str, language: str, delivery: NarrationDelivery) -> None:
         if self._voices is None:
-            token = self.credential.get_token("https://cognitiveservices.azure.com/.default")
-            try:
-                response = httpx.get(
-                    self.endpoint.rstrip("/") + "/tts/cognitiveservices/voices/list",
-                    headers={"Authorization": f"Bearer {token.token}"}, timeout=30,
-                )
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise SpeechError(f"Could not load voice capabilities from the Speech endpoint: {exc}") from exc
-            self._voices = TypeAdapter(list[VoiceCapabilities]).validate_python(response.json())
+            self._voices = fetch_voices(self.endpoint, self.credential)
         capability = next((v for v in self._voices if v.name == voice), None)
         if capability is None:
             raise SpeechError(f"Voice {voice!r} is not available at this Speech endpoint")

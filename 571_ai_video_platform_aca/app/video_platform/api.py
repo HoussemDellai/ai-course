@@ -31,6 +31,7 @@ from .documents import (
 )
 from .operations import Operation
 from .schemas import JobState, VideoBatchRequest, VideoBatchState, VideoRequest
+from .speech import SpeechError, VoiceCatalog
 from .storage import LocalArtifactStore, read_json
 from .video_models import VIDEO_MODELS
 from .version import __version__
@@ -253,7 +254,10 @@ def create_services(settings: Settings, activity: ServerActivity | None = None):
     return store, workflow_factory, close
 
 
-def create_app(settings: Settings | None = None, services=None, gpu_monitor: GpuMonitor | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, services=None, gpu_monitor: GpuMonitor | None = None,
+    voice_catalog: VoiceCatalog | None = None,
+) -> FastAPI:
     settings = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -264,11 +268,21 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
         app.state.store = store
         app.state.gpu = gpu_monitor or GpuMonitor(
             settings.gpu_stats_urls, activity=None if settings.gpu_stats_when_idle else activity)
+        speech_credential = None
+        catalog = voice_catalog
+        if catalog is None and services is None and settings.speech_endpoint:
+            from azure.identity import DefaultAzureCredential
+
+            speech_credential = DefaultAzureCredential()
+            catalog = VoiceCatalog(settings.speech_endpoint, speech_credential)
+        app.state.voices = catalog
         resume_loop = asyncio.create_task(app.state.jobs.resume_forever())
         yield
         resume_loop.cancel()
         await app.state.jobs.shutdown()
         await app.state.gpu.aclose()
+        if speech_credential is not None:
+            speech_credential.close()
         await close()
 
     app = FastAPI(title="AI Video Platform", version=__version__, lifespan=lifespan)
@@ -294,6 +308,19 @@ def create_app(settings: Settings | None = None, services=None, gpu_monitor: Gpu
     async def index():
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         return HTMLResponse(html.replace("{{APP_VERSION}}", __version__))
+
+    @app.get("/api/voices", dependencies=[Depends(require_api_key)])
+    async def list_voices(request: Request):
+        """Every Azure Speech voice the configured endpoint offers, for the voice and style pickers."""
+        catalog: VoiceCatalog | None = request.app.state.voices
+        if catalog is None:
+            return {"configured": False, "default_voice": settings.tts_voice, "voices": []}
+        try:
+            voices = await catalog.voices()
+        except SpeechError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        ordered = sorted(voices, key=lambda v: (v.locale.lower(), (v.display_name or v.name).lower(), v.name))
+        return {"configured": True, "default_voice": settings.tts_voice, "voices": [v.summary() for v in ordered]}
 
     @app.get("/api/models", dependencies=[Depends(require_api_key)])
     async def list_models():

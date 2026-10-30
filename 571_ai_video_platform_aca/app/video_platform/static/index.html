@@ -419,7 +419,14 @@
           </div>
           <details style="padding: 12px">
             <summary>Voice and delivery</summary>
-            <label for="voice">Voice short name (blank uses the configured voice)</label>
+            <div id="voicePicker" hidden>
+              <label for="voiceLocale">Voice language</label>
+              <select class="input" id="voiceLocale" aria-label="Voice language"></select>
+              <label for="voiceSelect">Azure Speech voice (blank uses the configured voice)</label>
+              <select class="input" id="voiceSelect" aria-label="Azure Speech voice"></select>
+              <p class="muted small" id="voiceInfo"></p>
+            </div>
+            <label for="voice" id="voiceLabel">Voice short name (blank uses the configured voice)</label>
             <input class="input" id="voice" type="text" placeholder="en-US-AndrewMultilingualNeural">
             <fieldset id="cloneControls" style="border: 0; padding: 8px 0">
               <legend>Voice model</legend>
@@ -440,8 +447,10 @@
               <input class="input" id="speechRate" type="number" min="-10" max="10" step="1" value="0" required>
               <label for="sentencePause">Sentence pause (ms)</label>
               <input class="input" id="sentencePause" type="number" min="0" max="1000" step="1" value="180" required>
-              <label for="speechStyle">Voice style (optional; must be supported by the voice)</label>
+              <label for="speechStyle" id="speechStyleLabel">Voice style (optional; must be supported by the voice)</label>
+              <select class="input" id="speechStylePicker" aria-label="Voice style" hidden></select>
               <input class="input" id="speechStyle" type="text" maxlength="60" placeholder="Leave blank for neutral delivery">
+              <p class="muted small" id="styleInfo" hidden></p>
               <label for="pronunciations">Pronunciation hints (one TEXT=ALIAS per line, maximum 20)</label>
               <textarea class="input" id="pronunciations" rows="2" placeholder="SQL=sequel"></textarea>
             </fieldset>
@@ -585,6 +594,7 @@
     // ---------------------------------------------------------------- state
     let jobs = [], models = [];
     let variants = [];
+    let voiceCatalog = null;  // filled by loadVoices() when the server lists Azure Speech voices
     let cur = null;                 // { id, job, ops: Map }
     let source = null, pollTimer = null, renderQueued = false, outcomeKey = "", userMsgKey = "";
     let outputs = new Map();        // artifact name -> { card, video, src } of the Outputs panel
@@ -711,6 +721,7 @@
 
     // ---------------------------------------------------------------- composer
     async function loadModels() {
+      loadVoices();
       api("/api/config").then(r => r.ok ? r.json() : null).then(c => {
         if (!c) return;
         maxImageMb = c.max_image_mb;
@@ -744,6 +755,99 @@
       renderVariants();
       showLicense();
     }
+    // ---------------------------------------------------------------- Azure Speech voices and styles
+    // #voice and #speechStyle stay the source of truth (and the manual fallback); the pickers drive them.
+    const localeNames = (() => {
+      try { return new Intl.DisplayNames(["en"], {type: "language", languageDisplay: "standard"}); } catch { return null; }
+    })();
+    function localeTitle(locale) {
+      try { return localeNames?.of(locale) || locale; } catch { return locale; }
+    }
+    const voiceLabel = v => `${v.display_name}${v.gender ? ` (${v.gender})` : ""}${v.status && v.status !== "GA" ? ` [${v.status}]` : ""}${v.delivery_controls ? "" : " - no rate/style"}`;
+    async function loadVoices() {
+      try {
+        const r = await api("/api/voices");
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!Array.isArray(data?.voices) || !data.voices.length) return;
+        voiceCatalog = {defaultVoice: data.default_voice || "", voices: data.voices,
+          byName: new Map(data.voices.map(v => [v.name, v]))};
+      } catch { return; }
+      renderVoicePicker(); renderVariants(); updateDeliveryControls();
+    }
+    function voiceOptionsHtml(selected, locale = "") {
+      const groups = new Map();
+      for (const v of voiceCatalog.voices) {
+        if (locale && v.locale !== locale && !v.secondary_locales.includes(locale)) continue;
+        if (!groups.has(v.locale)) groups.set(v.locale, []);
+        groups.get(v.locale).push(v);
+      }
+      const fallback = voiceCatalog.byName.get(voiceCatalog.defaultVoice);
+      let html = `<option value="">Default (${esc(fallback ? voiceLabel(fallback) : voiceCatalog.defaultVoice || "configured voice")})</option>`;
+      let listed = !selected;
+      const byTitle = (a, b) => (a[0] === locale ? -1 : b[0] === locale ? 1 : 0) || localeTitle(a[0]).localeCompare(localeTitle(b[0]));
+      for (const [code, list] of [...groups].sort(byTitle)) {
+        html += `<optgroup label="${esc(localeTitle(code))} · ${esc(code)}">` + list.map(v => {
+          listed ||= v.name === selected;
+          return `<option value="${esc(v.name)}" ${v.name === selected ? "selected" : ""}>${esc(voiceLabel(v))} · ${esc(v.name)}</option>`;
+        }).join("") + "</optgroup>";
+      }
+      if (!listed) {
+        const known = voiceCatalog.byName.get(selected);
+        html += `<option value="${esc(selected)}" selected>${esc(known ? voiceLabel(known) + " · " : "")}${esc(selected)} (${known ? "current selection" : "custom"})</option>`;
+      }
+      return html;
+    }
+    function renderVoicePicker() {
+      const loaded = Boolean(voiceCatalog);
+      $("voicePicker").hidden = !loaded; $("voice").hidden = loaded; $("voiceLabel").hidden = loaded;
+      if (!loaded) return;
+      const counts = new Map(), current = $("voiceLocale").value;
+      for (const v of voiceCatalog.voices) for (const code of new Set([v.locale, ...v.secondary_locales])) counts.set(code, (counts.get(code) || 0) + 1);
+      $("voiceLocale").innerHTML = `<option value="">All languages (${voiceCatalog.voices.length} voices)</option>` +
+        [...counts].sort((a, b) => localeTitle(a[0]).localeCompare(localeTitle(b[0]))).map(([code, count]) =>
+          `<option value="${esc(code)}" ${code === current ? "selected" : ""}>${esc(localeTitle(code))} · ${esc(code)} (${count})</option>`).join("");
+      renderVoiceSelect();
+    }
+    function renderVoiceSelect() {
+      $("voiceSelect").innerHTML = voiceOptionsHtml($("voice").value.trim(), $("voiceLocale").value);
+      updateVoiceInfo(); renderStylePicker();
+    }
+    const effectiveVoice = () => voiceCatalog?.byName.get($("voice").value.trim() || voiceCatalog.defaultVoice) || null;
+    function updateVoiceInfo() {
+      if (!voiceCatalog) return;
+      const v = effectiveVoice();
+      $("voiceInfo").textContent = !v ? "This voice is not in the Azure Speech catalog; it will be checked when the job starts."
+        : [v.name, v.gender, `${localeTitle(v.locale)} (${v.locale})`,
+          v.secondary_locales.length ? `multilingual: also ${v.secondary_locales.length} other languages` : "",
+          v.styles.length ? `${v.styles.length} speaking styles` : "no speaking styles"].filter(Boolean).join(" · ") +
+          (v.delivery_controls ? "" : ". HD and preview voices cannot use rate or style controls, so Naturalistic narration, Educational and PowerPoint/PDF videos need a standard neural voice.");
+    }
+    function styleChoices() {
+      if (!voiceCatalog) return null;
+      const voices = $("batchEnabled").checked
+        ? variants.filter(v => v.engine === "azure").map(v => voiceCatalog.byName.get(v.voice.trim() || voiceCatalog.defaultVoice))
+        : [effectiveVoice()];
+      if (!voices.length || voices.some(v => !v)) return null;
+      return voices.map(v => v.styles).reduce((common, styles) => common.filter(s => styles.includes(s)));
+    }
+    function renderStylePicker() {
+      const choices = styleChoices();
+      $("speechStyle").hidden = Boolean(choices); $("speechStylePicker").hidden = !choices;
+      $("styleInfo").hidden = !choices; $("speechStyleLabel").htmlFor = choices ? "speechStylePicker" : "speechStyle";
+      if (!choices) return;
+      if ($("speechStyle").value && !choices.includes($("speechStyle").value)) $("speechStyle").value = "";
+      $("speechStylePicker").innerHTML = `<option value="">Neutral (no speaking style)</option>` +
+        choices.map(s => `<option value="${esc(s)}" ${s === $("speechStyle").value ? "selected" : ""}>${esc(s)}</option>`).join("");
+      $("styleInfo").textContent = choices.length
+        ? `${choices.length} speaking style${choices.length === 1 ? "" : "s"} ${$("batchEnabled").checked ? "shared by every variant voice" : "supported by this voice"}.`
+        : $("batchEnabled").checked ? "The variant voices share no speaking style, so only neutral delivery is available."
+        : "This voice has no speaking styles, so only neutral delivery is available.";
+    }
+    $("voiceLocale").onchange = renderVoiceSelect;
+    $("voiceSelect").onchange = () => { $("voice").value = $("voiceSelect").value; updateVoiceInfo(); renderStylePicker(); };
+    $("speechStylePicker").onchange = () => { $("speechStyle").value = $("speechStylePicker").value; };
+
     const cloneEngine = () => $("cloneModel").value || "azure";
     function usesCloning() {
       return $("batchEnabled").checked ? variants.some(v => v.engine !== "azure") : cloneEngine() !== "azure";
@@ -766,8 +870,10 @@
           <option value="azure" ${v.engine === "azure" ? "selected" : ""}>Azure Speech / configured voice</option>
           ${(voiceCloneConfig?.models || []).map(m => `<option value="${esc(m.key)}" ${m.key === v.engine ? "selected" : ""} ${!voiceCloneConfig.configured || !$("narration").checked ? "disabled" : ""}>${esc(m.name)} - ${esc(m.license)}</option>`).join("")}
         </select></label>
-        <label>Azure voice short name (blank uses configured voice)
-          <input class="input" aria-label="Variant ${index + 1} Azure voice" data-index="${index}" data-field="voice" value="${esc(v.voice)}" ${v.engine !== "azure" || !$("narration").checked ? "disabled" : ""}>
+        <label>Azure voice (blank uses configured voice)
+          ${voiceCatalog
+            ? `<select class="input" aria-label="Variant ${index + 1} Azure voice" data-index="${index}" data-field="voice" ${v.engine !== "azure" || !$("narration").checked ? "disabled" : ""}>${voiceOptionsHtml(v.voice.trim())}</select>`
+            : `<input class="input" aria-label="Variant ${index + 1} Azure voice" data-index="${index}" data-field="voice" value="${esc(v.voice)}" ${v.engine !== "azure" || !$("narration").checked ? "disabled" : ""}>`}
         </label>
         <button class="btn btn-sm" type="button" data-remove="${index}" ${variants.length <= 2 ? "disabled" : ""}>Remove variant</button>
       </fieldset>`).join("");
@@ -782,13 +888,14 @@
     $("addVariant").onclick = addVariant;
     $("variants").oninput = e => {
       const {index, field} = e.target.dataset;
-      if (index !== undefined && field === "voice") variants[Number(index)].voice = e.target.value;
+      if (index !== undefined && field === "voice") { variants[Number(index)].voice = e.target.value; renderStylePicker(); }
     };
     $("variants").onchange = e => {
       const {index, field} = e.target.dataset;
       if (index === undefined || !["video_model", "engine", "voice"].includes(field)) return;
       variants[Number(index)][field] = e.target.value;
       if (field === "engine") { renderVariants(); updateDeliveryControls(); }
+      if (field === "voice") renderStylePicker();
     };
     $("variants").onclick = e => {
       const button = e.target.closest("[data-remove]");
@@ -845,6 +952,8 @@
     function updateDeliveryControls() {
       $("deliveryControls").disabled = !($("naturalistic").checked || ["educational", "document"].includes($("useCase").value)) || !$("narration").checked;
       $("voice").disabled = !$("narration").checked || usesCloning() || $("batchEnabled").checked;
+      $("voiceLocale").disabled = $("voiceSelect").disabled = $("voice").disabled;
+      renderStylePicker();
       $("cloneModel").disabled = !$("narration").checked || $("batchEnabled").checked;
       $("cloneFields").hidden = !usesCloning();
       $("cloneModel").hidden = $("batchEnabled").checked;
