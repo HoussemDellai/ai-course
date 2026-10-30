@@ -43,11 +43,13 @@ pwsh -File .\tests\Test-EnsureRdpAccess.ps1
 terraform plan -out=.terraform\governance.tfplan
 # Inspect the plan, including any existing Foundry/model changes, before applying.
 terraform apply .terraform\governance.tfplan
-pwsh -File .\Build-FunctionPackage.ps1
 $app = terraform output -raw governance_function_app_name
-az functionapp deployment source config-zip --resource-group rg-foundry-701 --name $app --src .terraform\foundry-local-auth.zip
 az functionapp function list --resource-group rg-foundry-701 --name $app --output table
 ```
+
+`terraform apply` builds and deploys the function package itself (see the RDP
+section). To redeploy manually, run `pwsh -File .\Build-FunctionPackage.ps1` and
+`az functionapp deployment source config-zip --resource-group rg-foundry-701 --name $app --src .terraform\foundry-local-auth.zip`.
 
 Substitute the resource group if you change the Terraform prefix. The package
 builder requires the versions in
@@ -55,7 +57,9 @@ builder requires the versions in
 locally and reports the exact installation command for a missing module. It bundles
 them because Flex Consumption does not support managed dependency installation.
 The generated package is kept under the ignored Terraform working directory;
-rebuild and redeploy it after changing code or module versions. Protect Terraform
+changes to any file under `functions/foundry-local-auth` (including
+`requirements.psd1`) or to the build script trigger a rebuild and redeploy on the
+next apply. Protect Terraform
 state and plan files: the existing Foundry configuration includes sensitive keys.
 
 The app settings identify the subscription, resource group, account, identity, and
@@ -70,21 +74,40 @@ Keep the `AzureWebJobsStorage__*` identity settings. AzureRM can omit the empty
 setting during refresh and therefore show an app-setting-only update on later
 plans; reapplying that empty override is safe.
 
-## Scheduled RDP rule maintenance
+## Event-driven RDP rule maintenance
 
 The [EnsureRdpAccess function](functions/foundry-local-auth/EnsureRdpAccess/run.ps1)
-runs every five minutes (`RDP_TIMER_SCHEDULE = 0 */5 * * * *`) in the same
-Function App. It discovers every NSG in the resource groups listed in
-[rdp-resource-groups.json](rdp-resource-groups.json), subscription
-`2524a5e1-00d7-43c2-a7cf-a87b79df2415`. Currently:
+runs when an Event Grid notification reports that an NSG or one of its security
+rules was written or deleted (`Microsoft.Resources.ResourceWriteSuccess` /
+`ResourceDeleteSuccess`). Terraform creates a subscription-level Event Grid system
+topic (`Microsoft.Resources.Subscriptions`) and an event subscription that delivers
+only events whose subject begins with
+`/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/networkSecurityGroups/`
+for the resource groups listed in [rdp-resource-groups.json](rdp-resource-groups.json),
+subscription `2524a5e1-00d7-43c2-a7cf-a87b79df2415`. Currently:
 
 - `rg-vm-copilot`
 - `rg-vm-emulator`
 
+The function processes only the NSG named in the event subject and ignores other
+events (the resource group is checked again against `RDP_RESOURCE_GROUPS`). Its own
+rule write raises another event, which is a no-op because the rule already exists.
+Delivery is retried up to 10 times within 60 minutes if the function fails. There is
+no timer, so an NSG that already lacks the rule is fixed on its next change, not
+immediately; the `terraform apply` that introduced this trigger does not sweep
+existing NSGs.
+
 To target another resource group in that subscription, add its name to the JSON
-file, run `terraform apply` (which updates the `RDP_RESOURCE_GROUPS` app setting
-and the RBAC assignments), then rebuild and redeploy the package as described above
-only if the function code changed.
+file and run `terraform apply`. It updates the `RDP_RESOURCE_GROUPS` app setting,
+the RBAC assignments, and the event subscription filter. Only one system topic per
+source and topic type can exist in a subscription; import an existing subscription
+topic into Terraform instead of creating a second one.
+
+`terraform apply` also builds and zip-deploys the function package (through a
+`terraform_data` `local-exec`, which needs `pwsh`, `az`, and the modules listed in
+`requirements.psd1`), because Event Grid validates that the function exists when the
+event subscription is created. It redeploys whenever files under
+`functions/foundry-local-auth` change.
 
 It creates `Allow-RDP-Any`: inbound Allow TCP, source address/port `*`, destination
 address `*`, destination port `3389`, priority `100`. A matching allow rule,
@@ -96,16 +119,15 @@ service availability. Range-based rules are not treated as equivalent.
 
 This deliberately exposes RDP to **any source IP**. Prefer Azure Bastion, JIT, or
 restricted source IPs where possible. Deleting the rule alone is not permanent:
-the next successful timer invocation recreates it. Disable `EnsureRdpAccess`
-before intentionally removing access. Azure Policy deny assignments still apply.
+the delete event makes the function recreate it within moments. Disable the event
+subscription or `EnsureRdpAccess` before intentionally removing access. Azure Policy
+deny assignments still apply.
 
 The function uses the existing `Az.Accounts` module's `Invoke-AzRestMethod` and
 updates only the child security rule, not the NSG's entire rule collection.
 Managed identity has NSG read and child-rule read/write permissions assigned at
 scope of each listed resource group (via a custom role). That Azure permission
 permits writing other security rules within those groups' NSGs; it does not grant
-NSG deletion, VM administration, or RBAC changes. All discovered NSGs are attempted
-even if one fails (including a resource group that cannot be listed), and any
-failure marks the invocation failed in Application Insights. A listed resource
-group without NSGs only logs a warning. `RDP_RESOURCE_GROUPS` holds the names from
-the JSON file.
+NSG deletion, VM administration, or RBAC changes. An NSG that no longer exists is
+skipped; any other failure fails the invocation in Application Insights and is
+retried by Event Grid. `RDP_RESOURCE_GROUPS` holds the names from the JSON file.

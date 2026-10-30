@@ -157,7 +157,6 @@ resource "azurerm_function_app_flex_consumption" "governance" {
     "FOUNDRY_RESOURCE_GROUP"           = azurerm_resource_group.rg.name
     "FOUNDRY_ACCOUNT_NAME"             = azurerm_cognitive_account.foundry.name
     "TIMER_SCHEDULE"                   = "0 */5 * * * *"
-    "RDP_TIMER_SCHEDULE"               = "0 */5 * * * *"
     "RDP_RESOURCE_GROUPS"              = jsonencode(sort(tolist(local.rdp_resource_groups)))
   }
 
@@ -166,6 +165,70 @@ resource "azurerm_function_app_flex_consumption" "governance" {
     azurerm_role_assignment.governance_foundry,
     azurerm_role_assignment.governance_rdp,
   ]
+}
+
+# Event Grid validates the function endpoint when the subscription is created, so the
+# package containing the eventGridTrigger function must be deployed first.
+resource "terraform_data" "governance_package_deploy" {
+  triggers_replace = [
+    azurerm_function_app_flex_consumption.governance.id,
+    sha256(join("", [
+      for f in sort(tolist(fileset("${path.module}/functions/foundry-local-auth", "**"))) :
+      filesha256("${path.module}/functions/foundry-local-auth/${f}")
+    ])),
+    filesha256("${path.module}/Build-FunctionPackage.ps1"),
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["pwsh", "-NoProfile", "-Command"]
+    command     = <<-EOT
+      $ErrorActionPreference = 'Stop'
+      & '${path.module}/Build-FunctionPackage.ps1'
+      az functionapp deployment source config-zip --subscription '${local.subscription_id}' --resource-group '${azurerm_resource_group.rg.name}' --name '${azurerm_function_app_flex_consumption.governance.name}' --src '${path.module}/.terraform/foundry-local-auth.zip'
+      if ($LASTEXITCODE -ne 0) { throw 'Function package deployment failed.' }
+    EOT
+  }
+}
+
+# Notifies EnsureRdpAccess whenever an NSG or one of its rules is written or deleted in
+# the listed resource groups. Only one system topic per subscription can exist.
+resource "azurerm_eventgrid_system_topic" "nsg_changes" {
+  name                = "evgt-nsg-changes-${var.prefix}"
+  location            = "global"
+  resource_group_name = azurerm_resource_group.rg.name
+  source_resource_id  = "/subscriptions/${local.subscription_id}"
+  topic_type          = "Microsoft.Resources.Subscriptions"
+}
+
+resource "azurerm_eventgrid_system_topic_event_subscription" "ensure_rdp_access" {
+  name                  = "evgs-ensure-rdp-access"
+  system_topic          = azurerm_eventgrid_system_topic.nsg_changes.name
+  resource_group_name   = azurerm_resource_group.rg.name
+  included_event_types  = ["Microsoft.Resources.ResourceWriteSuccess", "Microsoft.Resources.ResourceDeleteSuccess"]
+  event_delivery_schema = "EventGridSchema"
+
+  azure_function_endpoint {
+    function_id                       = "${azurerm_function_app_flex_consumption.governance.id}/functions/EnsureRdpAccess"
+    max_events_per_batch              = 1
+    preferred_batch_size_in_kilobytes = 64
+  }
+
+  advanced_filter {
+    string_begins_with {
+      key = "subject"
+      values = [
+        for name in sort(tolist(local.rdp_resource_groups)) :
+        "${local.rdp_resource_group_ids[name]}/providers/Microsoft.Network/networkSecurityGroups/"
+      ]
+    }
+  }
+
+  retry_policy {
+    max_delivery_attempts = 10
+    event_time_to_live    = 60
+  }
+
+  depends_on = [terraform_data.governance_package_deploy]
 }
 
 output "governance_function_app_name" {

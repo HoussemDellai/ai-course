@@ -1,4 +1,4 @@
-param($Timer)
+param($eventGridEvent)
 
 $ErrorActionPreference = 'Stop'
 
@@ -22,9 +22,23 @@ if (@($resourceGroups | Select-Object -Unique).Count -ne $resourceGroups.Count) 
     throw 'RDP_RESOURCE_GROUPS must not contain duplicate resource group names.'
 }
 
-if ($Timer.IsPastDue) {
-    Write-Warning 'The RDP maintenance timer is past due.'
+$subject = [string]$eventGridEvent.subject
+$eventType = [string]$eventGridEvent.eventType
+if ($eventType -notin @('Microsoft.Resources.ResourceWriteSuccess', 'Microsoft.Resources.ResourceDeleteSuccess')) {
+    Write-Warning "Ignoring unsupported event type '$eventType'."
+    return
 }
+$subjectPattern = '^/subscriptions/(?<sub>[^/]+)/resourceGroups/(?<rg>[^/]+)/providers/Microsoft\.Network/networkSecurityGroups/(?<nsg>[^/]+)(/securityRules/[^/]+)?$'
+if ($subject -notmatch $subjectPattern -or $Matches.sub -ne $subscriptionId) {
+    Write-Warning "Ignoring event for unrelated resource '$subject'."
+    return
+}
+$resourceGroup = @($resourceGroups | Where-Object { $_ -eq $Matches.rg }) | Select-Object -First 1
+if (-not $resourceGroup) {
+    Write-Warning "Ignoring event for resource group '$($Matches.rg)', which is not in RDP_RESOURCE_GROUPS."
+    return
+}
+$nsgId = "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.Network/networkSecurityGroups/$($Matches.nsg)"
 
 $context = (Connect-AzAccount -Identity -AccountId $env:AZURE_CLIENT_ID `
     -Subscription $subscriptionId -ErrorAction Stop).Context
@@ -51,101 +65,59 @@ function Test-RdpRule {
         @($Properties.destinationApplicationSecurityGroups | Where-Object { $null -ne $_ }).Count -eq 0)
 }
 
-function Get-NsgIds {
-    param([string]$ResourceGroup)
-
-    $discovered = @()
-    $path = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/networkSecurityGroups?api-version=$apiVersion"
-    while ($path) {
-        $response = Invoke-AzRestMethod @restParameters -Method GET -Path $path
-        if ($response.StatusCode -ne 200) {
-            throw "NSG list failed (HTTP $($response.StatusCode)): $($response.Content)"
-        }
-        $page = $response.Content | ConvertFrom-Json -ErrorAction Stop
-        $discovered += @($page.value | ForEach-Object { $_.id })
-        $path = $null
-        if ($page.nextLink) {
-            $path = ([uri]$page.nextLink).PathAndQuery
-        }
-    }
-    return $discovered
+Write-Host "Processing '$eventType' event for '$subject'."
+$response = Invoke-AzRestMethod @restParameters -Method GET -Path "${nsgId}?api-version=$apiVersion"
+if ($response.StatusCode -eq 404) {
+    Write-Warning "NSG '$nsgId' no longer exists; nothing to maintain."
+    return
+}
+if ($response.StatusCode -ne 200) {
+    throw "NSG read failed (HTTP $($response.StatusCode)): $($response.Content)"
+}
+$nsg = $response.Content | ConvertFrom-Json -ErrorAction Stop
+if ($null -eq $nsg.properties -or $null -eq $nsg.properties.securityRules) {
+    throw 'NSG response did not contain a securityRules collection.'
+}
+$rules = @($nsg.properties.securityRules)
+$namedRule = $rules | Where-Object name -EQ $ruleName
+if ($namedRule -and -not (Test-RdpRule $namedRule.properties)) {
+    throw "Existing '$ruleName' has conflicting settings on '$nsgId'; it was not overwritten."
+}
+$matchingRules = @($rules | Where-Object { Test-RdpRule $_.properties })
+if ($matchingRules.Count -gt 0) {
+    Write-Host "RDP from Any IP is already allowed by '$($matchingRules[0].name)' on '$nsgId'; no changes."
+    return
+}
+if ($rules | Where-Object { $_.properties.direction -eq 'Inbound' -and $_.properties.priority -eq 100 }) {
+    throw "Inbound priority 100 is occupied on '$nsgId'; existing rules were not changed."
 }
 
-$failures = @()
-$nsgIds = @()
-foreach ($resourceGroup in $resourceGroups) {
-    try {
-        $found = @(Get-NsgIds $resourceGroup)
-        if ($found.Count -eq 0) {
-            Write-Warning "No NSGs found in resource group '$resourceGroup'."
-        }
-        $nsgIds += $found
+$payload = @{
+    properties = @{
+        description = 'Allow RDP from Any IP; maintained by EnsureRdpAccess when NSG rules change.'
+        protocol = 'Tcp'
+        sourcePortRange = '*'
+        destinationPortRange = '3389'
+        sourceAddressPrefix = '*'
+        destinationAddressPrefix = '*'
+        access = 'Allow'
+        priority = 100
+        direction = 'Inbound'
     }
-    catch {
-        $failures += "${resourceGroup}: $($_.Exception.Message)"
-        Write-Error "NSG discovery failed for resource group '${resourceGroup}': $($_.Exception.Message)" -ErrorAction Continue
-    }
+} | ConvertTo-Json -Depth 4
+$rulePath = "$nsgId/securityRules/${ruleName}?api-version=$apiVersion"
+$response = Invoke-AzRestMethod @restParameters -Method PUT -Path $rulePath `
+    -Payload $payload -WaitForCompletion
+if ($response.StatusCode -notin @(200, 201)) {
+    throw "Rule creation failed (HTTP $($response.StatusCode)): $($response.Content)"
 }
-
-foreach ($nsgId in $nsgIds) {
-    try {
-        $response = Invoke-AzRestMethod @restParameters -Method GET -Path "${nsgId}?api-version=$apiVersion"
-        if ($response.StatusCode -ne 200) {
-            throw "NSG read failed (HTTP $($response.StatusCode)): $($response.Content)"
-        }
-        $nsg = $response.Content | ConvertFrom-Json -ErrorAction Stop
-        if ($null -eq $nsg.properties -or $null -eq $nsg.properties.securityRules) {
-            throw 'NSG response did not contain a securityRules collection.'
-        }
-        $rules = @($nsg.properties.securityRules)
-        $namedRule = $rules | Where-Object name -EQ $ruleName
-        if ($namedRule -and -not (Test-RdpRule $namedRule.properties)) {
-            throw "Existing '$ruleName' has conflicting settings; it was not overwritten."
-        }
-        $matchingRules = @($rules | Where-Object { Test-RdpRule $_.properties })
-        if ($matchingRules.Count -gt 0) {
-            Write-Host "RDP from Any IP is already allowed by '$($matchingRules[0].name)' on '$nsgId'; no changes."
-            continue
-        }
-        if ($rules | Where-Object { $_.properties.direction -eq 'Inbound' -and $_.properties.priority -eq 100 }) {
-            throw "Inbound priority 100 is occupied on '$nsgId'; existing rules were not changed."
-        }
-
-        $payload = @{
-            properties = @{
-                description = 'Allow RDP from Any IP; maintained by EnsureRdpAccess every five minutes.'
-                protocol = 'Tcp'
-                sourcePortRange = '*'
-                destinationPortRange = '3389'
-                sourceAddressPrefix = '*'
-                destinationAddressPrefix = '*'
-                access = 'Allow'
-                priority = 100
-                direction = 'Inbound'
-            }
-        } | ConvertTo-Json -Depth 4
-        $rulePath = "$nsgId/securityRules/${ruleName}?api-version=$apiVersion"
-        $response = Invoke-AzRestMethod @restParameters -Method PUT -Path $rulePath `
-            -Payload $payload -WaitForCompletion
-        if ($response.StatusCode -notin @(200, 201)) {
-            throw "Rule creation failed (HTTP $($response.StatusCode)): $($response.Content)"
-        }
-        $response = Invoke-AzRestMethod @restParameters -Method GET -Path $rulePath
-        if ($response.StatusCode -ne 200) {
-            throw "Rule verification read failed (HTTP $($response.StatusCode)): $($response.Content)"
-        }
-        $rule = $response.Content | ConvertFrom-Json -ErrorAction Stop
-        if (-not (Test-RdpRule $rule.properties) -or $rule.properties.priority -ne 100 -or
-            $rule.properties.provisioningState -ne 'Succeeded') {
-            throw "Rule creation could not be verified on '$nsgId'."
-        }
-        Write-Host "Created and verified '$ruleName' on '$nsgId'."
-    }
-    catch {
-        $failures += "${nsgId}: $($_.Exception.Message)"
-        Write-Error "RDP rule maintenance failed for '${nsgId}': $($_.Exception.Message)" -ErrorAction Continue
-    }
+$response = Invoke-AzRestMethod @restParameters -Method GET -Path $rulePath
+if ($response.StatusCode -ne 200) {
+    throw "Rule verification read failed (HTTP $($response.StatusCode)): $($response.Content)"
 }
-if ($failures.Count -gt 0) {
-    throw "RDP maintenance failed for $($failures.Count) target(s): $($failures -join '; ')"
+$rule = $response.Content | ConvertFrom-Json -ErrorAction Stop
+if (-not (Test-RdpRule $rule.properties) -or $rule.properties.priority -ne 100 -or
+    $rule.properties.provisioningState -ne 'Succeeded') {
+    throw "Rule creation could not be verified on '$nsgId'."
 }
+Write-Host "Created and verified '$ruleName' on '$nsgId'."

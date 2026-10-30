@@ -1,12 +1,9 @@
 {
   "bindings": [
     {
-      "name": "Timer",
-      "type": "timerTrigger",
-      "direction": "in",
-      "schedule": "%RDP_TIMER_SCHEDULE%",
-      "runOnStartup": false,
-      "useMonitor": true
+      "name": "eventGridEvent",
+      "type": "eventGridTrigger",
+      "direction": "in"
     }
   ]
 }
