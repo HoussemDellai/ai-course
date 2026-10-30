@@ -186,6 +186,16 @@ resource "terraform_data" "governance_package_deploy" {
       & '${path.module}/Build-FunctionPackage.ps1'
       az functionapp deployment source config-zip --subscription '${local.subscription_id}' --resource-group '${azurerm_resource_group.rg.name}' --name '${azurerm_function_app_flex_consumption.governance.name}' --src '${path.module}/.terraform/foundry-local-auth.zip'
       if ($LASTEXITCODE -ne 0) { throw 'Function package deployment failed.' }
+      # The ARM function listing can stay stale after zip deploy; Event Grid validates against it.
+      $site = '/subscriptions/${local.subscription_id}/resourceGroups/${azurerm_resource_group.rg.name}/providers/Microsoft.Web/sites/${azurerm_function_app_flex_consumption.governance.name}'
+      az rest --method post --url "https://management.azure.com$site/syncfunctiontriggers?api-version=2023-12-01" --output none
+      if ($LASTEXITCODE -ne 0) { throw 'Sync triggers failed.' }
+      for ($i = 0; $i -lt 12; $i++) {
+        $type = az rest --method get --url "https://management.azure.com$site/functions/EnsureRdpAccess?api-version=2023-12-01" --query 'properties.config.bindings[0].type' --output tsv
+        if ($type -eq 'eventGridTrigger') { return }
+        Start-Sleep -Seconds 10
+      }
+      throw 'EnsureRdpAccess was not registered as an eventGridTrigger function.'
     EOT
   }
 }
