@@ -2,22 +2,24 @@ param($Timer)
 
 $ErrorActionPreference = 'Stop'
 
-foreach ($setting in 'AZURE_CLIENT_ID', 'RDP_NSG_IDS') {
+foreach ($setting in 'AZURE_CLIENT_ID', 'RDP_RESOURCE_GROUPS') {
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($setting))) {
         throw "Required app setting '$setting' is missing."
     }
 }
 
-$nsgIds = @($env:RDP_NSG_IDS | ConvertFrom-Json -ErrorAction Stop)
-$targetPrefix = '/subscriptions/2524a5e1-00d7-43c2-a7cf-a87b79df2415/resourceGroups/rg-vm-copilot/providers/Microsoft.Network/networkSecurityGroups/'
-$allowedNames = @('vm-copilot-nsg', 'vnet-francecentral-1-snet-francecentral-1-nsg-francecentral')
-if ($nsgIds.Count -ne 2 -or @($nsgIds | Select-Object -Unique).Count -ne 2) {
-    throw 'RDP_NSG_IDS must contain exactly the two distinct approved NSG resource IDs.'
+$subscriptionId = '2524a5e1-00d7-43c2-a7cf-a87b79df2415'
+$resourceGroups = @($env:RDP_RESOURCE_GROUPS | ConvertFrom-Json -ErrorAction Stop)
+if ($resourceGroups.Count -eq 0) {
+    throw 'RDP_RESOURCE_GROUPS must contain at least one resource group name.'
 }
-foreach ($nsgId in $nsgIds) {
-    if ($nsgId -isnot [string] -or $nsgId -notin @($allowedNames | ForEach-Object { "$targetPrefix$_" })) {
-        throw "Unapproved NSG resource ID in RDP_NSG_IDS: '$nsgId'."
+foreach ($resourceGroup in $resourceGroups) {
+    if ($resourceGroup -isnot [string] -or $resourceGroup -notmatch '^[-\w\.\(\)]{1,90}$') {
+        throw "Invalid resource group name in RDP_RESOURCE_GROUPS: '$resourceGroup'."
     }
+}
+if (@($resourceGroups | Select-Object -Unique).Count -ne $resourceGroups.Count) {
+    throw 'RDP_RESOURCE_GROUPS must not contain duplicate resource group names.'
 }
 
 if ($Timer.IsPastDue) {
@@ -25,7 +27,7 @@ if ($Timer.IsPastDue) {
 }
 
 $context = (Connect-AzAccount -Identity -AccountId $env:AZURE_CLIENT_ID `
-    -Subscription '2524a5e1-00d7-43c2-a7cf-a87b79df2415' -ErrorAction Stop).Context
+    -Subscription $subscriptionId -ErrorAction Stop).Context
 $restParameters = @{
     DefaultProfile = $context
     ErrorAction = 'Stop'
@@ -49,7 +51,42 @@ function Test-RdpRule {
         @($Properties.destinationApplicationSecurityGroups | Where-Object { $null -ne $_ }).Count -eq 0)
 }
 
+function Get-NsgIds {
+    param([string]$ResourceGroup)
+
+    $discovered = @()
+    $path = "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup/providers/Microsoft.Network/networkSecurityGroups?api-version=$apiVersion"
+    while ($path) {
+        $response = Invoke-AzRestMethod @restParameters -Method GET -Path $path
+        if ($response.StatusCode -ne 200) {
+            throw "NSG list failed (HTTP $($response.StatusCode)): $($response.Content)"
+        }
+        $page = $response.Content | ConvertFrom-Json -ErrorAction Stop
+        $discovered += @($page.value | ForEach-Object { $_.id })
+        $path = $null
+        if ($page.nextLink) {
+            $path = ([uri]$page.nextLink).PathAndQuery
+        }
+    }
+    return $discovered
+}
+
 $failures = @()
+$nsgIds = @()
+foreach ($resourceGroup in $resourceGroups) {
+    try {
+        $found = @(Get-NsgIds $resourceGroup)
+        if ($found.Count -eq 0) {
+            Write-Warning "No NSGs found in resource group '$resourceGroup'."
+        }
+        $nsgIds += $found
+    }
+    catch {
+        $failures += "${resourceGroup}: $($_.Exception.Message)"
+        Write-Error "NSG discovery failed for resource group '${resourceGroup}': $($_.Exception.Message)" -ErrorAction Continue
+    }
+}
+
 foreach ($nsgId in $nsgIds) {
     try {
         $response = Invoke-AzRestMethod @restParameters -Method GET -Path "${nsgId}?api-version=$apiVersion"
@@ -110,5 +147,5 @@ foreach ($nsgId in $nsgIds) {
     }
 }
 if ($failures.Count -gt 0) {
-    throw "RDP maintenance failed for $($failures.Count) NSG(s): $($failures -join '; ')"
+    throw "RDP maintenance failed for $($failures.Count) target(s): $($failures -join '; ')"
 }
