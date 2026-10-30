@@ -120,6 +120,25 @@ Add `--batch-execution auto` to request safe parallelism; existing `--use-case`,
 education and voice-sample flags still apply. Educational CLI batches stop at the first
 review and print how to resume through the API using the same storage configuration.
 
+## Choose any Azure Speech voice and style
+
+**Voice and delivery** lists every voice the configured Azure Speech endpoint offers, so
+nothing has to be typed from memory. Narrow the list with **Voice language** (a multilingual
+voice also appears under each extra language it speaks), then pick a voice: they are grouped
+by language and show the display name, gender and short name. HD and preview voices are
+marked because they cannot use the rate and style controls.
+
+**Voice style** offers the speaking styles the selected voice supports (for example
+`cheerful` or `newscast`), or neutral delivery. In multi-variant batches it offers the
+styles shared by every variant's voice. Switching to a voice that lacks the chosen style
+resets it to neutral. Each variant row has its own voice list.
+
+`GET /api/voices` (API key required) returns `configured`, `default_voice` and the voices
+with `name`, `display_name`, `gender`, `locale`, `secondary_locales`, `styles`, `type`,
+`status` and `delivery_controls`. The list is cached for six hours. When Speech is not
+configured or the list cannot be loaded, the page falls back to typing a voice short name
+and style by hand.
+
 ## Optional voice models and voice cloning (zero-shot TTS)
 
 Every use case (cinematic, educational and PowerPoint/PDF) can speak its narration with a voice model
@@ -1122,6 +1141,7 @@ curl -sL "$URL/api/videos/<id>/keyframes/0" -H "X-API-Key: $KEY" -o shot0.png  #
 curl -sL "$URL/api/videos/<id>/media/processed/shot_000.mp4" -H "X-API-Key: $KEY" -o shot0.mp4  # an intermediate video
 curl -s -X POST "$URL/api/videos/<id>/retry" -H "X-API-Key: $KEY" # resume a failed job
 curl -s "$URL/api/gpu" -H "X-API-Key: $KEY"                      # GPU and container stats from GPU_STATS_URLS
+curl -s "$URL/api/voices" -H "X-API-Key: $KEY"                   # every Azure Speech voice with its languages and speaking styles
 ```
 
 `/events` first sends the job state and all its operations, then each change as it happens, and `end` once the job is finished. If another replica runs the job, the stream follows it through the artifact store instead (about 2 s behind).
