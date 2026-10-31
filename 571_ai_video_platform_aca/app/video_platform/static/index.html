@@ -328,6 +328,9 @@
               Scanned/image-only pages need text or speaker notes.</p>
             <label for="documentInput">PowerPoint (.pptx) or PDF (.pdf) file</label>
             <input class="input" id="documentInput" type="file" accept=".pptx,.pdf" required>
+            <label><input id="documentNotesNarration" type="checkbox"> Use PowerPoint speaker notes as the narration (no LLM)</label>
+            <p class="muted small">PowerPoint (.pptx) only. Each slide's speaker notes are spoken exactly as written
+              instead of being rewritten by the text model, so every slide needs notes.</p>
             <label for="documentLanguage">Narration language locale</label>
             <input class="input" id="documentLanguage" value="en-US" pattern="[a-z]{2,3}-[A-Z]{2}" required>
             <label for="documentResolution">Presentation video quality</label>
@@ -1057,11 +1060,14 @@
             throw new Error(`The document must be ${documentConfig.max_document_mb} MB or less.`);
           if (/\.pptx$/i.test(file.name) && !documentConfig.powerpoint_configured)
             throw new Error("PowerPoint rendering requires LibreOffice on the server. Export to PDF or configure LibreOffice.");
+          if ($("documentNotesNarration").checked && !/\.pptx$/i.test(file.name))
+            throw new Error("Narration from speaker notes requires a PowerPoint (.pptx) file.");
           body.use_case = "document"; body.narration = true; body.naturalistic = false; body.music = false;
           delete body.duration_minutes;
           body.upscaler = "ffmpeg"; body.video_model = $("documentCinematic").checked ? body.video_model : null;
           body.document = {language: $("documentLanguage").value.trim(),
-            cinematic_cutaways: $("documentCinematic").checked, animations: $("documentAnimations").checked};
+            cinematic_cutaways: $("documentCinematic").checked, animations: $("documentAnimations").checked,
+            narration_from_notes: $("documentNotesNarration").checked};
         }
         if ((body.naturalistic || ["educational", "document"].includes(body.use_case)) && body.narration) {
           const pronunciations = $("pronunciations").value.split(/\r?\n/).filter(line => line.trim()).map(line => {
@@ -1695,6 +1701,7 @@
           ${job.request.voice_clone ? `<span class="chip"><span class="k">voice</span>${job.request.voice_clone.builtin_voice ? "built-in" : "cloned"} · ${esc(job.request.voice_clone.model)}</span>` : ""}
           ${job.request.naturalistic ? `<span class="chip"><span class="k">direction</span>naturalistic</span>` : ""}
           <span class="chip"><span class="k">${job.request.document ? "document" : job.request.education ? "style" : "model"}</span>${esc(job.request.document ? job.request.document.filename : job.request.education ? job.request.education.style : job.request.video_model)}</span>
+          ${job.request.document?.narration_from_notes ? `<span class="chip"><span class="k">narration</span>speaker notes</span>` : ""}
           ${job.request.document?.animations ? `<span class="chip"><span class="k">animations</span>zoom · fade</span>` : ""}
           ${job.request.document?.cinematic_cutaways ? `<span class="chip"><span class="k">cinematic cutaways</span>5s every 30s · ${esc(job.request.video_model)}</span>` : ""}
           <span class="chip"><span class="k">format</span>${esc(formatText(job.request))}</span>

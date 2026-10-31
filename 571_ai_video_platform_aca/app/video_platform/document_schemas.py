@@ -16,6 +16,11 @@ class DocumentOptions(BaseModel):
         description="Animate each page with a gentle zoom and fade in/out. Pages are never cropped; "
                     "narration and duration remain unchanged. Runs on CPU with ffmpeg only.",
     )
+    narration_from_notes: bool = Field(
+        default=False, strict=True, exclude_if=lambda value: not value,
+        description="PowerPoint only: speak each slide's speaker notes verbatim instead of having the "
+                    "LLM write the narration. Every slide must have speaker notes.",
+    )
     filename: str | None = Field(default=None, max_length=255,
                                  description="Set by the server from the uploaded PDF or PowerPoint filename.")
 

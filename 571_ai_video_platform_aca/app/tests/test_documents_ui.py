@@ -95,6 +95,7 @@ vm.runInContext(source, context);
   assert.equal(request.document.language, "fr-FR");
   assert.equal(request.document.cinematic_cutaways, false);
   assert.equal(request.document.animations, false);
+  assert.equal(request.document.narration_from_notes, false);
   assert.equal(request.video_model, null);
   assert.equal(request.narration, true);
   assert.equal(request.naturalistic, false);
@@ -121,6 +122,12 @@ vm.runInContext(source, context);
   assert.equal(posts[2].request.document.cinematic_cutaways, false);
   assert.equal(posts[2].request.video_model, null);
   el("documentAnimations").checked = false; el("documentAnimations").onchange();
+  el("documentNotesNarration").checked = true;
+  el("documentInput").files = [new File(["%PDF"], "Deck.PDF", {type: "application/pdf"})];
+  await el("form").onsubmit({preventDefault() {}});
+  assert.match(alerts.at(-1), /speaker notes requires a PowerPoint/);
+  assert.equal(posts.length, 3, "Notes narration with a PDF must not create a job");
+  el("documentNotesNarration").checked = false;
   for (const [file, error] of [
     [null, /Choose a PowerPoint/], [{name: "old.ppt", size: 10}, /Use a \.pptx or \.pdf/],
     [{name: "large.pdf", size: 2 * 1024 * 1024}, /1 MB or less/],

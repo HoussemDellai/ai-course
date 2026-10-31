@@ -31,6 +31,7 @@ from .workflow import (
 )
 
 MAX_PAGES = 60
+MAX_NOTES_NARRATION_CHARS = 12000  # PageNarration.narration limit
 PDF_LOCK = threading.RLock()  # PDFium is not thread-safe, including across different documents.
 
 
@@ -128,13 +129,26 @@ def powerpoint_pages(data: bytes) -> list[DocumentPage]:
             notes = ""
             if slide.has_notes_slide:
                 frame = slide.notes_slide.notes_text_frame
-                notes = frame.text.strip() if frame is not None else ""
+                notes = frame.text.replace("\v", "\n").strip() if frame is not None else ""
             pages.append(DocumentPage(number=i + 1, text="", notes=notes))
         return pages
     except DocumentError:
         raise
     except (BadZipFile, KeyError, ValueError, XMLSyntaxError, InvalidXmlError, ElementTree.ParseError) as e:
         raise DocumentError("Cannot read PowerPoint; upload a valid, unencrypted .pptx file") from e
+
+
+def notes_narrations(pages: list[DocumentPage]) -> list[PageNarration]:
+    """Use each slide's speaker notes verbatim as its narration; every slide must have them."""
+    missing = [p.number for p in pages if not p.notes.strip()]
+    if missing:
+        shown = ", ".join(str(n) for n in missing[:10]) + (f" and {len(missing) - 10} more" if len(missing) > 10 else "")
+        raise DocumentError(f"Narration from speaker notes requires notes on every slide; missing on slide {shown}")
+    long = [p.number for p in pages if len(p.notes.strip()) > MAX_NOTES_NARRATION_CHARS]
+    if long:
+        raise DocumentError(f"Speaker notes on slide {', '.join(map(str, long))} exceed "
+                            f"{MAX_NOTES_NARRATION_CHARS} characters")
+    return [PageNarration(title=f"Slide {p.number}", narration=p.notes) for p in pages]
 
 
 def validate_document(data: bytes, filename: str, max_bytes: int) -> DocumentUpload:
@@ -323,15 +337,24 @@ class DocumentExecutor(Executor):
             await d.progress(job.job_id, clips_total=len(pages), clips_done=0)
 
         script: list[PageNarration] = []
-        async with ops.op(OpKind.step, "Write page narration", step="document_plan",
-                          tool="Microsoft Foundry", model=d.settings.foundry_model):
+        from_notes = options.narration_from_notes
+        plan_metadata = ({"tool": "PowerPoint speaker notes"} if from_notes
+                         else {"tool": "Microsoft Foundry", "model": d.settings.foundry_model})
+        async with ops.op(OpKind.step, "Read speaker notes narration" if from_notes else "Write page narration",
+                          step="document_plan", **plan_metadata):
+            written = notes_narrations(pages) if from_notes else []
             for i, page in enumerate(pages):
                 name = f"document/script/page_{i:03d}.json"
                 saved = await read_json(d.store, job.job_id, name)
-                spoken = PageNarration.model_validate(saved) if saved else await self.team.narrate(
-                    page, job.request.prompt, options.language,
-                    None if narration_timing else job.request.duration_minutes * 60 / len(pages),
-                )
+                if saved:
+                    spoken = PageNarration.model_validate(saved)
+                elif from_notes:
+                    spoken = written[i]
+                else:
+                    spoken = await self.team.narrate(
+                        page, job.request.prompt, options.language,
+                        None if narration_timing else job.request.duration_minutes * 60 / len(pages),
+                    )
                 await write_json(d.store, job.job_id, name, spoken.model_dump())
                 script.append(spoken)
             await write_json(d.store, job.job_id, "document/script.json", DocumentScript(pages=script).model_dump())

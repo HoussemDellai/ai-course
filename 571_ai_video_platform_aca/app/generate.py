@@ -44,6 +44,8 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
                    help="Document videos: replace page visuals with 5-second cinematic clips every 30 seconds")
     p.add_argument("--animations", action="store_true",
                    help="Document videos: animate pages with a gentle zoom and fade in/out (ffmpeg, no GPU)")
+    p.add_argument("--notes-narration", action="store_true",
+                   help="PowerPoint documents: narrate each slide's speaker notes verbatim instead of LLM-written text")
     p.add_argument("--style", choices=["presentation", "ai_motion", "hybrid"], default=None)
     p.add_argument("--public-topic", help="Required public-only search topic; never include private information")
     p.add_argument("--image-provider", choices=["comfyui", "foundry"], default=None)
@@ -103,10 +105,14 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     if args.use_case == "document":
         if not args.document:
             p.error("--document is required for document videos")
+        if args.notes_narration and args.document.suffix.lower() != ".pptx":
+            p.error("--notes-narration requires a PowerPoint (.pptx) document")
         if args.image or args.naturalistic or args.no_narration or args.music or args.upscaler != "ffmpeg":
             p.error("Document videos require narration and do not accept photos, naturalistic mode, music or GPU upscaling")
-    elif args.document is not None or args.language is not None or args.cinematic_cutaways or args.animations:
-        p.error("--document, --language, --cinematic-cutaways and --animations require --use-case document")
+    elif (args.document is not None or args.language is not None or args.cinematic_cutaways or args.animations
+          or args.notes_narration):
+        p.error("--document, --language, --cinematic-cutaways, --animations and --notes-narration "
+                "require --use-case document")
     if args.use_case == "educational":
         if not args.public_topic or len(args.public_topic.strip()) < 3:
             p.error("--public-topic is required for educational videos")
@@ -140,7 +146,7 @@ def parse_request(argv: list[str] | None = None) -> tuple[VideoRequest, Path | N
     return VideoRequest(
         use_case=args.use_case, education=education,
         document=DocumentOptions(language=args.language or "en-US", cinematic_cutaways=args.cinematic_cutaways,
-                                 animations=args.animations)
+                                 animations=args.animations, narration_from_notes=args.notes_narration)
         if args.use_case == "document" else None,
         prompt=args.prompt, duration_minutes=args.minutes, video_model=args.model,
         narration=not args.no_narration, voice=args.voice, naturalistic=args.naturalistic, delivery=delivery,

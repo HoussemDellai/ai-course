@@ -14,7 +14,9 @@ from agent_framework import WorkflowRunResult
 from .education import APPROVAL, DRAFT, draft_fingerprint, validate_education_request
 from .education_schemas import DraftUpdate, EducationalDraft, ReviewResult
 from .config import Settings
-from .documents import DocumentError, DocumentUpload, office_available, validate_document_request
+from .documents import (
+    DocumentError, DocumentUpload, notes_narrations, office_available, powerpoint_pages, validate_document_request,
+)
 from .document_schemas import DocumentOptions
 from .operations import Operation, OperationRecorder, format_error, install_log_capture, load_operations
 from .schemas import (
@@ -83,6 +85,10 @@ class JobManager:
             if document.key.endswith(".pptx") and not office_available(self.settings):
                 raise DocumentError("PowerPoint rendering requires LibreOffice; install it or configure LIBREOFFICE_PATH")
             options = request.document or DocumentOptions()
+            if options.narration_from_notes:
+                if not document.key.endswith(".pptx"):
+                    raise DocumentError("Narration from speaker notes requires a PowerPoint (.pptx) file")
+                notes_narrations(powerpoint_pages(document.data))
             request = request.model_copy(update={"document": options.model_copy(update={"filename": document.filename})})
         elif document is not None:
             raise DocumentError("Document uploads require the document use case")
