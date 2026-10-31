@@ -611,6 +611,85 @@ def test_animations_preserve_legacy_document_serialization():
         request(document={"animations": "true"})
 
 
+def make_pptx_with_notes(notes):
+    deck = Presentation()
+    for i, text in enumerate(notes):
+        slide = deck.slides.add_slide(deck.slide_layouts[5])
+        slide.shapes.title.text = f"Slide {i + 1}"
+        if text is not None:
+            slide.notes_slide.notes_text_frame.text = text
+    out = BytesIO()
+    deck.save(out)
+    return out.getvalue()
+
+
+def test_notes_narration_preserves_legacy_serialization_and_cli():
+    old = request().model_dump(mode="json")
+    assert "narration_from_notes" not in old["document"]
+    assert request(document={"narration_from_notes": False}).model_dump(mode="json") == old
+    assert request(document={"narration_from_notes": True}).model_dump(mode="json")["document"][
+        "narration_from_notes"] is True
+    with pytest.raises(ValidationError):
+        request(document={"narration_from_notes": "true"})
+    req, _ = parse_request(["Explain", "--use-case", "document", "--document", "deck.pptx", "--notes-narration"])
+    assert req.document.narration_from_notes
+    for args in (["--notes-narration"], ["--use-case", "document", "--document", "deck.pdf", "--notes-narration"]):
+        with pytest.raises(SystemExit):
+            parse_request(["Explain", *args])
+
+
+def test_notes_narration_uses_notes_verbatim_and_requires_them_on_every_slide():
+    pages = powerpoint_pages(make_pptx_with_notes(["First  notes.\nSecond line.", "Next slide."]))
+    assert [(s.title, s.narration) for s in documents.notes_narrations(pages)] == [
+        ("Slide 1", "First  notes.\nSecond line."), ("Slide 2", "Next slide."),
+    ]
+    with pytest.raises(DocumentError, match="missing on slide 2, 3"):
+        documents.notes_narrations(powerpoint_pages(make_pptx_with_notes(["Ok", None, "  "])))
+    with pytest.raises(DocumentError, match="exceed"):
+        documents.notes_narrations(powerpoint_pages(make_pptx_with_notes(["x" * 12001])))
+
+
+async def test_notes_narration_is_validated_when_the_job_is_submitted(setup, monkeypatch):
+    settings, store, _, _, factory, close = setup
+    monkeypatch.setattr("video_platform.jobs.office_available", lambda settings: True)
+    manager = JobManager(settings, store, factory)
+    notes_request = request(document={"narration_from_notes": True})
+    pdf = validate_document(make_pdf(), "deck.pdf", settings.max_document_bytes)
+    with pytest.raises(DocumentError, match=r"requires a PowerPoint \(\.pptx\)"):
+        await manager.create(notes_request, document=pdf)
+    partial = make_pptx_with_notes(["Only the first slide has notes", None])
+    with pytest.raises(DocumentError, match="missing on slide 2"):
+        await manager.create(notes_request, document=validate_document(partial, "deck.pptx", len(partial)))
+    await manager.shutdown()
+
+
+@requires_ffmpeg
+async def test_notes_narration_skips_the_llm(setup, monkeypatch):
+    settings, store, team, narrator, factory, close = setup
+
+    async def convert(source, settings):
+        dest = source.with_suffix(".pdf")
+        dest.write_bytes(make_pdf())
+        return dest
+
+    monkeypatch.setattr(documents, "convert_powerpoint", convert)
+    monkeypatch.setattr("video_platform.jobs.office_available", lambda settings: True)
+    data = make_pptx_with_notes(["Exactly this first.", "And exactly this second."])
+    manager = JobManager(settings, store, factory)
+    state = await manager.create(request(document={"narration_from_notes": True}),
+                                 document=validate_document(data, "deck.pptx", len(data)))
+    await manager.wait(state.id)
+    finished = await manager.get(state.id)
+    assert finished.status == "completed", finished.error
+    assert team.pages == [], "The LLM must not write narration"
+    assert narrator.texts == ["Exactly this first.", "And exactly this second."]
+    script = await read_json(store, state.id, "document/script.json")
+    assert [p["title"] for p in script["pages"]] == ["Slide 1", "Slide 2"]
+    plan = next(op for op in await manager.operations(state.id) if op.attrs.get("step") == "document_plan")
+    assert plan.attrs["tool"] == "PowerPoint speaker notes" and "model" not in plan.attrs
+    await manager.shutdown()
+
+
 @requires_ffmpeg
 @pytest.mark.parametrize("width,height", [(160, 90), (90, 160)])
 async def test_animated_still_video_keeps_exact_duration_and_never_crops(tmp_path, width, height):

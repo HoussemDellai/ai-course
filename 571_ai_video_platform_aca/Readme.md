@@ -248,6 +248,19 @@ the cinematic cutaways below.
 CLI: add `--animations` to a document creation command.
 API: set `"document": {"language": "en-US", "animations": true}`.
 
+### Optional narration from PowerPoint speaker notes
+
+Enable **Use PowerPoint speaker notes as the narration (no LLM)** to speak each slide's
+notes exactly as written instead of having the Foundry text model write the narration.
+It applies to `.pptx` files only and every slide must have speaker notes; otherwise the
+request is rejected before any work starts, listing the slides without notes. Notes are
+limited to 12,000 characters per slide. Slides are titled "Slide N", no text-model call
+is made for the narration, and the page timing, voice, animations and cutaways work as usual.
+The option is **off by default**.
+
+CLI: add `--notes-narration` to a document creation command with a `.pptx` file.
+API: set `"document": {"language": "en-US", "narration_from_notes": true}`.
+
 ### Optional cinematic cutaways
 
 Enable **Cinematic cutaways: 5 seconds every 30 seconds** to replace page visuals
